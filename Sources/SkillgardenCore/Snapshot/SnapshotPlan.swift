@@ -6,6 +6,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case library
     case section
     case lecture
+    case lectureComplete = "lecture-complete"
+    case courseLanding = "course-landing"
 }
 
 public enum SnapshotAppearance: String, CaseIterable, Sendable {
@@ -45,10 +47,15 @@ public enum SnapshotPlan {
         case .library:
             let course = course(from: try ManifestLoader.load(courseFolder: fixture))
             try store.saveCourse(course)
+            // Mixed completion: one of the two learner lectures is complete.
+            try store.setCompleted(true, courseID: course.id, lectureID: "welcome")
             return course.id
-        case .section, .lecture:
+        case .section, .lecture, .lectureComplete, .courseLanding:
             // A real publish installs the media snapshot, so the section header image loads.
-            return try CoursePublisher.publish(courseFolder: fixture, root: root).id
+            let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
+            if screen == .lectureComplete { try store.setCompleted(true, courseID: id, lectureID: "welcome") }
+            if screen == .courseLanding { try store.saveLastOpenedLecture(courseID: id, lectureID: "read") }
+            return id
         }
     }
 
@@ -57,7 +64,8 @@ public enum SnapshotPlan {
         switch screen {
         case .libraryEmpty, .library: nil
         case .section: .section(sectionID: "plan")
-        case .lecture: .lecture(sectionID: "plan", lectureID: "welcome")
+        case .lecture, .lectureComplete: .lecture(sectionID: "plan", lectureID: "welcome")
+        case .courseLanding: .overview
         }
     }
 
