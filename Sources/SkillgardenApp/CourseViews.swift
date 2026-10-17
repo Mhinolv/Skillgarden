@@ -88,35 +88,39 @@ extension EnvironmentValues {
     }
 }
 
-/// The outline column: the course card, "Course Overview", each section with its lecture stops, then "Credits".
-/// It keeps `List(selection:)`, so the arrow keys move the selection.
+/// The outline column: the course card, "Course Overview", one row for each section, then "Credits".
+/// Only the open section shows its lectures (#70). The selection decides the open section, so the arrow keys
+/// onto a closed section header open it. It keeps `List(selection:)`, so the arrow keys move the selection.
 struct CourseOutlineView: View {
     let course: Course
     let library: LibraryModel
     @Binding var selection: CourseDestination?
     @Environment(\.gardenPalette) private var palette
 
+    /// The height of one outline row, from the Quiet Garden mockup.
+    static let rowHeight: CGFloat = 26
+
     private var sections: [CourseSection] { course.learnerSections }
 
     var body: some View {
-        let stones = library.steppingStones()
-        // A lecture id can repeat in two sections. The first stone wins.
-        let states = Dictionary(zip(course.learnerLectures.map(\.lecture.id), stones)) { first, _ in first }
+        let openSectionID = library.outlineOpenSectionID
         List(selection: $selection) {
-            OutlineCourseCard(course: course, root: library.root, stones: stones)
+            OutlineCourseCard(course: course, root: library.root, summary: library.summary(of: course))
                 .listRowSeparator(.hidden)
             Label("Course Overview", systemImage: "info.circle")
                 .font(.system(size: 12.5))
                 .foregroundStyle(palette.ink)
+                .outlineRow()
                 .tag(CourseDestination.overview)
             ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
-                Section {
-                    // The section header is a row, so a click selects it and opens the section page.
-                    SectionHeaderRow(section: section, number: index + 1, progress: library.sectionProgress(section))
-                        .tag(CourseDestination.section(sectionID: section.id))
-                    ForEach(Array(section.lectures.enumerated()), id: \.element.id) { position, lecture in
-                        LectureStopRow(lecture: lecture, stop: stop(lecture, states: states),
-                                       isFirst: position == 0, isLast: position == section.lectures.count - 1)
+                let isOpen = section.id == openSectionID
+                // The section header is a row, so a click selects it, opens the section page and opens the section.
+                SectionHeaderRow(section: section, number: index + 1, progress: library.sectionProgress(section), isOpen: isOpen)
+                    .tag(CourseDestination.section(sectionID: section.id))
+                if isOpen {
+                    ForEach(section.lectures, id: \.id) { lecture in
+                        OutlineLectureRow(lecture: lecture, isDone: library.isComplete(lecture.id),
+                                          isCurrent: library.selectedLecture?.id == lecture.id)
                             .tag(CourseDestination.lecture(sectionID: section.id, lectureID: lecture.id))
                     }
                 }
@@ -128,53 +132,67 @@ struct CourseOutlineView: View {
                 Label("Credits", systemImage: "person.2")
                     .font(.system(size: 12.5))
                     .foregroundStyle(palette.ink)
+                    .outlineRow()
                     .tag(CourseDestination.credits)
             }
         }
-    }
-
-    private func stop(_ lecture: Lecture, states: [String: SteppingStone]) -> LectureStopRow.Stop {
-        if states[lecture.id] == .done { return .done }
-        return library.selectedLecture?.id == lecture.id ? .current : .todo
+        .environment(\.defaultMinListRowHeight, Self.rowHeight)
     }
 }
 
-/// The top card of the outline: course image and title, the course stones and "N of M done".
+extension View {
+    /// A one-line outline row with no list insets. The macOS sidebar list keeps rows at least 28 pt apart.
+    func outlineRow() -> some View {
+        frame(height: CourseOutlineView.rowHeight)
+            .listRowInsets(EdgeInsets())
+    }
+}
+
+/// The top card of the outline: the course image, the title, one stone per section and "N of M done".
 struct OutlineCourseCard: View {
     let course: Course
     let root: URL
-    let stones: [SteppingStone]
+    let summary: CourseSummary
     @Environment(\.gardenPalette) private var palette
 
     var body: some View {
         GardenCard(padding: GardenSpacing.xs) {
-            VStack(alignment: .leading, spacing: GardenSpacing.xs) {
-                HStack(spacing: 10) {
-                    CourseImageView(image: course.image, root: root, width: 64, height: 36, cornerRadius: 4)
+            HStack(spacing: 10) {
+                CourseImageView(image: course.image, root: root, width: 64, height: 36, cornerRadius: 4)
+                VStack(alignment: .leading, spacing: 5) {
                     Text(course.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(palette.ink).lineLimit(2)
-                }
-                if !stones.isEmpty {
-                    SteppingStones(states: stones)
-                    Text("\(stones.filter { $0 == .done }.count) of \(stones.count) done")
-                        .font(GardenFont.small).foregroundStyle(palette.muted).monospacedDigit()
-                        .accessibilityHidden(true)
+                    if let countText = summary.countText {
+                        HStack(spacing: 6) {
+                            SectionStones(stones: summary.stones)
+                            Text(countText)
+                                .font(GardenFont.small).foregroundStyle(palette.muted).monospacedDigit()
+                                .accessibilityHidden(true)
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, GardenSpacing.xxs)
+        .padding(.vertical, 2)
     }
 }
 
-/// The muted section number, the title and the percent of complete lectures. The percent is hidden if the section has no lectures.
+/// One 26 pt row: the open or closed chevron, the muted section number, the title on one line and the percent of
+/// complete lectures. The percent is hidden if the section has no lectures. The tooltip shows the full title.
 struct SectionHeaderRow: View {
     let section: CourseSection
     let number: Int
     let progress: SectionProgress
+    let isOpen: Bool
     @Environment(\.gardenPalette) private var palette
 
     var body: some View {
         HStack(spacing: GardenSpacing.xs) {
+            Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(palette.muted)
+                .frame(width: 10)
+                .accessibilityHidden(true)
             Text("\(number)")
                 .font(GardenFont.small).monospacedDigit()
                 .foregroundStyle(palette.muted)
@@ -183,7 +201,8 @@ struct SectionHeaderRow: View {
             Text(section.title)
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(palette.ink)
-                .lineLimit(2)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)
             if let percent = progress.percent {
@@ -193,11 +212,43 @@ struct SectionHeaderRow: View {
                     .accessibilityLabel("Section \(percent) percent complete")
             }
         }
-        .padding(.top, GardenSpacing.xs)
+        .outlineRow()
+        .help(section.title)
+        .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
     }
 }
 
-/// A lecture stop in the outline: a 20 pt circle on a 1 pt connector and the title.
+/// A lecture row of the open section: a checkmark or the lecture type icon, then the title on one line.
+/// The tooltip shows the full title.
+struct OutlineLectureRow: View {
+    let lecture: Lecture
+    let isDone: Bool
+    let isCurrent: Bool
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        HStack(spacing: GardenSpacing.xs) {
+            Image(systemName: isDone ? "checkmark.circle.fill" : lecture.type.symbolName)
+                .font(.system(size: 11))
+                .foregroundStyle(isDone ? palette.accent : isCurrent ? palette.accentInk : palette.faint)
+                .frame(width: 16)
+            Text(lecture.title)
+                .font(.system(size: 12.5, weight: isCurrent ? .medium : .regular))
+                .foregroundStyle(isDone ? palette.muted : palette.ink)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        // The lecture icon lines up under the section title, like the mockup.
+        .padding(.leading, 22)
+        .outlineRow()
+        .help(lecture.title)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(lecture.title), \(lecture.type.rawValue)\(isDone ? ", Completed" : "")")
+    }
+}
+
+/// A lecture stop on the section page: a 20 pt circle on a 1 pt connector and the title.
 struct LectureStopRow: View {
     enum Stop { case done, current, todo }
 
