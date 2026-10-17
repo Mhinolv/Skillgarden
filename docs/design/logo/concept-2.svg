@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Skillgarden concept 2: Stepping Stones</title>
+  <defs><filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity="0.28"/></filter></defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#F3F1E8" filter="url(#sh)"/>
+  <!-- path of stones, near (big) to far (small) -->
+  <ellipse cx="372" cy="790" rx="178" ry="76" fill="#3B7A57"/>
+  <ellipse cx="648" cy="642" rx="146" ry="63" fill="#3B7A57"/>
+  <ellipse cx="404" cy="510" rx="116" ry="50" fill="#3B7A57"/>
+  <!-- next stone: ringed, like the progress stones in the app -->
+  <ellipse cx="624" cy="404" rx="92" ry="40" fill="#FFFFFF" stroke="#3B7A57" stroke-width="28"/>
+  <!-- sprout at the end of the path -->
+  <path d="M624 380 L624 262" stroke="#3B7A57" stroke-width="32" stroke-linecap="round"/>
+  <path d="M618 300 C588 230 520 206 448 222 C464 292 538 318 618 300 Z" fill="#5FAE72"/>
+  <path d="M630 266 C650 190 720 150 804 166 C792 246 718 284 630 266 Z" fill="#5FAE72"/>
+</svg>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Skillgarden concept 3: Leaf Play</title>
+  <defs><filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity="0.28"/></filter></defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#1F2B24" filter="url(#sh)"/>
+  <g transform="rotate(40 512 512)">
+    <path d="M512 192 C780 320 780 660 512 820 C244 660 244 320 512 192 Z" fill="#4FA572"/>
+    <path d="M512 816 L512 888" stroke="#4FA572" stroke-width="40" stroke-linecap="round"/>
+  </g>
+  <path d="M462 404 L462 620 L640 512 Z" fill="#F7F5F0" stroke="#F7F5F0" stroke-width="44" stroke-linejoin="round"/>
+</svg>
