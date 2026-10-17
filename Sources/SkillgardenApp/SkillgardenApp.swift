@@ -78,13 +78,14 @@ struct ContentView: View {
                 CourseOutlineView(course: course, selection: Binding(
                     get: { library.destination }, set: { library.selectDestination($0) }
                 ))
+                .tint(library.selectedLanding?.theme.accent?.color)
                 .navigationTitle(course.title)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
             } else {
                 ContentUnavailableView("Select a course", systemImage: "books.vertical")
             }
         } detail: {
-            detail
+            detail.courseTheme(library.selectedLanding?.theme)
         }
         .frame(minWidth: 900, minHeight: 600)
         .focusedSceneValue(\.library, library)
@@ -145,7 +146,8 @@ struct ContentView: View {
                 }
                 .id(section.id)
             } else if library.destination == .overview {
-                CourseDetailPlaceholder(title: course.title, symbol: "info.circle", titleFont: .largeTitle.bold())
+                CourseLandingView(course: course, landing: library.selectedLanding, root: library.root,
+                                  start: course.firstLecture.map { first in { library.selectDestination(first) } })
             } else {
                 ContentUnavailableView("Select a lecture", systemImage: "list.bullet")
             }

@@ -15,7 +15,7 @@ struct ObjectiveCallout: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
-            .background(Color.accentColor.opacity(0.08), in: .rect(cornerRadius: CourseStyle.cornerRadius))
+            .background(.tint.opacity(0.08), in: .rect(cornerRadius: CourseStyle.cornerRadius))
             .accessibilityElement(children: .combine)
         }
     }

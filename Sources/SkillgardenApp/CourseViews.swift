@@ -140,20 +140,119 @@ struct LectureRow: View {
     }
 }
 
-struct CourseDetailPlaceholder: View {
-    let title: String
-    let symbol: String
-    let titleFont: Font
+extension ThemeColor {
+    var color: Color { Color(.sRGB, red: red, green: green, blue: blue) }
+}
+
+extension CourseAppearance {
+    var colorScheme: ColorScheme { self == .dark ? .dark : .light }
+}
+
+extension View {
+    /// Applies the course appearance and accent to the detail column. Without a theme the column follows the system.
+    @ViewBuilder func courseTheme(_ theme: CourseTheme?) -> some View {
+        if let theme {
+            self.tint(theme.accent?.color)
+                .environment(\.colorScheme, theme.appearance.colorScheme)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(theme.appearance.background.color)
+        } else {
+            self
+        }
+    }
+}
+
+/// The course landing page: image, title, meta line, "Start Course", then the manifest page fields.
+struct CourseLandingView: View {
+    let course: Course
+    let landing: CourseLanding?
+    let root: URL
+    let start: (() -> Void)?
+
+    private static let blockSpacing: CGFloat = 24
+
+    private var metaLine: String {
+        let sections = course.learnerSections
+        let lectures = sections.reduce(0) { $0 + $1.lectures.count }
+        return "\(sections.count) \(sections.count == 1 ? "section" : "sections") · "
+            + "\(lectures) \(lectures == 1 ? "lecture" : "lectures")"
+    }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: CourseStyle.spacing) {
-                Image(systemName: symbol).foregroundStyle(.secondary).accessibilityHidden(true)
-                Text(title).font(titleFont).accessibilityAddTraits(.isHeader)
+            VStack(alignment: .leading, spacing: Self.blockSpacing) {
+                // 750:422 at most 750 pt wide. A narrow column scales the image down and never crops it.
+                Color.clear
+                    .aspectRatio(750 / 422, contentMode: .fit)
+                    .frame(maxWidth: 750)
+                    .overlay {
+                        GeometryReader { geometry in
+                            CourseImageView(image: course.image, root: root,
+                                            width: geometry.size.width, height: geometry.size.height)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: CourseStyle.spacing) {
+                    Text(course.title).font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
+                    if !course.subtitle.isEmpty {
+                        Text(course.subtitle).font(.title3).foregroundStyle(.secondary)
+                    }
+                    Text(metaLine).font(.callout).foregroundStyle(.secondary)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                Button("Start Course") { start?() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(start == nil)
+                if let landing {
+                    blocks(landing)
+                }
             }
             .frame(maxWidth: CourseStyle.textWidth, alignment: .leading)
             .padding(CourseStyle.detailPadding)
             .frame(maxWidth: .infinity)
         }
+    }
+
+    @ViewBuilder private func blocks(_ landing: CourseLanding) -> some View {
+        if !landing.learningOutcomes.isEmpty {
+            block("What you'll learn") {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .topLeading), count: 2),
+                          alignment: .leading, spacing: CourseStyle.spacing) {
+                    ForEach(Array(landing.learningOutcomes.enumerated()), id: \.offset) { _, outcome in
+                        Label {
+                            Text(outcome).fixedSize(horizontal: false, vertical: true)
+                        } icon: {
+                            Image(systemName: "checkmark").foregroundStyle(.tint)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
+        if !landing.requirements.isEmpty {
+            block("Requirements") {
+                VStack(alignment: .leading, spacing: CourseStyle.spacing) {
+                    ForEach(Array(landing.requirements.enumerated()), id: \.offset) { _, requirement in
+                        Text("• \(requirement)").fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        if !landing.targetAudience.isEmpty {
+            block("Who this course is for") { Text(landing.targetAudience).fixedSize(horizontal: false, vertical: true) }
+        }
+        if !landing.description.isEmpty {
+            block("Description") { Text(landing.description).fixedSize(horizontal: false, vertical: true) }
+        }
+    }
+
+    private func block<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: CourseStyle.spacing) {
+            Text(title).font(.title3.bold()).accessibilityAddTraits(.isHeader)
+            content().font(.body)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
