@@ -67,6 +67,10 @@ enum SnapshotRenderer {
             for id in SnapshotPlan.rubricChecks(for: output.screen) { library.toggleRubricCriterion(id) }
             for item in SnapshotPlan.quickCheckAnswers(for: output.screen) { library.answerQuickCheck(item.checkID, choiceID: item.choiceID) }
             for item in SnapshotPlan.reviewAnswers(for: output.screen) { library.answerReview(questionID: item.questionID, choiceID: item.choiceID) }
+            if let query = output.screen.transcriptQuery {
+                library.transcriptQuery = query
+                library.searchTranscripts()
+            }
         }
 
         let imageLoads = ImageLoadTracker()

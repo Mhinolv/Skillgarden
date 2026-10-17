@@ -3,7 +3,7 @@ import SQLite3
 
 /// A synchronous local store. The lock protects the connection and each complete operation.
 public final class CourseStore: @unchecked Sendable {
-    public static let currentSchemaVersion = 8
+    public static let currentSchemaVersion = 9
     public let databaseURL: URL
     private let database: SQLiteDatabase
     private let lock = NSLock()
@@ -176,7 +176,8 @@ public final class CourseStore: @unchecked Sendable {
         }
     }
 
-    func savePublication(_ course: Course, manifest: Data, directory: String, internalDirectory: String? = nil) throws {
+    func savePublication(_ course: Course, manifest: Data, directory: String, internalDirectory: String? = nil,
+                         transcriptCues: [TranscriptCue] = []) throws {
         try lock.withLock {
             try database.transaction {
                 try saveCourseRows(course)
@@ -185,7 +186,52 @@ public final class CourseStore: @unchecked Sendable {
                     ON CONFLICT(course_id) DO UPDATE SET manifest=excluded.manifest, directory=excluded.directory,
                         internal_directory=excluded.internal_directory
                     """, [course.id, String(decoding: manifest, as: UTF8.self), directory, internalDirectory])
+                try saveTranscriptRows(transcriptCues, courseID: course.id)
             }
+        }
+    }
+
+    /// Replaces the transcript index of an installed course and marks the course as indexed.
+    func saveTranscriptIndex(_ cues: [TranscriptCue], courseID: String) throws {
+        try lock.withLock {
+            try database.transaction { try saveTranscriptRows(cues, courseID: courseID) }
+        }
+    }
+
+    private func saveTranscriptRows(_ cues: [TranscriptCue], courseID: String) throws {
+        try database.execute("DELETE FROM transcript_cues WHERE course_id = ?", [courseID])
+        for cue in cues {
+            try database.execute("""
+                INSERT INTO transcript_cues (course_id, lecture_id, cue_index, start_seconds, end_seconds, text)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, [courseID, cue.lectureID, String(cue.index), String(cue.start), String(cue.end), cue.text])
+        }
+        try database.execute("UPDATE course_publications SET transcripts_indexed = 1 WHERE course_id = ?", [courseID])
+    }
+
+    /// False for a course that was published before schema version 9 and not published again.
+    func hasTranscriptIndex(courseID: String) throws -> Bool {
+        try lock.withLock {
+            try database.query("SELECT transcripts_indexed FROM course_publications WHERE course_id = ?", [courseID]) {
+                sqlite3_column_int64($0, 0) != 0
+            }.first ?? false
+        }
+    }
+
+    /// All indexed cues by course id, in lecture id and cue order, read in one query.
+    /// Stores saved before schema version 9 have none.
+    public func allTranscriptCues() throws -> [String: [TranscriptCue]] {
+        try lock.withLock {
+            var result: [String: [TranscriptCue]] = [:]
+            try database.query("""
+                SELECT course_id, lecture_id, cue_index, start_seconds, end_seconds, text FROM transcript_cues
+                ORDER BY course_id, lecture_id, cue_index
+                """) {
+                result[SQLiteDatabase.text($0, 0), default: []].append(TranscriptCue(
+                    lectureID: SQLiteDatabase.text($0, 1), index: Int(sqlite3_column_int64($0, 2)),
+                    start: sqlite3_column_double($0, 3), end: sqlite3_column_double($0, 4), text: SQLiteDatabase.text($0, 5)))
+            }
+            return result
         }
     }
 
@@ -422,5 +468,17 @@ public final class CourseStore: @unchecked Sendable {
     ], [
         // Sections whose spaced review sheet opened. No foreign key to `sections`, so a republish keeps it.
         "CREATE TABLE section_reviews (course_id TEXT NOT NULL, section_id TEXT NOT NULL, PRIMARY KEY(course_id, section_id))",
+    ], [
+        // The transcript index (#18): the caption cues of each video lecture, written at publish time.
+        // A course deletion removes its cues. A republish replaces them.
+        """
+        CREATE TABLE transcript_cues (
+            course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE, lecture_id TEXT NOT NULL,
+            cue_index INTEGER NOT NULL, start_seconds REAL NOT NULL, end_seconds REAL NOT NULL, text TEXT NOT NULL,
+            PRIMARY KEY(course_id, lecture_id, cue_index)
+        )
+        """,
+        // Publications saved before this version have no index. The next publish writes it.
+        "ALTER TABLE course_publications ADD COLUMN transcripts_indexed INTEGER NOT NULL DEFAULT 0",
     ]]
 }

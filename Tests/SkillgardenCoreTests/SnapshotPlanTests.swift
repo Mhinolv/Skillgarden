@@ -28,8 +28,11 @@ private func temporaryFolder() throws -> URL {
         "video-quick-check-light.png", "video-quick-check-dark.png",
         "section-review-light.png", "section-review-dark.png", "course-credits-light.png", "course-credits-dark.png",
         "assignment-light.png", "assignment-dark.png", "assignment-complete-light.png", "assignment-complete-dark.png",
+        "transcript-search-light.png", "transcript-search-dark.png",
+        "transcript-search-no-results-light.png", "transcript-search-no-results-dark.png",
         "lecture-sources-light.png", "lecture-sources-dark.png",
     ])
+    #expect(SnapshotScreen.allCases.filter { $0.transcriptQuery != nil } == [.transcriptSearch, .transcriptSearchNoResults])
     #expect(SnapshotScreen.allCases.filter(\.showsReviewInline) == [.sectionReview])
     #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer, .videoTranscript, .videoQuickCheck])
     #expect(SnapshotScreen.allCases.filter { $0.videoStartSeconds != nil } == [.videoTranscript])
@@ -233,6 +236,22 @@ private func temporaryFolder() throws -> URL {
             #expect(library.selectedCredits.map(\.name) == ["Skillgarden Team", "Garden Photo Library"])
             #expect(library.selectedCredits.map { $0.role != nil } == [true, false])
             #expect(library.selectedCredits.map { $0.url != nil } == [true, false])
+        case .transcriptSearch, .transcriptSearchNoResults:
+            #expect(courseID == "sample-course")
+            // The results replace the outline, so only the course page image loads.
+            #expect(SnapshotPlan.imageLoads(for: screen) == 1)
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            library.transcriptQuery = try #require(screen.transcriptQuery)
+            library.searchTranscripts()
+            let results = try #require(library.transcriptResults)
+            #expect(results.hasTranscripts)
+            if screen == .transcriptSearch {
+                #expect(results.groups.map(\.lectureID) == ["welcome", "recap"])
+                #expect(results.summary == "4 results in 2 lectures")
+            } else {
+                #expect(results.groups.isEmpty)
+            }
         }
         if screen != .sectionReview {
             // Other screens open the first section or a section without earlier quizzes, so no review sheet shows.

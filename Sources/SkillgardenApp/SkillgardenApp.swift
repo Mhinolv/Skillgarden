@@ -31,6 +31,11 @@ struct SkillgardenApp: App {
                 .keyboardShortcut("t", modifiers: [.option, .command])
                 .disabled(showsTranscript == nil)
             }
+            CommandGroup(after: .textEditing) {
+                Button("Search Transcripts", systemImage: "magnifyingglass") { searchTranscripts?() }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .disabled(searchTranscripts == nil)
+            }
             CommandMenu("Go") {
                 Button("Previous Lecture") { focusedLibrary?.goToPreviousLecture() }
                     .keyboardShortcut(.leftArrow, modifiers: [.option, .command])
@@ -54,6 +59,8 @@ struct SkillgardenApp: App {
     @FocusedValue(\.library) private var focusedLibrary
     /// Nil when no video lecture with captions shows.
     @FocusedBinding(\.showsTranscript) private var showsTranscript
+    /// Nil when no course outline shows.
+    @FocusedValue(\.searchTranscripts) private var searchTranscripts
 }
 
 private struct LibraryFocusKey: FocusedValueKey {
@@ -131,9 +138,7 @@ struct ContentView: View {
     /// The course workspace: the outline and the selected page.
     private func workspace(_ course: Course) -> some View {
         NavigationSplitView {
-            CourseOutlineView(course: course, library: library, selection: Binding(
-                get: { library.destination }, set: { library.selectDestination($0) }
-            ))
+            CourseSidebar(course: course, library: library)
             .gardenColumn()
             .navigationTitle(course.title)
             .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
@@ -191,7 +196,8 @@ struct ContentView: View {
                                                  return library.startSeconds(forLecture: lecture.id, duration: duration)
                                              },
                                              saveResumePosition: { [library] in library.saveResumePosition($0, lectureID: lecture.id) },
-                                             showsTranscript: $showsTranscript)
+                                             showsTranscript: $showsTranscript,
+                                             seekRequest: library.transcriptSeek.flatMap { $0.lectureID == lecture.id ? $0 : nil })
                         case .interactive:
                             InteractiveLectureView(lecture: lecture, module: library.selectedInteractive,
                                                    result: library.selectedInteractiveResult) {

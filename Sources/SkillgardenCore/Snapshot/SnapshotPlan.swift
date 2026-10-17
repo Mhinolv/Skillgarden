@@ -39,6 +39,10 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case assignment
     /// The same assignment with every rubric row checked, so the success line shows.
     case assignmentComplete = "assignment-complete"
+    /// The transcript search of a course with a second video lecture. The query "course" finds cues in both lectures.
+    case transcriptSearch = "transcript-search"
+    /// The same course with a query that no cue contains.
+    case transcriptSearchNoResults = "transcript-search-no-results"
     /// The article lecture scrolled to the end, so its three source cards show:
     /// a full time range with a URL, a start only with a URL, and no URL.
     case lectureSources = "lecture-sources"
@@ -66,6 +70,15 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// The fixed library path that the harness shows. The real temporary root changes on each run.
     public var customRootPath: String? { self == .libraryEmptyCustomFolder ? "/Users/agent/skillgarden-library" : nil }
+
+    /// The text that the harness types into the transcript search field. Nil leaves the field empty.
+    public var transcriptQuery: String? {
+        switch self {
+        case .transcriptSearch: "course"
+        case .transcriptSearchNoResults: "zebra"
+        default: nil
+        }
+    }
 }
 
 public enum SnapshotAppearance: String, CaseIterable, Sendable {
@@ -144,6 +157,8 @@ public enum SnapshotPlan {
             return try publishCopy(of: fixture, root: root, replacing: reviewCourse)
         case .courseCredits:
             return try publishCopy(of: fixture, root: root, replacing: creditsCourse)
+        case .transcriptSearch, .transcriptSearchNoResults:
+            return try publishCopy(of: fixture, root: root, replacing: searchCourse)
         }
     }
 
@@ -171,6 +186,27 @@ public enum SnapshotPlan {
     /// The replacement for the `course-credits` course: a second credit with no role and no URL.
     static let creditsCourse = [
         ("    url: https://example.com/credits\n", "    url: https://example.com/credits\n  - name: Garden Photo Library\n"),
+    ]
+
+    /// The replacement for the transcript search course: a second video lecture after "read" with the welcome captions.
+    /// The stable key line of the "practice" section is the anchor, so the lecture goes in at the end of "plan".
+    static let searchCourse = [
+        ("\n  - id: practice\n", """
+
+              - id: recap
+                title: Recap the plan
+                type: video
+                objective: Review the course plan
+                state: published
+                order: 2
+                video:
+                  path: content/welcome.mp4
+                  duration_seconds: 4
+                  captions:
+                    path: content/welcome.vtt
+          - id: practice
+
+        """),
     ]
 
     /// The seed of the review question order in the snapshot harness.
@@ -240,7 +276,7 @@ public enum SnapshotPlan {
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck: .lecture(sectionID: "plan", lectureID: "welcome")
         case .article, .lectureSources: .lecture(sectionID: "plan", lectureID: "read")
-        case .courseLanding, .courseLandingDarkTheme: .overview
+        case .courseLanding, .courseLandingDarkTheme, .transcriptSearch, .transcriptSearchNoResults: .overview
         case .courseCredits: .credits
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")
         case .interactiveResult: .lecture(sectionID: "practice", lectureID: "order-steps")
