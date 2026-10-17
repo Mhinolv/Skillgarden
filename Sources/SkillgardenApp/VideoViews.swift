@@ -121,6 +121,7 @@ struct VideoLectureView: View {
     @Binding var showsTranscript: Bool
     @Environment(\.imageLoads) private var imageLoads
     @Environment(\.opensVideoPlayer) private var opensVideoPlayer
+    @Environment(\.snapshotVideoStart) private var snapshotVideoStart
     @State private var poster: NSImage?
     @State private var available: Bool?
     @State private var captions: WebVTT?
@@ -212,7 +213,7 @@ struct VideoLectureView: View {
 
     private func play() {
         guard let video, playback == nil else { return }
-        playback = VideoPlayback(url: video.url, start: startSeconds(), captions: captions, transcript: transcript,
+        playback = VideoPlayback(url: video.url, start: snapshotVideoStart ?? startSeconds(), captions: captions, transcript: transcript,
                                  plays: !opensVideoPlayer, save: saveResumePosition)
     }
 
@@ -260,6 +261,16 @@ extension EnvironmentValues {
         get { self[OpensVideoPlayerKey.self] }
         set { self[OpensVideoPlayerKey.self] = newValue }
     }
+
+    /// The snapshot harness sets this, so the paused player opens at a fixed time instead of the saved position.
+    var snapshotVideoStart: Double? {
+        get { self[SnapshotVideoStartKey.self] }
+        set { self[SnapshotVideoStartKey.self] = newValue }
+    }
+}
+
+private struct SnapshotVideoStartKey: EnvironmentKey {
+    static let defaultValue: Double? = nil
 }
 
 /// The AVKit player view with inline controls.
@@ -375,13 +386,14 @@ private struct TranscriptRow: View {
     let line: Transcript.Line
     let isActive: Bool
     let action: () -> Void
+    @Environment(\.gardenPalette) private var palette
 
     var body: some View {
         Button(action: action) {
             HStack(alignment: .firstTextBaseline, spacing: GardenSpacing.xs) {
                 Text(line.timeLabel)
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isActive ? palette.accent : palette.muted)
                     .frame(width: 48, alignment: .leading)
                 Text(line.text)
                     .font(.body)
@@ -412,9 +424,9 @@ private struct TranscriptRowBody: View {
     @State private var hovers = false
 
     var body: some View {
-        // The secondary style of the time label is the muted color, or the accent on the active line.
+        // The time label sets its own color: the muted color, or the accent on the active line.
         configuration.label
-            .foregroundStyle(palette.ink, isActive ? palette.accent : palette.muted)
+            .foregroundStyle(palette.ink)
             .padding(.vertical, 6)
             .padding(.horizontal, 8)
             .background {
