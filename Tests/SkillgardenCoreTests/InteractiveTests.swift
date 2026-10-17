@@ -60,7 +60,8 @@ private func publishDiagnostics(_ folder: URL, root: URL) throws -> [ManifestDia
         ])
     }
     try withCourse { folder, root in
-        try edit(folder, "type: interactive", "type: video")
+        // Video and quiz lectures need their own field, so use an assignment to test only the interactive rule.
+        try edit(folder, "type: interactive", "type: assignment")
         #expect(try publishDiagnostics(folder, root: root).map(\.message) == ["allowed only when type is interactive"])
     }
     for (path, message) in [("../outside", "path must stay inside the course folder"),

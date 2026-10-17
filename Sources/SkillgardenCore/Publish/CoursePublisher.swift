@@ -72,8 +72,12 @@ public enum CoursePublisher {
                                                            message: "folder must contain \(InteractiveModule.entryFile)"))
                     }
                 }
-                guard let article = lecture.article else { continue }
-                problems += articleProblems(article, field: field + ".article", files: files, source: source, folder: courseFolder)
+                if let article = lecture.article {
+                    problems += articleProblems(article, field: field + ".article", files: files, source: source, folder: courseFolder)
+                }
+                if let video = lecture.video {
+                    problems += videoProblems(video, field: field + ".video", files: files, source: source, folder: courseFolder)
+                }
             }
         }
         guard problems.isEmpty else { throw ManifestValidationError(diagnostics: problems) }
@@ -222,6 +226,33 @@ public enum CoursePublisher {
                 problems.append(problem("path", "image \"\(reference)\" does not exist (expected \(target))"))
             } else if lecture.alts[target] == nil {
                 problems.append(problem("images", "image \"\(target)\" needs an entry with alt text"))
+            }
+        }
+        return problems
+    }
+
+    /// The video must be an MP4 file, the captions a WebVTT file and the poster a readable image file.
+    private static func videoProblems(_ video: ManifestVideo, field: String, files: [String], source: URL,
+                                      folder: URL) -> [ManifestDiagnostic] {
+        func problem(_ path: String, _ message: String) -> ManifestDiagnostic {
+            ManifestDiagnostic(file: folder.path, fieldPath: "\(field).\(path)", message: message)
+        }
+        var problems: [ManifestDiagnostic] = []
+        if !files.contains(video.path) { problems.append(problem("path", "file does not exist")) }
+        else if !LectureVideo.isMP4(source.appending(path: video.path)) { problems.append(problem("path", "file is not an MP4 video")) }
+        if let captions = video.captions {
+            if !files.contains(captions.path) { problems.append(problem("captions.path", "file does not exist")) }
+            else {
+                do { _ = try LectureVideo.captions(at: source.appending(path: captions.path)) }
+                catch let error as WebVTTError { problems.append(problem("captions.path", "invalid WebVTT file: \(error.message)")) }
+                catch { problems.append(problem("captions.path", "cannot read the captions file as UTF-8 text")) }
+            }
+        }
+        if let poster = video.poster {
+            if !files.contains(poster.path) { problems.append(problem("poster.path", "file does not exist")) }
+            else {
+                do throws(ImagePipelineError) { _ = try ImagePipeline.format(of: source.appending(path: poster.path)) }
+                catch { problems.append(problem("poster.path", error.message)) }
             }
         }
         return problems

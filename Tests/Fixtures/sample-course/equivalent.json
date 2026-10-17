@@ -47,7 +47,14 @@
           "objective": "Identify the course goal",
           "state": "published",
           "order": 0,
-          "recommended_next": "read"
+          "recommended_next": "read",
+          "video": {
+            "path": "content/welcome.mp4",
+            "duration_seconds": 4,
+            "captions": { "path": "content/welcome.vtt" },
+            "poster": { "path": "media/poster.svg", "alt": "The first frame of the welcome video" },
+            "free_preview": true
+          }
         },
         {
           "id": "read",

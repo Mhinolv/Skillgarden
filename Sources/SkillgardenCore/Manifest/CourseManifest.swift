@@ -29,6 +29,29 @@ public struct ManifestArticle: Codable, Equatable, Sendable {
     public var images: [ManifestImage]?
 }
 
+public struct ManifestCaptions: Codable, Equatable, Sendable {
+    /// A WebVTT file.
+    public var path: String
+}
+
+/// The MP4 file of a video lecture with its captions, poster and free-preview flag.
+public struct ManifestVideo: Codable, Equatable, Sendable {
+    /// An MP4 file.
+    public var path: String
+    /// Greater than 0.
+    public var durationSeconds: Int
+    /// Optional. Nil when the manifest has no `captions` field.
+    public var captions: ManifestCaptions?
+    /// Optional. Nil when the manifest has no `poster` field.
+    public var poster: ManifestImage?
+    /// Optional. Nil when the manifest has no `free_preview` field.
+    public var freePreview: Bool?
+    enum CodingKeys: String, CodingKey {
+        case path, captions, poster
+        case durationSeconds = "duration_seconds", freePreview = "free_preview"
+    }
+}
+
 /// The HTML bundle of an interactive lecture. `bundle_path` is a folder under the course root with an `index.html` file.
 public struct ManifestInteractive: Codable, Equatable, Sendable {
     public var bundlePath: String
@@ -45,12 +68,14 @@ public struct ManifestLecture: Codable, Equatable, Sendable {
     public var recommendedNext: String?
     /// Required when `type` is `article`, and not allowed for other types.
     public var article: ManifestArticle?
+    /// Required when `type` is `video`, and not allowed for other types.
+    public var video: ManifestVideo?
     /// Required when `type` is `quiz`. Nil for every other type.
     public var quiz: ManifestQuiz?
     /// Required when `type` is `interactive`, and not allowed for other types.
     public var interactive: ManifestInteractive?
     enum CodingKeys: String, CodingKey {
-        case id, title, type, objective, state, order, article, quiz, interactive
+        case id, title, type, objective, state, order, article, video, quiz, interactive
         case recommendedNext = "recommended_next"
     }
 }

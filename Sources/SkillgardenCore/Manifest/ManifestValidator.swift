@@ -1,12 +1,13 @@
 import Foundation
 
 private indirect enum FieldRule {
-    case string, altText, integer, choices([String]), object([(String, FieldRule)]), array(FieldRule), optional(FieldRule)
+    case string, altText, integer, boolean, choices([String]), object([(String, FieldRule)]), array(FieldRule), optional(FieldRule)
 
     var type: String {
         switch self {
         case .string, .altText, .choices: "string"
         case .integer: "integer"
+        case .boolean: "boolean"
         case .object: "object"
         case .array: "array"
         case .optional(let rule): rule.type
@@ -41,6 +42,11 @@ struct ManifestValidator {
             ("objective", .string), ("state", state), ("order", .integer),
             ("recommended_next", .optional(.string)),
             ("article", .optional(.object([("path", .string), ("images", .optional(.array(image)))]))),
+            ("video", .optional(.object([
+                ("path", .string), ("duration_seconds", .integer),
+                ("captions", .optional(.object([("path", .string)]))),
+                ("poster", .optional(image)), ("free_preview", .optional(.boolean)),
+            ]))),
             ("quiz", .optional(.object([("questions", .array(question))]))),
             ("interactive", .optional(.object([("bundle_path", .string)]))),
         ])
@@ -135,9 +141,9 @@ struct ManifestValidator {
                     checkExtensionPaths(child, path: childPath, key: key)
                 }
             }
-            // Only lectures have `article` and `interactive` rules. Each field must match the lecture type.
+            // Only lectures have `article`, `video` and `interactive` rules. Each field must match the lecture type.
             if rules["article"] != nil, case .string(let type)? = object["type"] {
-                for field in ["article", "interactive"] {
+                for field in ["article", "video", "interactive"] {
                     let present: Bool = if case .null? = object[field] { false } else { object[field] != nil }
                     if type == field, !present { add("\(path).\(field)", "required field is missing") }
                     if type != field, present { add("\(path).\(field)", "allowed only when type is \(field)") }
@@ -151,12 +157,16 @@ struct ManifestValidator {
             if !choices.contains(text) { add(path, "must be one of: \(choices.joined(separator: ", "))") }
         case (.integer(let version), .integer) where path == "schema_version":
             if version != 1 { add(path, "must be 1") }
+        case (.integer(let seconds), .integer) where path.hasSuffix(".video.duration_seconds"):
+            if seconds < 1 { add(path, "must be greater than 0") }
         case (.string(let text), .string):
             let key = path.components(separatedBy: ".").last ?? path
             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 add(path, "must not be empty")
             } else if key == "path" || key == "bundle_path" {
                 checkPath(text, path: path)
+                if path.hasSuffix(".video.path"), !text.lowercased().hasSuffix(".mp4") { add(path, "must be an .mp4 file") }
+                if path.hasSuffix(".video.captions.path"), !text.lowercased().hasSuffix(".vtt") { add(path, "must be a .vtt file") }
             }
             // Question and choice ids are unique inside their quiz or question only. `checkQuizzes` checks them.
             if key == "id", !path.contains(".quiz.") {
