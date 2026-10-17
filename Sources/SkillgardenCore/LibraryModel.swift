@@ -37,6 +37,12 @@ public final class LibraryModel {
     public private(set) var interactiveResults: [String: [String: InteractiveResult]] = [:]
     /// Quiz attempts of this session by course id, then lecture id. They are not saved.
     private var quizAttempts: [String: [String: QuizAttempt]] = [:]
+    /// Section ids whose review sheet opened, by course id.
+    public private(set) var reviewedSections: [String: Set<String>] = [:]
+    /// The open spaced review sheet. Nil when no sheet shows.
+    public private(set) var sectionReview: SectionReview?
+    /// Picks the review questions. Tests and the snapshot harness pass a seeded generator.
+    @ObservationIgnored private var reviewRandom: any RandomNumberGenerator
     public let root: URL
     /// The store of the last reload. Progress writes use it off the main actor, one at a time.
     private var store: CourseStore?
@@ -44,9 +50,11 @@ public final class LibraryModel {
     /// A bad data folder setting. Each reload shows it and does not open the store.
     private let rootError: String?
 
-    public init(root: URL = Skillgarden.defaultDataDirectory, rootError: String? = nil) {
+    public init(root: URL = Skillgarden.defaultDataDirectory, rootError: String? = nil,
+                reviewRandom: any RandomNumberGenerator = SystemRandomNumberGenerator()) {
         self.root = root
         self.rootError = rootError
+        self.reviewRandom = reviewRandom
     }
 
     public var selectedCourse: Course? {
@@ -229,6 +237,32 @@ public final class LibraryModel {
         enqueueWrite { try $0.saveQuizResult(result, courseID: courseID, lectureID: lectureID) }
     }
 
+    // MARK: Spaced review
+
+    /// Opens the review sheet on the first visit to a section that has two or more questions from earlier quizzes.
+    /// The section counts as reviewed when the sheet opens, so a skip also stops a repeat.
+    private func openReviewIfNeeded(sectionID: String) {
+        guard let course = selectedCourse, reviewedSections[course.id]?.contains(sectionID) != true,
+              let section = course.learnerSections.first(where: { $0.id == sectionID }) else { return }
+        let candidates = SpacedReview.candidates(course: course, sectionID: sectionID, quizzes: quizzes[course.id] ?? [:])
+        let questions = SpacedReview.select(from: candidates, using: &reviewRandom)
+        guard !questions.isEmpty else { return }
+        let courseID = course.id
+        reviewedSections[courseID, default: []].insert(sectionID)
+        sectionReview = SectionReview(courseID: courseID, sectionID: sectionID, sectionTitle: section.title, questions: questions)
+        enqueueWrite { try $0.saveSectionReviewed(courseID: courseID, sectionID: sectionID) }
+    }
+
+    /// One click answers a review question. The answer is not saved.
+    public func answerReview(questionID: String, choiceID: String) {
+        sectionReview?.answer(questionID: questionID, choiceID: choiceID)
+    }
+
+    /// "Skip Review" and "Continue to Section" both close the sheet. The section stays open.
+    public func closeReview() {
+        sectionReview = nil
+    }
+
     // MARK: Interactive
 
     /// The bundle of the selected lecture. Nil if the lecture is not interactive or its course has no installed manifest.
@@ -265,6 +299,10 @@ public final class LibraryModel {
 
     private func open(_ value: CourseDestination) {
         destination = value
+        switch value {
+        case let .section(sectionID), let .lecture(sectionID, _): openReviewIfNeeded(sectionID: sectionID)
+        case .overview: break
+        }
         guard let courseID = selectedCourseID, case let .lecture(_, lectureID) = value,
               lastOpenedLectures[courseID] != lectureID else { return }
         lastOpenedLectures[courseID] = lectureID
@@ -290,6 +328,7 @@ public final class LibraryModel {
         guard id != selectedCourseID else { return }
         selectedCourseID = courses.first { $0.id == id }?.id
         destination = selectedCourseID == nil ? nil : .overview
+        sectionReview = nil
     }
 
     public func selectDestination(_ value: CourseDestination?) {
@@ -310,11 +349,11 @@ public final class LibraryModel {
         // Queued writes finish first, so the reload reads them.
         await waitForWrites()
         do {
-            let (store, loaded, installed, progress, lastOpened, quizResults, interactiveResults) = try await Task.detached {
+            let (store, loaded, installed, progress, lastOpened, quizResults, interactiveResults, reviewed) = try await Task.detached {
                 let store = try CourseStore(root: root)
                 return (store, try store.listCourses(), try Self.installedData(store: store, root: root),
                         try store.allProgress(), try store.lastOpenedLectures(), try store.allQuizResults(),
-                        try store.allInteractiveResults())
+                        try store.allInteractiveResults(), try store.allReviewedSections())
             }.value
             self.store = store
             courses = loaded
@@ -328,6 +367,7 @@ public final class LibraryModel {
             self.quizResults = quizResults
             interactives = installed.interactives
             self.interactiveResults = interactiveResults
+            reviewedSections = reviewed
             errorMessage = nil
             if let course = selectedCourse {
                 if !Self.isValid(destination, in: course) { destination = .overview }
@@ -335,6 +375,7 @@ public final class LibraryModel {
                 selectedCourseID = nil
                 destination = nil
             }
+            if sectionReview?.courseID != selectedCourseID { sectionReview = nil }
         } catch {
             store = nil
             courses = []
@@ -348,6 +389,8 @@ public final class LibraryModel {
             quizResults = [:]
             interactives = [:]
             interactiveResults = [:]
+            reviewedSections = [:]
+            sectionReview = nil
             selectedCourseID = nil
             destination = nil
             errorMessage = error.localizedDescription

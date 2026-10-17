@@ -9,6 +9,8 @@ struct ChoiceRow: View {
     let state: ChoiceState
     /// The 1-based position. Positions 1–9 get a number key.
     let number: Int
+    /// The review sheet shows more than one question, so its rows have no number keys.
+    var usesNumberKey = true
     let select: () -> Void
     @Environment(\.gardenPalette) private var palette
 
@@ -69,7 +71,7 @@ struct ChoiceRow: View {
         .buttonStyle(.plain)
         .contentShape(.focusEffect, .garden(Self.radius))
         .opacity(state == .dimmed ? 0.6 : 1)
-        .keyboardShortcut(number <= 9 ? KeyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: []) : nil)
+        .keyboardShortcut(usesNumberKey && number <= 9 ? KeyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: []) : nil)
         .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits(state == .selected ? .isSelected : [])
     }
@@ -94,6 +96,7 @@ struct ChoiceRow: View {
 /// A question image: aspect fit, 320 pt high at most. The file loads off the main actor.
 struct QuizImageView: View {
     let image: QuizImage
+    var maxHeight: CGFloat = 320
     @Environment(\.imageLoads) private var imageLoads
     @Environment(\.gardenPalette) private var palette
     @State private var loaded: NSImage?
@@ -108,7 +111,7 @@ struct QuizImageView: View {
                     .frame(maxWidth: .infinity, minHeight: 120)
             }
         }
-        .frame(maxHeight: 320)
+        .frame(maxHeight: maxHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(image.alt)
@@ -181,6 +184,7 @@ struct QuizView: View {
 }
 
 /// The feedback box after Submit: a check or a cross, "Correct" or "Not quite", then the explanation.
+/// Quiz and spaced review (#17) questions share it.
 struct QuizFeedback: View {
     let correct: Bool
     let explanation: String
@@ -267,6 +271,80 @@ struct SkillsToReviewList: View {
     }
 }
 
+/// The spaced review sheet: questions from earlier quizzes before a section opens. No score.
+struct SectionReviewSheet: View {
+    let review: SectionReview
+    let answer: (_ questionID: String, _ choiceID: String) -> Void
+    let close: () -> Void
+    @Environment(\.gardenPalette) private var palette
+    @AccessibilityFocusState private var titleFocused: Bool
+
+    private var count: Int { review.questions.count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: GardenSpacing.m) {
+            VStack(alignment: .leading, spacing: GardenSpacing.xxs) {
+                Label("Quick review", systemImage: "arrow.counterclockwise.circle")
+                    .gardenText(.heading)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityFocused($titleFocused)
+                Text("Answer \(count) \(count == 1 ? "question" : "questions") from earlier lectures before you start \(review.sectionTitle).")
+                    .gardenText(.meta)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // A tall review scrolls. A short review takes only the height that it needs.
+            ViewThatFits(in: .vertical) {
+                questions
+                ScrollView { questions }
+            }
+            HStack(spacing: GardenSpacing.xs) {
+                Spacer()
+                Button("Skip Review", action: close)
+                    .buttonStyle(.garden(.soft))
+                    .keyboardShortcut(.cancelAction)
+                Button("Continue to Section", action: close)
+                    .buttonStyle(.garden())
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(GardenSpacing.l)
+        .frame(width: 560)
+        .tint(palette.accent)
+        .background(palette.page)
+        .onAppear { titleFocused = true }
+    }
+
+    private var questions: some View {
+        VStack(alignment: .leading, spacing: GardenSpacing.s) {
+            ForEach(review.questions) { item in
+                GardenCard { questionView(item) }
+            }
+        }
+    }
+
+    private func questionView(_ item: ReviewQuestion) -> some View {
+        VStack(alignment: .leading, spacing: GardenSpacing.s) {
+            Text("From \(item.lectureTitle)").gardenText(.label)
+            Text(item.question.prompt)
+                .gardenText(.cardTitle)
+                .fixedSize(horizontal: false, vertical: true)
+            if let image = item.question.image { QuizImageView(image: image, maxHeight: 200) }
+            VStack(spacing: GardenSpacing.xs) {
+                ForEach(Array(item.question.choices.enumerated()), id: \.element.id) { index, choice in
+                    ChoiceRow(text: choice.text, state: review.state(of: choice, in: item.id), number: index + 1,
+                              usesNumberKey: false) {
+                        answer(item.id, choice.id)
+                    }
+                }
+            }
+            if let correct = review.isCorrect(item.id) {
+                QuizFeedback(correct: correct, explanation: item.question.explanation)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct QuizView_Previews: PreviewProvider {
     static let quiz = Quiz(questions: [
         QuizQuestion(id: "q1", prompt: "Which section comes first?", objectiveTag: "Order course sections",
@@ -278,10 +356,15 @@ struct QuizView_Previews: PreviewProvider {
         var answered = QuizAttempt(quiz: quiz)
         answered.perform(.select(choiceID: "b"))
         answered.perform(.submit)
+        var review = SectionReview(courseID: "c", sectionID: "s", sectionTitle: "Plan the course", questions: quiz.questions.map {
+            ReviewQuestion(lectureID: "check", lectureTitle: "Check the plan", question: $0)
+        })
+        review.answer(questionID: "check/q1", choiceID: "a")
         return Group {
             QuizView(attempt: QuizAttempt(quiz: quiz)) { _ in }
             QuizView(attempt: answered) { _ in }
             QuizResultsView(result: QuizResult(correct: 4, total: 5, weakSkills: ["Order course sections"])) {}
+            SectionReviewSheet(review: review, answer: { _, _ in }, close: {})
         }
         .padding()
         .frame(width: 720)

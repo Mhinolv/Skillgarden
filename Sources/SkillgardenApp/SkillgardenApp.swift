@@ -74,6 +74,7 @@ struct ContentView: View {
     private let reloadsOnAppear: Bool
     /// The library folder to show under "No courses yet". It is nil for the default folder.
     private let customRootPath: String?
+    @Environment(\.showsReviewInline) private var showsReviewInline
 
     /// Uses the data folder that `SKILLGARDEN_DATA_DIR` or the saved `DataDirectory` setting names.
     init() {
@@ -138,7 +139,26 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
         } detail: {
             detail.gardenColumn()
+                .sheet(item: Binding(get: { showsReviewInline ? nil : library.sectionReview },
+                                     set: { if $0 == nil { library.closeReview() } })) { review in
+                    reviewSheet(review)
+                }
+                .overlay {
+                    if showsReviewInline, let review = library.sectionReview {
+                        ZStack {
+                            Color.black.opacity(0.25)
+                            reviewSheet(review)
+                                .clipShape(.garden(GardenRadius.card))
+                                .shadow(radius: 12)
+                        }
+                    }
+                }
         }
+    }
+
+    private func reviewSheet(_ review: SectionReview) -> some View {
+        SectionReviewSheet(review: review, answer: { library.answerReview(questionID: $0, choiceID: $1) },
+                           close: { library.closeReview() })
     }
 
     @ViewBuilder private var detail: some View {
@@ -200,6 +220,18 @@ struct ContentView: View {
                 ContentUnavailableView("Select a lecture", systemImage: "list.bullet")
             }
         }
+    }
+}
+
+private struct ShowsReviewInlineKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// The snapshot harness sets this, so the review sheet draws in the window and the capture shows it. The app sets none.
+    var showsReviewInline: Bool {
+        get { self[ShowsReviewInlineKey.self] }
+        set { self[ShowsReviewInlineKey.self] = newValue }
     }
 }
 
