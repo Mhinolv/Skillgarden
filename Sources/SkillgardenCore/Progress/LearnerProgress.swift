@@ -41,6 +41,50 @@ public enum SteppingStone: Equatable, Sendable {
     }
 }
 
+/// One stone per learner section in a course progress row. The stone fills as the learner completes its lectures.
+public struct SectionStone: Equatable, Sendable {
+    public let completed: Int
+    public let total: Int
+    /// True for the first section that is not done.
+    public let isNext: Bool
+
+    public init(completed: Int, total: Int, isNext: Bool) {
+        self.completed = completed
+        self.total = total
+        self.isNext = isNext
+    }
+
+    public var isDone: Bool { completed >= total }
+
+    /// The filled part of the stone, from 0 to 1.
+    public var fraction: Double { total == 0 ? 0 : min(Double(completed) / Double(total), 1) }
+
+    /// One stone per learner section with at least one learner lecture, in outline order.
+    public static func stones(course: Course, progress: [String: LectureProgress]) -> [SectionStone] {
+        var foundNext = false
+        return course.learnerSections.filter { !$0.lectures.isEmpty }.map { section in
+            let completed = section.lectures.filter { progress[$0.id]?.completed == true }.count
+            let isNext = !foundNext && completed < section.lectures.count
+            if isNext { foundNext = true }
+            return SectionStone(completed: completed, total: section.lectures.count, isNext: isNext)
+        }
+    }
+
+    /// The count next to the stones, for example "2 of 22 done". Lectures count, not sections.
+    public static func countText(_ stones: [SectionStone]) -> String {
+        "\(stones.map(\.completed).reduce(0, +)) of \(stones.map(\.total).reduce(0, +)) done"
+    }
+
+    /// The VoiceOver label for a row, for example "2 of 22 lectures done, 0 of 5 sections done".
+    public static func accessibilityLabel(_ stones: [SectionStone]) -> String {
+        let completed = stones.map(\.completed).reduce(0, +)
+        let total = stones.map(\.total).reduce(0, +)
+        let sections = stones.filter(\.isDone).count
+        return "\(completed) of \(total) \(total == 1 ? "lecture" : "lectures") done, "
+            + "\(sections) of \(stones.count) \(stones.count == 1 ? "section" : "sections") done"
+    }
+}
+
 /// Rules for the saved video position.
 public enum PlaybackResume {
     /// The player saves the position at this interval, on pause and when the learner leaves the lecture.

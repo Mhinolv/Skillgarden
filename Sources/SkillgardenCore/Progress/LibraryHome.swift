@@ -6,9 +6,12 @@ public struct CourseSummary: Equatable, Sendable {
         case noLectures, new, inProgress, done
     }
 
-    /// One stone per learner lecture, in outline order.
-    public let stones: [SteppingStone]
+    /// One stone per learner section, in outline order.
+    public let stones: [SectionStone]
+    /// The complete learner lectures.
     public let completed: Int
+    /// The learner lectures.
+    public let total: Int
     /// The first incomplete learner lecture. Nil if the course has no lectures or all are done.
     public let nextLecture: Lecture?
     public let nextDestination: CourseDestination?
@@ -16,14 +19,13 @@ public struct CourseSummary: Equatable, Sendable {
     public init(course: Course, progress: [String: LectureProgress]) {
         let lectures = course.learnerLectures
         let isComplete = { (id: String) in progress[id]?.completed == true }
-        stones = SteppingStone.states(lectureIDs: lectures.map(\.lecture.id), isComplete: isComplete)
-        completed = stones.filter { $0 == .done }.count
+        stones = SectionStone.stones(course: course, progress: progress)
+        completed = lectures.filter { isComplete($0.lecture.id) }.count
+        total = lectures.count
         let next = lectures.first { !isComplete($0.lecture.id) }
         nextLecture = next?.lecture
         nextDestination = next.map { .lecture(sectionID: $0.sectionID, lectureID: $0.lecture.id) }
     }
-
-    public var total: Int { stones.count }
 
     public var status: Status {
         if total == 0 { return .noLectures }
@@ -45,14 +47,9 @@ public struct CourseSummary: Equatable, Sendable {
         }
     }
 
-    /// The tile status at the end of the stones. Nil if the course has no lectures.
-    public var statusText: String? {
-        switch status {
-        case .noLectures: nil
-        case .new: "New"
-        case .inProgress: "\(percent)%"
-        case .done: "Done"
-        }
+    /// The count next to the section stones, for example "2 of 22 done". Nil if the course has no lectures.
+    public var countText: String? {
+        status == .noLectures ? nil : SectionStone.countText(stones)
     }
 }
 

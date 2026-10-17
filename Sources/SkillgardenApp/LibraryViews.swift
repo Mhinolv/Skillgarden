@@ -125,7 +125,7 @@ private struct LibraryCardImage: View {
 }
 
 /// The one-row "Continue" strip: the first course in progress, a 128 × 72 image, the title, the next lecture,
-/// the stones, "14 / 32" and "Resume". A click opens the course landing. "Resume" opens the next lecture.
+/// the section stones, "14 of 32 done" and "Resume". A click opens the course landing. "Resume" opens the next lecture.
 struct LibraryContinueStrip: View {
     let course: Course
     let summary: CourseSummary
@@ -137,6 +137,8 @@ struct LibraryContinueStrip: View {
     var body: some View {
         HStack(spacing: GardenSpacing.m) {
             CourseImageView(image: course.image, root: root, width: 128, height: 72, cornerRadius: GardenRadius.row)
+                // The ring keeps the image apart from the accent fill when the image has a similar color.
+                .overlay { RoundedRectangle.garden(GardenRadius.row).strokeBorder(.white.opacity(0.7), lineWidth: 2) }
             VStack(alignment: .leading, spacing: 2) {
                 Text("Continue")
                     .font(.system(size: 13, weight: .heavy))
@@ -148,16 +150,16 @@ struct LibraryContinueStrip: View {
                 if let next = summary.nextLecture {
                     Text(next.title).font(GardenFont.body).opacity(0.9).lineLimit(1)
                 }
+                HStack(spacing: GardenSpacing.xs) {
+                    SectionStones(stones: summary.stones, style: .onAccent)
+                    Text(summary.countText ?? "")
+                        .font(.system(size: 13, weight: .heavy)).monospacedDigit()
+                        .fixedSize()
+                        .accessibilityHidden(true)
+                }
+                .padding(.top, GardenSpacing.xxs)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: GardenSpacing.s) {
-                SteppingStones(states: summary.stones, style: .onAccent)
-                    .frame(maxWidth: 220, alignment: .leading)
-                Text("\(summary.completed) / \(summary.total)")
-                    .font(.system(size: 15, weight: .heavy)).monospacedDigit()
-                    .fixedSize()
-                    .accessibilityHidden(true)
-            }
             Button("Resume", systemImage: "play.fill", action: resume)
                 .buttonStyle(ResumePillStyle())
                 .fixedSize()
@@ -201,7 +203,7 @@ private struct ResumePill: View {
     }
 }
 
-/// A 1×1 course tile: image, title, meta line, stones and status. A click or Return opens the course landing.
+/// A 1×1 course tile: image, title, meta line, section stones and "2 of 22 done". A click or Return opens the course landing.
 struct LibraryTile: View {
     let course: Course
     let summary: CourseSummary
@@ -220,11 +222,11 @@ struct LibraryTile: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(course.title).gardenText(.cardTitle).lineLimit(2).padding(.top, GardenSpacing.s)
                     Text(summary.meta).gardenText(.meta).lineLimit(1).padding(.top, GardenSpacing.xxs)
-                    if let status = summary.statusText {
+                    if let count = summary.countText {
                         HStack(spacing: GardenSpacing.xs) {
-                            SteppingStones(states: summary.stones)
+                            SectionStones(stones: summary.stones)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(status)
+                            Text(count)
                                 .font(GardenFont.meta.weight(.heavy)).monospacedDigit()
                                 .foregroundStyle(palette.colorScheme == .dark
                                                  ? palette.accent : palette.accent.mix(with: .black, by: 0.25, in: .device))
@@ -244,7 +246,7 @@ struct LibraryTile: View {
         .contentShape(.focusEffect, .garden(GardenRadius.card))
         .onKeyPress(.return) { open(); return .handled }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(course.title), \(summary.meta)\(summary.statusText.map { ", \($0)" } ?? "")")
+        .accessibilityLabel("\(course.title), \(summary.meta)\(summary.countText.map { ", \($0)" } ?? "")")
         .accessibilityAddTraits(.isButton)
     }
 }

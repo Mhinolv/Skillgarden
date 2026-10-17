@@ -26,30 +26,33 @@ private func done(_ ids: String...) -> [String: LectureProgress] {
     #expect(empty.status == .noLectures)
     #expect(empty.stones.isEmpty && empty.total == 0 && empty.percent == 0)
     #expect(empty.meta == "No lectures yet")
-    #expect(empty.statusText == nil)
+    #expect(empty.countText == nil)
     #expect(empty.nextLecture == nil && empty.nextDestination == nil)
 
+    // One stone per learner section, not per lecture. The draft section and the draft lecture do not count.
     let new = CourseSummary(course: course("n", lectures: threeLectures), progress: done("x"))
     #expect(new.status == .new)
-    #expect(new.stones == [.next, .todo, .todo])
+    #expect(new.stones == [SectionStone(completed: 0, total: 2, isNext: true), SectionStone(completed: 0, total: 1, isNext: false)])
     #expect(new.meta == "3 lectures")
-    #expect(new.statusText == "New")
+    #expect(new.countText == "0 of 3 done")
     #expect(new.nextDestination == .lecture(sectionID: "s1", lectureID: "a"))
 
     // The first incomplete lecture is the next lecture, also after a gap.
     let progress = CourseSummary(course: course("p", lectures: threeLectures), progress: done("a", "c"))
     #expect(progress.status == .inProgress)
-    #expect(progress.stones == [.done, .next, .done])
+    #expect(progress.stones == [SectionStone(completed: 1, total: 2, isNext: true), SectionStone(completed: 1, total: 1, isNext: false)])
+    #expect(progress.stones.map(\.fraction) == [0.5, 1])
     #expect(progress.completed == 2 && progress.total == 3)
     #expect(progress.percent == 66)
     #expect(progress.meta == "Next: B")
-    #expect(progress.statusText == "66%")
+    #expect(progress.countText == "2 of 3 done")
     #expect(progress.nextDestination == .lecture(sectionID: "s1", lectureID: "b"))
 
     let finished = CourseSummary(course: course("d", lectures: threeLectures), progress: done("a", "b", "c"))
     #expect(finished.status == .done)
     #expect(finished.meta == "3 lectures · all done")
-    #expect(finished.statusText == "Done")
+    #expect(finished.countText == "3 of 3 done")
+    #expect(finished.stones.allSatisfy { $0.isDone && !$0.isNext })
     #expect(finished.percent == 100)
     #expect(finished.nextLecture == nil && finished.nextDestination == nil)
 
@@ -57,6 +60,30 @@ private func done(_ ids: String...) -> [String: LectureProgress] {
     #expect(one.meta == "1 lecture")
     let oneDone = CourseSummary(course: course("o", lectures: [lecture("a", order: 0)]), progress: done("a"))
     #expect(oneDone.meta == "1 lecture · all done")
+}
+
+/// #69 owner decision: one stone per section that fills as its lectures are done, then "N of M done".
+@Test func sectionStonesFillPerSectionAndSkipEmptySections() {
+    let course = Course(id: "c", title: "C", state: .published, sections: [
+        CourseSection(id: "full", title: "Full", order: 0, state: .published, lectures: [lecture("a", order: 0)]),
+        CourseSection(id: "empty", title: "Empty", order: 1, state: .published, lectures: [lecture("d", order: 0, state: .draft)]),
+        CourseSection(id: "part", title: "Part", order: 2, state: .published,
+                      lectures: [lecture("b", order: 0), lecture("c", order: 1), lecture("e", order: 2), lecture("f", order: 3)]),
+        CourseSection(id: "later", title: "Later", order: 3, state: .published, lectures: [lecture("g", order: 0)]),
+    ])
+    let stones = SectionStone.stones(course: course, progress: done("a", "c", "d", "unknown"))
+    // The section with only a draft lecture has no stone. The ring goes to the first section that is not done.
+    #expect(stones == [SectionStone(completed: 1, total: 1, isNext: false), SectionStone(completed: 1, total: 4, isNext: true),
+                       SectionStone(completed: 0, total: 1, isNext: false)])
+    #expect(stones.map(\.fraction) == [1, 0.25, 0])
+    #expect(SectionStone.countText(stones) == "2 of 6 done")
+    #expect(SectionStone.accessibilityLabel(stones) == "2 of 6 lectures done, 1 of 3 sections done")
+
+    let one = [SectionStone(completed: 0, total: 1, isNext: true)]
+    #expect(SectionStone.accessibilityLabel(one) == "0 of 1 lecture done, 0 of 1 section done")
+    #expect(SectionStone.stones(course: course, progress: [:]).map(\.isNext) == [true, false, false])
+    #expect(SectionStone.countText([]) == "0 of 0 done")
+    #expect(SectionStone(completed: 0, total: 0, isNext: false).fraction == 0)
 }
 
 @Test func gridColumnsDependOnTheWindowWidth() {

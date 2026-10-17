@@ -350,6 +350,44 @@ struct SteppingStones: View {
     }
 }
 
+/// Course progress: one 12 pt stone per section. A stone fills from the bottom as its lectures are done.
+/// The first section that is not done has a ring. Rows wrap. VoiceOver reads one summary.
+struct SectionStones: View {
+    let stones: [SectionStone]
+    var style: SteppingStones.Style = .standard
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        GardenFlowLayout(spacing: 5) {
+            ForEach(Array(stones.enumerated()), id: \.offset) { _, stone in
+                self.stone(stone)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(SectionStone.accessibilityLabel(stones))
+    }
+
+    private func stone(_ stone: SectionStone) -> some View {
+        let onAccent = style == .onAccent
+        let fill: Color = onAccent ? .white : palette.accent
+        let track: Color = onAccent ? .white.opacity(0.3) : palette.line
+        return Circle()
+            .fill(track)
+            .overlay(alignment: .bottom) {
+                GeometryReader { geometry in
+                    fill.frame(height: geometry.size.height * stone.fraction)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                }
+            }
+            .clipShape(Circle())
+            .overlay {
+                // The ring is outside the stone, like a CSS box-shadow spread.
+                if stone.isNext { Circle().stroke(fill, lineWidth: 2.5).padding(-1.25) }
+            }
+            .frame(width: 12, height: 12)
+    }
+}
+
 /// Places views left to right and wraps them to a new row when the width is used.
 struct GardenFlowLayout: Layout {
     var spacing: CGFloat
@@ -411,6 +449,9 @@ struct GardenDesign_Previews: PreviewProvider {
                     Text("Your progress").gardenText(.cardTitle)
                     SteppingStones(states: stones)
                     SteppingStones(states: [.done, .done, .missed, .next, .todo])
+                    SectionStones(stones: [SectionStone(completed: 4, total: 4, isNext: false),
+                                           SectionStone(completed: 1, total: 3, isNext: true),
+                                           SectionStone(completed: 0, total: 5, isNext: false)])
                     Text("Each stone is one lecture. Filled stones are done.").gardenText(.body)
                 }
             }
