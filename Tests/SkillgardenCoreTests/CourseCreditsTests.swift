@@ -132,11 +132,13 @@ func creditDropsOtherLinksWithoutAFolder(_ text: String) {
     library.selectDestination(.credits)
     #expect(library.destination == .credits)
 
-    // A republish removes every credit. The reload leaves the credits page.
-    let empty = try fixtureCopy(in: root, replacing: [(
-        "credits:\n  - name: Skillgarden Team\n    role: Author\n    url: https://example.com/credits\n", "credits: []\n"
-    )])
-    _ = try CoursePublisher.publish(courseFolder: empty, root: data)
+    // Validate now needs one credit (#64). A course saved before that rule can still have none.
+    // Remove every credit from the stored manifest. The reload leaves the credits page.
+    var manifest = try JSONDecoder().decode(CourseManifest.self, from: try #require(try CourseStore(root: data).publication(id: id)).manifest)
+    manifest.credits = []
+    try SQLiteDatabase(url: data.appending(path: "library.sqlite")).execute(
+        "UPDATE course_publications SET manifest = ? WHERE course_id = ?",
+        [String(decoding: try JSONEncoder().encode(manifest), as: UTF8.self), id])
     await library.reload()
     #expect(library.selectedCredits.isEmpty)
     #expect(library.destination == .overview)

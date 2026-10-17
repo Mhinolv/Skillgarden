@@ -37,10 +37,10 @@ private func counts(_ result: PublishResult) -> [Int] {
 @Test func repeatPublishCreatesOneCourseWithoutDuplicates() throws {
     try withCourse { folder, root in
         let first = try CoursePublisher.publish(courseFolder: folder, root: root)
-        #expect(first.summary == "Published \"Local Course Basics\" (sample-course, published): created 6, updated 0, unchanged 0, removed 0")
+        #expect(first.summary == "Published \"Local Course Basics\" (sample-course, published): created 7, updated 0, unchanged 0, removed 0")
         let snapshot = try #require(try CoursePublisher.assetDirectory(courseID: "sample-course", root: root))
         let second = try CoursePublisher.publish(courseFolder: folder, root: root)
-        #expect(counts(second) == [0, 0, 6, 0])
+        #expect(counts(second) == [0, 0, 7, 0])
         #expect(try CoursePublisher.assetDirectory(courseID: "sample-course", root: root) == snapshot)
         #expect(try CourseStore(root: root).listCourses(includeDrafts: true).count == 1)
         for (table, rows) in [("courses", 1), ("sections", 2), ("lectures", 4), ("course_publications", 1)] {
@@ -65,7 +65,8 @@ private func counts(_ result: PublishResult) -> [Int] {
             """)
         let result = try CoursePublisher.publish(courseFolder: folder, root: root)
         #expect(result.title == "Renamed Course")
-        #expect(counts(result) == [1, 1, 4, 1])
+        // The course row counts the new title (#64).
+        #expect(counts(result) == [1, 2, 4, 1])
         let store = try CourseStore(root: root)
         let course = try #require(try store.loadCourse(id: "sample-course", includeDrafts: true))
         #expect(course.title == "Renamed Course")
@@ -81,7 +82,7 @@ private func counts(_ result: PublishResult) -> [Int] {
         try edit(folder, "state: published\ntheme:", "state: draft\ntheme:")
         let result = SkillgardenCommand.run(arguments: ["publish", folder.path], root: root)
         #expect(result == CommandResult(exitCode: 0, stdout: """
-            Published "Local Course Basics" (sample-course, draft): created 6, updated 0, unchanged 0, removed 0
+            Published "Local Course Basics" (sample-course, draft): created 7, updated 0, unchanged 0, removed 0
             Draft: learners do not see this course.
             Library: \(root.path)
 
@@ -160,7 +161,7 @@ private func counts(_ result: PublishResult) -> [Int] {
         let first = try #require(try CoursePublisher.assetDirectory(courseID: "sample-course", root: root))
         try Data("changed".utf8).write(to: folder.appending(path: "content/plan.md"))
         let result = try CoursePublisher.publish(courseFolder: folder, root: root)
-        #expect(counts(result) == [0, 0, 6, 0])
+        #expect(counts(result) == [0, 0, 7, 0])
         let second = try #require(try CoursePublisher.assetDirectory(courseID: "sample-course", root: root))
         #expect(second != first)
         #expect(try Data(contentsOf: second.appending(path: "content/plan.md")) == Data("changed".utf8))

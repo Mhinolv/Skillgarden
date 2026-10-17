@@ -102,7 +102,7 @@ private func publishDiagnostics(_ folder: URL, root: URL) throws -> [ManifestDia
 @Test func publishCopiesTheBundleIntoTheSnapshot() throws {
     try withCourse { folder, root in
         let result = try CoursePublisher.publish(courseFolder: folder, root: root)
-        #expect(result.created == 2)
+        #expect(result.created == 3)
         let snapshot = try #require(try CoursePublisher.assetDirectory(courseID: "interactive-course", root: root))
         for file in ["index.html", "app.js", "style.css"] {
             #expect(FileManager.default.contentsEqual(atPath: folder.appending(path: "modules/order/\(file)").path,

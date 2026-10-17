@@ -32,7 +32,7 @@ The example course is `Tests/Fixtures/sample-course`.
    ```
 
    ```
-   Published "Local Course Basics" (sample-course, published): created 6, updated 0, unchanged 0, removed 0
+   Published "Local Course Basics" (sample-course, published): created 7, updated 0, unchanged 0, removed 0
    Library: /Users/<name>/Library/Application Support/Skillgarden
    ```
 
@@ -94,6 +94,7 @@ sample-course/
 ```
 
 - All paths in the manifest are relative to the course folder. They must stay inside it.
+- Write each path in normalized form, such as `content/x.mp4`. Do not use `./`, `//`, a `.` part or a trailing `/`.
 - Symbolic links are not supported.
 - Keep the library folder outside the course folder.
 
@@ -108,13 +109,13 @@ See `Tests/Fixtures/sample-course/skillgarden.yaml` for a full example.
 | `schema_version` | yes | Must be `1`. |
 | `id` | yes | Stable course id. Publish updates the course with this id. |
 | `title`, `subtitle`, `description` | yes | Text. Must not be empty. |
-| `learning_outcomes`, `requirements` | yes | Lists of text. |
+| `learning_outcomes`, `requirements` | yes | Lists of text. Each list has at least one item. |
 | `target_audience` | yes | Text. |
 | `state` | yes | `published` or `draft`. Learners do not see a draft course. |
-| `theme.accent_color`, `theme.appearance` | yes | Color text such as `'#286644'`. Appearance is `light` or `dark`. |
+| `theme.accent_color`, `theme.appearance` | yes | Color in the form `#RRGGBB`, such as `'#286644'`. Appearance is `light` or `dark`. |
 | `course_image` | yes | `path` and `alt`. PNG, JPG or SVG. Alt text must not be empty. |
-| `credits` | yes | List of `name`, with optional `role` and `url`. |
-| `sections` | yes | List of sections. |
+| `credits` | yes | List of `name`, with optional `role` and `url`. At least one item. |
+| `sections` | yes | List of sections. At least one item. |
 | `internal.files` | no | Team-only files. See section 6. |
 
 **Section**
@@ -122,9 +123,9 @@ See `Tests/Fixtures/sample-course/skillgarden.yaml` for a full example.
 | Field | Required | Notes |
 |---|---|---|
 | `id`, `title`, `objective` | yes | Ids are unique in the manifest. |
-| `state`, `order` | yes | `state` is `published` or `draft`. `order` is an integer. |
+| `state`, `order` | yes | `state` is `published` or `draft`. `order` is an integer. Sections have unique `order` values. |
 | `header_image` | yes | `path` and `alt`. |
-| `lectures` | yes | List of lectures. |
+| `lectures` | yes | List of lectures. At least one item. |
 
 **Lecture**
 
@@ -132,7 +133,7 @@ See `Tests/Fixtures/sample-course/skillgarden.yaml` for a full example.
 |---|---|---|
 | `id`, `title`, `objective` | yes | Ids are unique in the manifest. |
 | `type` | yes | `video`, `article`, `quiz`, `assignment` or `interactive`. |
-| `state`, `order` | yes | Same as for a section. |
+| `state`, `order` | yes | Same as for a section. The lectures of a section have unique `order` values. |
 | `recommended_next` | no | The id of a lecture in the same course. |
 | `video`, `article`, `quiz`, `assignment`, `interactive` | for that type | Give only the field that matches `type`. |
 | `downloads` | no | Files for the learner to save, in display order. Each has `path` and `title`. `description` is optional. Any lecture type. |
@@ -142,11 +143,11 @@ See `Tests/Fixtures/sample-course/skillgarden.yaml` for a full example.
 
 | Type | Field | Notes |
 |---|---|---|
-| `video` | `video.path`, `video.duration_seconds` | An `.mp4` file. Optional: `captions.path` (`.vtt`), `poster` (`path`, `alt`), `free_preview`. |
+| `video` | `video.path`, `video.duration_seconds` | An `.mp4` file. `duration_seconds` is the video length in seconds. Validate accepts a value within 2 seconds of the real length. Optional: `captions.path` (`.vtt`), `poster` (`path`, `alt`), `free_preview`. |
 | `article` | `article.path` | A UTF-8 Markdown file. Each Markdown image needs an entry in `article.images` with `alt`. |
 | `quiz` | `quiz.questions` | Each question has `id`, `prompt`, `objective_tag`, `choices` (`id`, `text`), `correct_choice_id`, `explanation`. Optional: `image`. |
 | `assignment` | `assignment.brief.path`, `assignment.rubric` | The brief is a UTF-8 Markdown file with the article rules (optional `brief.images`). The rubric has one or more rows with `id`, `criterion`, `guidance`. |
-| `interactive` | `interactive.bundle_path` | A folder that holds `index.html`. See `Tests/Fixtures/interactive-course`. |
+| `interactive` | `interactive.bundle_path` | A folder that holds `index.html`. See `Tests/Fixtures/interactive-course`. The `.html`, `.css` and `.js` files must not refer to URLs that the app blocks: `http:`, `https:`, `//host`, `mailto:`, `javascript:` and paths out of the bundle. In-bundle files, `#fragment`, `data:`, `blob:` and `about:blank` are allowed. |
 
 ## 6. Internal files
 
@@ -177,6 +178,6 @@ For a draft course, `validate` and `publish` also print `Draft: learners do not 
 | Exit code | Meaning | Output |
 |---|---|---|
 | 0 | Success | Results on stdout |
-| 1 | Manifest or file errors | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem |
+| 1 | Manifest or file errors | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem. List indexes in `<fieldPath>` start at 0: `sections[0]` is the first section. |
 | 2 | Usage error or bad data folder setting | `error: ...` on stderr. A usage error also prints the usage text. |
 | 3 | I/O or library error. For `validate`, also a missing course folder. | `error: <description>` on stderr |
