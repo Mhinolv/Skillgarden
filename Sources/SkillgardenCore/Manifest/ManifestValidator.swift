@@ -31,10 +31,13 @@ struct ManifestValidator {
     mutating func validate(_ value: ManifestValue) {
         let state = FieldRule.choices(["draft", "published"])
         let image = FieldRule.object([("path", .string), ("alt", .altText)])
+        let choice = FieldRule.object([("id", .string), ("text", .string)])
         let question = FieldRule.object([
             ("id", .string), ("prompt", .string), ("image", .optional(image)), ("objective_tag", .string),
-            ("choices", .array(.object([("id", .string), ("text", .string)]))),
-            ("correct_choice_id", .string), ("explanation", .string),
+            ("choices", .array(choice)), ("correct_choice_id", .string), ("explanation", .string),
+        ])
+        let quickCheck = FieldRule.object([
+            ("prompt", .string), ("choices", .array(choice)), ("correct_choice_id", .string), ("explanation", .optional(.string)),
         ])
         let article = FieldRule.object([("path", .string), ("images", .optional(.array(image)))])
         let lecture = FieldRule.object([
@@ -47,6 +50,7 @@ struct ManifestValidator {
                 ("path", .string), ("duration_seconds", .integer),
                 ("captions", .optional(.object([("path", .string)]))),
                 ("poster", .optional(image)), ("free_preview", .optional(.boolean)),
+                ("quick_checks", .optional(.array(quickCheck))),
             ]))),
             ("quiz", .optional(.object([("questions", .array(question))]))),
             ("interactive", .optional(.object([("bundle_path", .string)]))),
@@ -77,6 +81,7 @@ struct ManifestValidator {
         ])
         check(value, rule: root, path: "$")
         checkQuizzes(value)
+        checkQuickChecks(value)
         checkRubrics(value)
         checkSources(value)
         for (id, path) in recommendations where !lectureIDs.contains(id) {
@@ -179,9 +184,9 @@ struct ManifestValidator {
                 if path.hasSuffix(".video.path"), !text.lowercased().hasSuffix(".mp4") { add(path, "must be an .mp4 file") }
                 if path.hasSuffix(".video.captions.path"), !text.lowercased().hasSuffix(".vtt") { add(path, "must be a .vtt file") }
             }
-            // Question, choice and rubric ids are unique inside their quiz, question or rubric only.
-            // `checkQuizzes` and `checkRubrics` check them.
-            if key == "id", !path.contains(".quiz."), !path.contains(".assignment.") {
+            // Question, choice and rubric ids are unique inside their quiz, question, quick check or rubric only.
+            // `checkQuizzes`, `checkQuickChecks` and `checkRubrics` check them.
+            if key == "id", !path.contains(".quiz."), !path.contains(".assignment."), !path.contains(".quick_checks[") {
                 if let first = ids[text] { add(path, "duplicate id \"\(text)\" (first used at \(first))") }
                 else { ids[text] = path }
                 if path.contains(".lectures[") { lectureIDs.insert(text) }
@@ -224,20 +229,44 @@ struct ManifestValidator {
                         if let first = questionIDs[id] { add(questionPath + ".id", "duplicate id \"\(id)\" (first used at \(first))") }
                         else { questionIDs[id] = questionPath + ".id" }
                     }
-                    guard case .array(let choices)? = question["choices"] else { continue }
-                    if choices.count < 2 { add(questionPath + ".choices", "must have at least two choices") }
-                    var choiceIDs: [String: String] = [:]
-                    for (choiceIndex, choice) in choices.enumerated() {
-                        guard let id = string(object(choice)?["id"]) else { continue }
-                        let choicePath = "\(questionPath).choices[\(choiceIndex)].id"
-                        if let first = choiceIDs[id] { add(choicePath, "duplicate id \"\(id)\" (first used at \(first))") }
-                        else { choiceIDs[id] = choicePath }
-                    }
-                    if let correct = string(question["correct_choice_id"]), choiceIDs[correct] == nil {
-                        add(questionPath + ".correct_choice_id", "must refer to a choice id in this question")
-                    }
+                    checkChoices(question, path: questionPath)
                 }
             }
+        }
+    }
+
+    /// Video quick checks: one or two checks, each with two or more unique choices and a correct choice that exists.
+    private mutating func checkQuickChecks(_ root: ManifestValue) {
+        guard case .object(let course) = root, case .array(let sections)? = course["sections"] else { return }
+        for (sectionIndex, section) in sections.enumerated() {
+            guard case .object(let section) = section, case .array(let lectures)? = section["lectures"] else { continue }
+            for (lectureIndex, lecture) in lectures.enumerated() {
+                guard case .object(let lecture) = lecture, case .object(let video)? = lecture["video"],
+                      case .array(let checks)? = video["quick_checks"] else { continue }
+                let path = "sections[\(sectionIndex)].lectures[\(lectureIndex)].video.quick_checks"
+                if checks.isEmpty { add(path, "must have at least one check") }
+                if checks.count > QuickCheck.maximumCount { add(path, "must have at most \(QuickCheck.maximumCount) checks") }
+                for (checkIndex, check) in checks.enumerated() {
+                    guard case .object(let check) = check else { continue }
+                    checkChoices(check, path: "\(path)[\(checkIndex)]")
+                }
+            }
+        }
+    }
+
+    /// A quiz question or a quick check has two or more choices with unique ids, and `correct_choice_id` names one.
+    private mutating func checkChoices(_ question: [String: ManifestValue], path: String) {
+        guard case .array(let choices)? = question["choices"] else { return }
+        if choices.count < 2 { add(path + ".choices", "must have at least two choices") }
+        var choiceIDs: [String: String] = [:]
+        for (choiceIndex, choice) in choices.enumerated() {
+            guard case .object(let choice) = choice, case .string(let id)? = choice["id"] else { continue }
+            let choicePath = "\(path).choices[\(choiceIndex)].id"
+            if let first = choiceIDs[id] { add(choicePath, "duplicate id \"\(id)\" (first used at \(first))") }
+            else { choiceIDs[id] = choicePath }
+        }
+        if case .string(let correct)? = question["correct_choice_id"], choiceIDs[correct] == nil {
+            add(path + ".correct_choice_id", "must refer to a choice id in this question")
         }
     }
 

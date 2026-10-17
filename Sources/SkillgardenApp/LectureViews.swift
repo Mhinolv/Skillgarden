@@ -154,6 +154,12 @@ struct LectureFrameView<Content: View>: View {
     @State private var visibleTop: CGFloat?
 
     var body: some View {
+        ScrollViewReader { proxy in
+            page.environment(\.lectureScrollProxy, proxy)
+        }
+    }
+
+    private var page: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: GardenSpacing.m) {
                 VStack(alignment: .leading, spacing: GardenSpacing.xs) {
