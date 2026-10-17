@@ -38,7 +38,7 @@ struct InteractiveLectureView: View {
                     blockedLink = false
                     session += 1
                 }
-                .buttonStyle(.garden(.soft, .small))
+                .buttonStyle(.garden(.bordered))
                 .disabled(available != true)
             }
             if let result { InteractiveResultView(result: result).padding(.top, CourseStyle.spacing) }
@@ -68,9 +68,9 @@ struct InteractiveLectureView: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: InteractiveStyle.frameHeight)
-        .background(palette.card, in: .garden(24))
-        .clipShape(.garden(24))
-        .overlay(RoundedRectangle.garden(24).strokeBorder(palette.line, lineWidth: 1.5))
+        .background(palette.card, in: .garden(GardenRadius.card))
+        .clipShape(.garden(GardenRadius.card))
+        .overlay(RoundedRectangle.garden(GardenRadius.card).strokeBorder(palette.line, lineWidth: 1))
     }
 }
 
@@ -85,7 +85,7 @@ struct InteractiveResultView: View {
                 Text("Score: \(result.score)%").gardenText(.cardTitle).monospacedDigit()
                 if result.weakSkills.isEmpty {
                     Label {
-                        Text("You met the objective.").font(GardenFont.body.weight(.bold)).foregroundStyle(palette.ink)
+                        Text("You met the objective.").font(GardenFont.body.weight(.medium)).foregroundStyle(palette.ink)
                     } icon: {
                         Image(systemName: "checkmark.seal.fill").foregroundStyle(palette.accent)
                     }

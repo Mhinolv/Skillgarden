@@ -67,19 +67,43 @@ func themeColorRejectsAnyFormOtherThanSixHexDigits(_ value: String) {
     #expect(CourseTheme(accentColor: hex(passing + 1), appearance: .light).accent == nil)
 }
 
-@Test func themeChecksContrastOnTheGardenPageBase() {
-    #expect(CourseAppearance.light.background == ThemeColor(hex: "#FBFAF7"))
-    #expect(CourseAppearance.dark.background == ThemeColor(hex: "#0F0D16"))
-    // Each gray failed on the old macOS window gray (#ECECEC, #323232) and passes on the Garden page base.
+@Test func themeChecksContrastOnTheQuietPageColor() {
+    #expect(CourseAppearance.light.background == ThemeColor(hex: "#FFFFFF"))
+    #expect(CourseAppearance.dark.background == ThemeColor(hex: "#1E1E20"))
+    // Each gray failed on the old macOS window gray (#ECECEC, #323232) and passes on the page color.
     #expect(CourseTheme(accentColor: "#8A8A8A", appearance: .light).accent == ThemeColor(hex: "#8A8A8A"))
     #expect(CourseTheme(accentColor: "#6E6E6E", appearance: .dark).accent == ThemeColor(hex: "#6E6E6E"))
-    // A color with less than 3:1 contrast on the page base still falls back to the system accent.
+    // A color with less than 3:1 contrast on the page color still falls back to the system accent.
     #expect(CourseTheme(accentColor: "#FBFAF7", appearance: .light).accent == nil)
     #expect(CourseTheme(accentColor: "#2A2638", appearance: .dark).accent == nil)
 }
 
+@Test func mixedBlendsComponentsAndClampsTheFraction() throws {
+    let green = try #require(ThemeColor(hex: "#2F6E4C"))
+    #expect(green.mixed(with: .white, by: 0) == green)
+    #expect(green.mixed(with: .white, by: 1) == .white)
+    #expect(green.mixed(with: .white, by: -1) == green)
+    #expect(green.mixed(with: .white, by: 2) == .white)
+    let half = ThemeColor(red: 0, green: 0, blue: 0).mixed(with: .white, by: 0.5)
+    #expect(half == ThemeColor(red: 0.5, green: 0.5, blue: 0.5))
+}
+
+@Test func displayAccentKeepsTheColorInLightModeAndLightensItInDarkMode() throws {
+    let green = try #require(ThemeColor(hex: "#2F6E4C"))
+    #expect(green.displayAccent(for: .light) == green)
+    let dark = green.displayAccent(for: .dark)
+    // 72% of the course color and 28% white, like `color-mix(in srgb, accent 72%, #fff)` in the mockup.
+    #expect(abs(dark.red - (0x2F / 255 * 0.72 + 0.28)) < 0.0001)
+    #expect(abs(dark.green - (0x6E / 255 * 0.72 + 0.28)) < 0.0001)
+    #expect(abs(dark.blue - (0x4C / 255 * 0.72 + 0.28)) < 0.0001)
+    #expect(dark.relativeLuminance > green.relativeLuminance)
+    // The dark accent has more contrast on the dark page than the course color.
+    let page = CourseAppearance.dark.background
+    #expect(dark.contrastRatio(with: page) > green.contrastRatio(with: page))
+}
+
 @Test func onAccentIsWhiteForDarkFillsAndInkForLightFills() throws {
-    #expect(ThemeColor.ink == ThemeColor(hex: "#211F1A"))
+    #expect(ThemeColor.ink == ThemeColor(hex: "#1D1D1F"))
     for hex in ["#000000", "#286644", "#7B5CFA", "#3B7A57", "#C2412C"] {
         #expect(try #require(ThemeColor(hex: hex)).onAccent == .white, "\(hex)")
     }

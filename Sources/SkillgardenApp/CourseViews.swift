@@ -106,7 +106,7 @@ struct CourseOutlineView: View {
             OutlineCourseCard(course: course, root: library.root, stones: stones)
                 .listRowSeparator(.hidden)
             Label("Course Overview", systemImage: "info.circle")
-                .font(GardenFont.body.weight(.heavy))
+                .font(.system(size: 12.5))
                 .foregroundStyle(palette.ink)
                 .tag(CourseDestination.overview)
             ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
@@ -126,7 +126,7 @@ struct CourseOutlineView: View {
             }
             if !library.selectedCredits.isEmpty {
                 Label("Credits", systemImage: "person.2")
-                    .font(GardenFont.body.weight(.heavy))
+                    .font(.system(size: 12.5))
                     .foregroundStyle(palette.ink)
                     .tag(CourseDestination.credits)
             }
@@ -144,28 +144,29 @@ struct OutlineCourseCard: View {
     let course: Course
     let root: URL
     let stones: [SteppingStone]
+    @Environment(\.gardenPalette) private var palette
 
     var body: some View {
-        GardenCard(padding: GardenSpacing.s) {
-            VStack(alignment: .leading, spacing: GardenSpacing.s) {
-                HStack(spacing: GardenSpacing.s) {
-                    CourseImageView(image: course.image, root: root, width: 64, height: 36)
-                    Text(course.title).gardenText(.cardTitle).lineLimit(2)
+        GardenCard(padding: GardenSpacing.xs) {
+            VStack(alignment: .leading, spacing: GardenSpacing.xs) {
+                HStack(spacing: 10) {
+                    CourseImageView(image: course.image, root: root, width: 64, height: 36, cornerRadius: 4)
+                    Text(course.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(palette.ink).lineLimit(2)
                 }
                 if !stones.isEmpty {
                     SteppingStones(states: stones)
                     Text("\(stones.filter { $0 == .done }.count) of \(stones.count) done")
-                        .gardenText(.meta).monospacedDigit()
+                        .font(GardenFont.small).foregroundStyle(palette.muted).monospacedDigit()
                         .accessibilityHidden(true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, GardenSpacing.xs)
+        .padding(.vertical, GardenSpacing.xxs)
     }
 }
 
-/// The section number tile, the title and the percent of complete lectures. The percent is hidden if the section has no lectures.
+/// The muted section number, the title and the percent of complete lectures. The percent is hidden if the section has no lectures.
 struct SectionHeaderRow: View {
     let section: CourseSection
     let number: Int
@@ -175,20 +176,19 @@ struct SectionHeaderRow: View {
     var body: some View {
         HStack(spacing: GardenSpacing.xs) {
             Text("\(number)")
-                .font(.system(size: 13, weight: .heavy)).monospacedDigit()
-                .foregroundStyle(palette.onAccent)
-                .frame(width: 28, height: 28)
-                .background(palette.accent, in: .garden(8))
+                .font(GardenFont.small).monospacedDigit()
+                .foregroundStyle(palette.muted)
+                .frame(width: 14, alignment: .trailing)
                 .accessibilityHidden(true)
             Text(section.title)
-                .font(.system(size: 15, weight: .heavy))
+                .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(palette.ink)
                 .lineLimit(2)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)
             if let percent = progress.percent {
                 Text("\(percent)%")
-                    .font(GardenFont.meta.monospacedDigit())
+                    .font(GardenFont.small.monospacedDigit())
                     .foregroundStyle(palette.muted)
                     .accessibilityLabel("Section \(percent) percent complete")
             }
@@ -197,7 +197,7 @@ struct SectionHeaderRow: View {
     }
 }
 
-/// A lecture stop in the outline: a 26 pt circle on a 2 pt connector and the title.
+/// A lecture stop in the outline: a 20 pt circle on a 1 pt connector and the title.
 struct LectureStopRow: View {
     enum Stop { case done, current, todo }
 
@@ -207,14 +207,14 @@ struct LectureStopRow: View {
     let isLast: Bool
     @Environment(\.gardenPalette) private var palette
 
-    private static let circle: CGFloat = 26
+    private static let circle: CGFloat = 20
 
     var body: some View {
         HStack(spacing: GardenSpacing.xs) {
             marker
             Text(lecture.title)
-                .font(.system(size: 13, weight: stop == .current ? .heavy : .semibold))
-                .foregroundStyle(stop == .todo ? palette.muted : palette.ink)
+                .font(.system(size: 12.5, weight: stop == .current ? .medium : .regular))
+                .foregroundStyle(stop == .done ? palette.muted : palette.ink)
                 .lineLimit(2)
         }
         .background(alignment: .leading) { connectors }
@@ -224,11 +224,11 @@ struct LectureStopRow: View {
 
     private var marker: some View {
         ZStack {
-            Circle().fill(stop == .done ? palette.accent : stop == .current ? palette.card : palette.soft)
-            if stop == .current { Circle().strokeBorder(palette.accent, lineWidth: 3) }
+            Circle().fill(stop == .done ? palette.accent : palette.card)
+            if stop == .current { Circle().strokeBorder(palette.accent, lineWidth: 1.5) }
             Image(systemName: stop == .done ? "checkmark" : lecture.type.symbolName)
-                .font(.system(size: 11, weight: .heavy))
-                .foregroundStyle(stop == .done ? palette.onAccent : stop == .current ? palette.accent : palette.muted)
+                .font(.system(size: 9, weight: stop == .done ? .bold : .regular))
+                .foregroundStyle(stop == .done ? palette.onAccent : stop == .current ? palette.accentInk : palette.faint)
         }
         .frame(width: Self.circle, height: Self.circle)
     }
@@ -245,13 +245,13 @@ struct LectureStopRow: View {
 
     private func connector(hidden: Bool) -> some View {
         Rectangle()
-            .fill(hidden ? .clear : stop == .done ? palette.accent : palette.line)
-            .frame(width: 2)
+            .fill(hidden ? .clear : palette.line)
+            .frame(width: 1)
     }
 }
 
-/// The course landing page in one 720 pt column: the hero card with the resume box, the first outcomes,
-/// then "Details". With "Details" closed, the page fits the 900 × 600 minimum window without a scroll.
+/// The course landing page in one 600 pt column: the image, title and counts, the bordered resume box, the first outcomes,
+/// then "Details" between two hairlines. With "Details" closed, the page fits the 900 × 600 minimum window without a scroll.
 struct CourseLandingView: View {
     let course: Course
     let landing: CourseLanding?
@@ -268,80 +268,77 @@ struct CourseLandingView: View {
     @Environment(\.snapshotShowsLandingDetails) private var snapshotShowsDetails
     @State private var showsDetails = false
 
+    static let columnWidth: CGFloat = 600
+
     private var sections: [CourseSection] { course.learnerSections }
     private var lectureCount: Int { sections.reduce(0) { $0 + $1.lectures.count } }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: GardenSpacing.m) {
+            VStack(alignment: .leading, spacing: 0) {
                 hero
+                resumeBox.padding(.top, 20)
                 summaryOutcomes
                 if landing?.hasDetails == true || openCredits != nil {
-                    HStack(alignment: .firstTextBaseline) {
+                    HStack(alignment: .center) {
                         if landing?.hasDetails == true { detailsToggle }
                         Spacer(minLength: GardenSpacing.xs)
                         creditsLink
                     }
-                    if showsDetails, let landing { details(landing) }
+                    .frame(minHeight: 36)
+                    .overlay(alignment: .top) { palette.line.frame(height: 1) }
+                    .overlay(alignment: .bottom) { palette.line.frame(height: 1) }
+                    .padding(.top, 18)
+                    if showsDetails, let landing { details(landing).padding(.top, GardenSpacing.m) }
                 }
             }
-            .frame(maxWidth: CourseStyle.textWidth, alignment: .leading)
-            .padding(GardenSpacing.l)
+            .frame(maxWidth: Self.columnWidth, alignment: .leading)
+            .padding(.vertical, 28)
+            .padding(.horizontal, GardenSpacing.l)
             .frame(maxWidth: .infinity)
         }
         .onAppear { if snapshotShowsDetails { showsDetails = true } }
     }
 
-    /// The 240 × 135 course image left of the title, the subtitle and the counts, then the resume box.
+    /// The 240 × 135 course image left of the title, the subtitle and the counts.
     private var hero: some View {
-        GardenCard(padding: 18) {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top, spacing: GardenSpacing.m) {
-                    CourseImageView(image: course.image, root: root, width: 240, height: 135, cornerRadius: GardenRadius.image)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(course.title)
-                            .gardenText(.title)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityAddTraits(.isHeader)
-                        if !course.subtitle.isEmpty {
-                            Text(course.subtitle)
-                                .font(GardenFont.body).lineSpacing(GardenFont.bodyLineSpacing)
-                                .foregroundStyle(palette.muted)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.top, GardenSpacing.xxs)
-                        }
-                        HStack(spacing: GardenSpacing.xs) {
-                            fact("\(sections.count) \(sections.count == 1 ? "section" : "sections")")
-                            fact("\(lectureCount) \(lectureCount == 1 ? "lecture" : "lectures")")
-                        }
-                        .padding(.top, 12)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(alignment: .top, spacing: GardenSpacing.m) {
+            CourseImageView(image: course.image, root: root, width: 240, height: 135, cornerRadius: GardenRadius.image)
+                .overlay { RoundedRectangle.garden(GardenRadius.image).strokeBorder(palette.line, lineWidth: 1) }
+            VStack(alignment: .leading, spacing: 0) {
+                Text(course.title)
+                    .gardenText(.display)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                if !course.subtitle.isEmpty {
+                    Text(course.subtitle)
+                        .font(.system(size: 14))
+                        .foregroundStyle(palette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, GardenSpacing.xxs)
                 }
-                resumeBox
+                Text(counts)
+                    .gardenText(.meta).monospacedDigit()
+                    .padding(.top, 6)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func fact(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 13, weight: .bold)).monospacedDigit()
-            .foregroundStyle(palette.ink)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(palette.soft, in: Capsule())
+    /// "3 sections · 22 lectures".
+    private var counts: String {
+        "\(sections.count) \(sections.count == 1 ? "section" : "sections") · \(lectureCount) \(lectureCount == 1 ? "lecture" : "lectures")"
     }
 
-    /// "Resume · N% done" with the last opened lecture, or "Start here" with the first lecture.
+    /// "Resume · N% done" with the last opened lecture, or "Start here" with the first lecture, in a bordered box.
     private var resumeBox: some View {
         let lecture = resumeLecture ?? course.learnerLectures.first?.lecture
-        return HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
+        return HStack(spacing: GardenSpacing.m) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text(resumeLecture == nil ? "Start here" : "Resume · \(percent)% done").gardenText(.label).monospacedDigit()
                 if let lecture {
                     Text(lecture.title)
-                        .font(.system(size: 16, weight: .heavy))
-                        .foregroundStyle(palette.ink)
+                        .gardenText(.cardTitle)
                         .lineLimit(2)
                 }
             }
@@ -359,23 +356,25 @@ struct CourseLandingView: View {
                     .disabled(start == nil)
             }
         }
-        .padding(.vertical, 16)
-        .padding(.horizontal, 18)
-        .background(palette.soft, in: .garden(GardenRadius.innerBox))
+        .padding(.vertical, GardenSpacing.s)
+        .padding(.horizontal, 14)
+        .background(palette.card, in: .garden(GardenRadius.card))
+        .overlay { RoundedRectangle.garden(GardenRadius.card).strokeBorder(palette.line, lineWidth: 1) }
     }
 
     @ViewBuilder private var summaryOutcomes: some View {
         if let outcomes = landing?.summaryOutcomes, !outcomes.isEmpty {
             block("What you'll learn") { outcomeList(outcomes) }
+                .padding(.top, GardenSpacing.l)
         }
     }
 
     private func outcomeList(_ outcomes: [String]) -> some View {
-        VStack(alignment: .leading, spacing: GardenSpacing.xs) {
+        VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(outcomes.enumerated()), id: \.offset) { _, outcome in
                 HStack(alignment: .firstTextBaseline, spacing: GardenSpacing.xs) {
-                    Image(systemName: "checkmark").font(.system(size: 13, weight: .heavy)).foregroundStyle(palette.accent)
-                    Text(outcome).font(.system(size: 14, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                    Image(systemName: "checkmark").font(.system(size: 11)).foregroundStyle(palette.muted)
+                    Text(outcome).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -384,10 +383,14 @@ struct CourseLandingView: View {
     /// The "Details" disclosure button. It is closed by default.
     private var detailsToggle: some View {
         Button { showsDetails.toggle() } label: {
-            Label("Details", systemImage: showsDetails ? "chevron.down" : "chevron.right")
-                .font(GardenFont.body.weight(.heavy))
-                .foregroundStyle(palette.ink)
-                .contentShape(.rect)
+            HStack(spacing: GardenSpacing.xs) {
+                Image(systemName: showsDetails ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 11))
+                    .foregroundStyle(palette.muted)
+                    .frame(width: 14)
+                Text("Details").font(GardenFont.cardTitle).foregroundStyle(palette.ink)
+            }
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .accessibilityValue(showsDetails ? "Expanded" : "Collapsed")
@@ -396,7 +399,7 @@ struct CourseLandingView: View {
 
     /// All outcomes (if there are more than the page shows), the requirements, the audience and the description.
     private func details(_ landing: CourseLanding) -> some View {
-        VStack(alignment: .leading, spacing: GardenSpacing.m) {
+        VStack(alignment: .leading, spacing: 20) {
             if !landing.detailOutcomes.isEmpty {
                 block("All outcomes") { outcomeList(landing.detailOutcomes) }
             }
@@ -421,22 +424,19 @@ struct CourseLandingView: View {
     @ViewBuilder private var creditsLink: some View {
         if let openCredits {
             Button("View credits", action: openCredits)
-                .buttonStyle(.link)
-                .font(GardenFont.body.weight(.semibold))
-                .tint(palette.accent)
+                .buttonStyle(.garden(.plain))
         }
     }
 
+    /// A 13 pt semibold heading, then the content in body text. No card.
     private func block<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        GardenCard {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(title).gardenText(.label).accessibilityAddTraits(.isHeader)
-                content()
-                    .font(GardenFont.body).lineSpacing(GardenFont.bodyLineSpacing)
-                    .foregroundStyle(palette.ink)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).gardenText(.cardTitle).accessibilityAddTraits(.isHeader)
+            content()
+                .font(GardenFont.body).lineSpacing(GardenFont.bodyLineSpacing)
+                .foregroundStyle(palette.ink)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -461,12 +461,10 @@ struct CourseCreditsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Credits")
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(palette.ink)
+                    .gardenText(.title)
                     .accessibilityAddTraits(.isHeader)
                 Text("People and sources that made this course.")
-                    .font(.subheadline)
-                    .foregroundStyle(palette.muted)
+                    .gardenText(.meta)
                     .padding(.top, GardenSpacing.xxs)
                     .padding(.bottom, GardenSpacing.s)
                 ForEach(Array(credits.enumerated()), id: \.offset) { index, credit in

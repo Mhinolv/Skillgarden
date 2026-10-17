@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import SkillgardenCore
 
-/// The objective of a section or lecture on an accent fill. Hidden when the objective is empty.
+/// The objective of a section or lecture: one light tinted line with "Objective" in the accent. Hidden when the objective is empty.
 struct ObjectiveCallout: View {
     let objective: String
     @Environment(\.gardenPalette) private var palette
@@ -10,22 +10,20 @@ struct ObjectiveCallout: View {
     var body: some View {
         let text = objective.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty {
-            HStack(spacing: GardenSpacing.s) {
-                Image(systemName: "target")
-                    .font(.system(size: 20, weight: .heavy))
-                    .frame(width: 40, height: 40)
-                    .background(.white.opacity(0.2), in: .garden(GardenRadius.row))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Objective").font(.system(size: 12, weight: .heavy)).opacity(0.85)
-                    Text(text).font(.system(size: 16, weight: .bold)).fixedSize(horizontal: false, vertical: true)
-                }
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("Objective")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(palette.accentInk)
+                    .fixedSize()
+                Text(text)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(palette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundStyle(palette.onAccent)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, GardenSpacing.s)
-            .padding(.horizontal, 18)
-            .background(palette.accent, in: .garden(GardenRadius.innerBox))
+            .padding(.vertical, GardenSpacing.xs)
+            .padding(.horizontal, GardenSpacing.s)
+            .background(palette.tint, in: .garden(GardenRadius.button))
             .accessibilityElement(children: .combine)
         }
     }
@@ -39,7 +37,7 @@ struct SectionHeaderImageView: View {
 
     var body: some View {
         Rectangle()
-            .fill(palette.soft)
+            .fill(palette.fill)
             .aspectRatio(16 / 9, contentMode: .fit)
             .overlay {
                 if let loaded {
@@ -62,7 +60,7 @@ struct SectionHeaderImageView: View {
     }
 }
 
-/// The section page: the header card with the image, title, stones and count, then the objective and the lecture stops.
+/// The section page: the image, title, stones and count, then the objective and the lecture stops in a bordered card.
 struct SectionPageView: View {
     let section: CourseSection
     let number: Int
@@ -76,30 +74,29 @@ struct SectionPageView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: GardenSpacing.m) {
-                GardenCard(padding: 18) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        SectionHeaderImageView(image: headerImage)
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text("Section \(number) · \(section.lectures.count) \(section.lectures.count == 1 ? "lecture" : "lectures")")
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionHeaderImageView(image: headerImage)
+                        .overlay { RoundedRectangle.garden(GardenRadius.image).strokeBorder(palette.line, lineWidth: 1) }
+                    Text("Section \(number) · \(section.lectures.count) \(section.lectures.count == 1 ? "lecture" : "lectures")")
+                        .gardenText(.label).monospacedDigit()
+                        .padding(.top, GardenSpacing.m)
+                    Text(section.title)
+                        .gardenText(.title)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 2)
+                        .accessibilityAddTraits(.isHeader)
+                    if progress.total > 0 {
+                        HStack(spacing: GardenSpacing.xs) {
+                            SteppingStones(states: stones)
+                            Text("\(progress.completed) of \(progress.total) lectures complete")
                                 .gardenText(.label).monospacedDigit()
-                            Text(section.title)
-                                .gardenText(.heading)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.top, GardenSpacing.xxs)
-                                .accessibilityAddTraits(.isHeader)
-                            if progress.total > 0 {
-                                SteppingStones(states: stones).padding(.top, GardenSpacing.s)
-                                Text("\(progress.completed) of \(progress.total) lectures complete")
-                                    .gardenText(.meta).monospacedDigit()
-                                    .padding(.top, GardenSpacing.xs)
-                                    .accessibilityHidden(true)
-                            }
+                                .fixedSize()
+                                .accessibilityHidden(true)
                         }
-                        .padding(.horizontal, 6)
-                        .padding(.top, 18)
+                        .padding(.top, GardenSpacing.xs)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 ObjectiveCallout(objective: section.objective)
                 if !section.lectures.isEmpty {
                     GardenCard {
@@ -150,6 +147,8 @@ struct LectureFrameView<Content: View>: View {
     var downloads: [LectureDownload] = []
     /// "Sources and further watching" cards. The block is hidden when it is empty.
     var sources: [LectureSource] = []
+    /// False makes "Mark as Complete" a bordered button, because the page has its own primary action (a quiz).
+    var completeIsPrimary = true
     @ViewBuilder let content: Content
     @State private var visibleTop: CGFloat?
 
@@ -162,20 +161,22 @@ struct LectureFrameView<Content: View>: View {
     private var page: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: GardenSpacing.m) {
-                VStack(alignment: .leading, spacing: GardenSpacing.xs) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text("\(sectionTitle) · Lecture \(number)").gardenText(.label).monospacedDigit()
                     Text(lecture.title)
-                        .gardenText(.heading)
+                        .gardenText(.title)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader)
-                    if !stones.isEmpty { SteppingStones(states: stones).padding(.top, GardenSpacing.xxs) }
+                    if !stones.isEmpty { SteppingStones(states: stones).padding(.top, 6) }
                 }
                 ObjectiveCallout(objective: lecture.objective)
                 content
                 DownloadsBlock(downloads: downloads)
                 SourcesSection(sources: sources)
-                MarkCompleteButton(completed: completed, toggle: toggleComplete)
-                    .padding(.top, GardenSpacing.xs)
+                HStack {
+                    Spacer()
+                    MarkCompleteButton(completed: completed, isPrimary: completeIsPrimary, toggle: toggleComplete)
+                }
                 if let nudge { NudgeCard(nudge: nudge, open: openNudge) }
                 HStack {
                     Button("Previous", systemImage: "chevron.left") { previous?() }
@@ -186,7 +187,7 @@ struct LectureFrameView<Content: View>: View {
                     }
                     .disabled(next == nil)
                 }
-                .buttonStyle(.garden(.soft))
+                .buttonStyle(.garden(.bordered))
             }
             .frame(maxWidth: maxWidth, alignment: .leading)
             .padding(GardenSpacing.l)
@@ -210,28 +211,31 @@ struct LectureContentPlaceholder: View {
             .foregroundStyle(palette.muted)
             .frame(maxWidth: .infinity)
             .aspectRatio(16 / 9, contentMode: .fit)
-            .background(palette.soft, in: .garden(24))
+            .background(palette.fill, in: .garden(GardenRadius.card))
     }
 }
 
-/// A toggle for the complete state of a lecture: a soft pill, or the primary "Completed" pill. A second click is the undo.
+/// A toggle for the complete state of a lecture. "Mark as Complete" is the primary action of the page.
+/// "Completed" is a bordered button. A second click is the undo.
 struct MarkCompleteButton: View {
     let completed: Bool
+    /// False makes "Mark as Complete" bordered, for a page with another primary action.
+    var isPrimary = true
     let toggle: () -> Void
 
     var body: some View {
         if completed {
             Button("Completed", systemImage: "checkmark.circle.fill", action: toggle)
-                .buttonStyle(.garden())
+                .buttonStyle(.garden(.bordered))
                 .help("Mark as Incomplete")
         } else {
             Button("Mark as Complete", systemImage: "checkmark.circle", action: toggle)
-                .buttonStyle(.garden(.soft))
+                .buttonStyle(.garden(isPrimary ? .primary : .bordered))
         }
     }
 }
 
-/// "Up next" or "Recommended next": an ink capsule with the lecture title and "Go to Lecture".
+/// "Up next" or "Recommended next": a 44 pt bordered row with the lecture type, the title and a plain "Go to Lecture".
 struct NudgeCard: View {
     let nudge: LectureNudge
     let open: () -> Void
@@ -240,23 +244,33 @@ struct NudgeCard: View {
     private var label: String { nudge.kind == .recommended ? "Recommended next" : "Up next" }
 
     var body: some View {
-        HStack(spacing: GardenSpacing.s) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label).font(.system(size: 12, weight: .heavy)).opacity(0.6)
-                Label(nudge.lecture.title, systemImage: nudge.lecture.type.symbolName)
-                    .font(.system(size: 15, weight: .heavy))
-                    .lineLimit(2)
+        HStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Text(label)
+                    .font(GardenFont.label)
+                    .foregroundStyle(palette.muted)
+                    .fixedSize()
+                Image(systemName: nudge.lecture.type.symbolName)
+                    .font(.system(size: 12))
+                    .foregroundStyle(palette.muted)
+                Text(nudge.lecture.title)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(palette.ink)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(label): \(nudge.lecture.title)")
-            Spacer(minLength: GardenSpacing.xs)
-            Button("Go to Lecture", action: open).buttonStyle(.garden(.primary, .small))
+            Button(action: open) {
+                HStack(spacing: 6) { Text("Go to Lecture"); Image(systemName: "chevron.right").imageScale(.small) }
+            }
+            .buttonStyle(.garden(.plain))
         }
-        .foregroundStyle(palette.card)
-        .padding(.vertical, 12)
-        .padding(.leading, GardenSpacing.m)
-        .padding(.trailing, 12)
-        .background(palette.ink, in: Capsule())
+        .frame(minHeight: 44)
+        .padding(.leading, GardenSpacing.s)
+        .padding(.trailing, 6)
+        .background(palette.card, in: .garden(GardenRadius.card))
+        .overlay { RoundedRectangle.garden(GardenRadius.card).strokeBorder(palette.line, lineWidth: 1) }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(label): \(nudge.lecture.title)")
     }

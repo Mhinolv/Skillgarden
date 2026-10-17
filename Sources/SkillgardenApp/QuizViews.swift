@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import SkillgardenCore
 
-/// One answer row: a key badge and the choice text on a `page` fill. Quiz, assignment (#14) and spaced review (#17) questions share it.
+/// One answer row: a key badge and the choice text with a hairline. A selected row has a tint and an accent ring. Quiz, assignment (#14) and spaced review (#17) questions share it.
 /// The badge symbols carry the meaning, so the row never uses color alone.
 struct ChoiceRow: View {
     let text: String
@@ -14,19 +14,19 @@ struct ChoiceRow: View {
     let select: () -> Void
     @Environment(\.gardenPalette) private var palette
 
-    private static let radius: CGFloat = 16
+    private static let radius = GardenRadius.button
 
     private var fill: Color {
         switch state {
-        case .correct: palette.soft
+        case .correct, .selected: palette.tint
         case .incorrect: palette.wrongFill
-        case .normal, .selected, .dimmed: palette.page
+        case .normal, .dimmed: palette.card
         }
     }
 
     private var badgeFill: Color {
         switch state {
-        case .normal, .dimmed: palette.soft
+        case .normal, .dimmed: palette.fill
         case .selected, .correct: palette.accent
         case .incorrect: palette.wrong
         }
@@ -34,7 +34,7 @@ struct ChoiceRow: View {
 
     private var badgeText: Color {
         switch state {
-        case .normal, .dimmed: palette.ink
+        case .normal, .dimmed: palette.muted
         case .selected, .correct: palette.onAccent
         case .incorrect: .white
         }
@@ -51,20 +51,20 @@ struct ChoiceRow: View {
 
     var body: some View {
         Button(action: select) {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 badge
                 Text(text)
-                    .font(.system(size: 15, weight: .bold))
+                    .font(GardenFont.body)
                     .foregroundStyle(palette.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
             .padding(.horizontal, GardenSpacing.s)
             .background(fill, in: .garden(Self.radius))
             .overlay {
                 RoundedRectangle.garden(Self.radius)
-                    .strokeBorder(state == .selected ? palette.accent : palette.line, lineWidth: state == .selected ? 2.5 : 1.5)
+                    .strokeBorder(state == .selected ? palette.accent : palette.line, lineWidth: state == .selected ? 1.5 : 1)
             }
             .contentShape(.garden(Self.radius))
         }
@@ -85,10 +85,10 @@ struct ChoiceRow: View {
             case .normal, .selected, .dimmed: Text(number <= 9 ? "\(number)" : "")
             }
         }
-        .font(.system(size: 12, weight: .heavy)).monospacedDigit()
+        .font(.system(size: 11, weight: .medium)).monospacedDigit()
         .foregroundStyle(badgeText)
-        .frame(width: 24, height: 24)
-        .background(badgeFill, in: .garden(8))
+        .frame(width: 18, height: 18)
+        .background(badgeFill, in: .garden(4))
         .accessibilityHidden(true)
     }
 }
@@ -136,11 +136,11 @@ struct QuizView: View {
     private var count: Int { attempt.quiz.questions.count }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: GardenSpacing.s) {
+        VStack(alignment: .leading, spacing: GardenSpacing.xs) {
             Label("Quiz · \(count) \(count == 1 ? "question" : "questions")", systemImage: "checklist")
                 .gardenText(.meta)
             if let question = attempt.question {
-                GardenCard { questionView(question) }
+                GardenCard(padding: 20) { questionView(question) }
             } else {
                 QuizResultsView(result: attempt.result) { perform(.retake) }
             }
@@ -148,14 +148,14 @@ struct QuizView: View {
     }
 
     private func questionView(_ question: QuizQuestion) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: GardenSpacing.xs) {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Question \(attempt.index + 1) of \(count)").gardenText(.label).monospacedDigit()
                 // The question stones replace the linear progress bar. The label above reads the position.
                 SteppingStones(states: attempt.questionStones).accessibilityHidden(true)
             }
             Text(question.prompt)
-                .gardenText(.cardTitle)
+                .gardenText(.heading)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
             if let image = question.image { QuizImageView(image: image) }
@@ -169,15 +169,18 @@ struct QuizView: View {
             if let correct = attempt.isAnswerCorrect {
                 QuizFeedback(correct: correct, explanation: question.explanation)
             }
-            Group {
-                if attempt.isSubmitted {
-                    Button(attempt.isLastQuestion ? "See Results" : "Next Question") { perform(.next) }
-                } else {
-                    Button("Submit") { perform(.submit) }.disabled(attempt.selection == nil)
+            HStack {
+                Spacer()
+                Group {
+                    if attempt.isSubmitted {
+                        Button(attempt.isLastQuestion ? "See Results" : "Next Question") { perform(.next) }
+                    } else {
+                        Button("Check Answer") { perform(.submit) }.disabled(attempt.selection == nil)
+                    }
                 }
+                .buttonStyle(.garden())
+                .keyboardShortcut(.defaultAction)
             }
-            .buttonStyle(.garden())
-            .keyboardShortcut(.defaultAction)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -191,22 +194,23 @@ struct QuizFeedback: View {
     @Environment(\.gardenPalette) private var palette
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: correct ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .font(.system(size: 22, weight: .heavy))
+                .font(.system(size: 14))
                 .foregroundStyle(correct ? palette.accent : palette.wrong)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: GardenSpacing.xxs) {
-                Text(correct ? "Correct" : "Not quite").font(.system(size: 16, weight: .heavy)).foregroundStyle(palette.ink)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(correct ? "Correct" : "Not quite").font(GardenFont.cardTitle).foregroundStyle(palette.ink)
                 Text(explanation)
-                    .font(GardenFont.body)
+                    .font(.system(size: 12.5))
                     .foregroundStyle(palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(GardenSpacing.s)
-        .background(palette.soft, in: .garden(GardenRadius.row))
+        .padding(.vertical, 10)
+        .padding(.horizontal, GardenSpacing.s)
+        .background(correct ? palette.tint : palette.wrongFill, in: .garden(GardenRadius.button))
         .accessibilityElement(children: .combine)
     }
 }
@@ -219,11 +223,11 @@ struct QuizResultsView: View {
     @Environment(\.gardenPalette) private var palette
 
     var body: some View {
-        GardenCard(padding: GardenSpacing.l) {
+        GardenCard(padding: 20) {
             VStack(alignment: .leading, spacing: GardenSpacing.m) {
-                VStack(alignment: .leading, spacing: GardenSpacing.xs) {
-                    (Text("\(result.correct)").font(.system(size: 88, weight: .heavy))
-                        + Text(" of \(result.total)").font(.system(size: 34, weight: .heavy)).foregroundStyle(palette.muted))
+                VStack(alignment: .leading, spacing: GardenSpacing.xxs) {
+                    (Text("\(result.correct)").font(.system(size: 32, weight: .semibold))
+                        + Text(" of \(result.total)").font(.system(size: 20, weight: .regular)).foregroundStyle(palette.muted))
                         .foregroundStyle(palette.ink)
                         .monospacedDigit()
                     Text("\(result.percent)% correct").gardenText(.meta).monospacedDigit()
@@ -231,7 +235,7 @@ struct QuizResultsView: View {
                 .accessibilityElement(children: .combine)
                 if result.weakSkills.isEmpty {
                     Label {
-                        Text("You answered every question correctly.").font(GardenFont.body.weight(.bold)).foregroundStyle(palette.ink)
+                        Text("You answered every question correctly.").font(GardenFont.body.weight(.medium)).foregroundStyle(palette.ink)
                     } icon: {
                         Image(systemName: "checkmark.seal.fill").foregroundStyle(palette.accent)
                     }
@@ -251,21 +255,22 @@ struct SkillsToReviewList: View {
     @Environment(\.gardenPalette) private var palette
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Skills to review").gardenText(.label).accessibilityAddTraits(.isHeader)
+        VStack(alignment: .leading, spacing: GardenSpacing.xs) {
+            Text("Skills to review").gardenText(.cardTitle).accessibilityAddTraits(.isHeader)
             ForEach(skills, id: \.self) { skill in
                 Label {
                     Text(skill)
-                        .font(.system(size: 16, weight: .heavy))
+                        .font(GardenFont.body)
                         .foregroundStyle(palette.ink)
                         .fixedSize(horizontal: false, vertical: true)
                 } icon: {
-                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(palette.accent)
+                    Image(systemName: "exclamationmark.circle").foregroundStyle(palette.muted)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, GardenSpacing.s)
-                .padding(.horizontal, 16)
-                .background(palette.page, in: .garden(20))
+                .padding(.vertical, 10)
+                .padding(.horizontal, GardenSpacing.s)
+                .background(palette.card, in: .garden(GardenRadius.button))
+                .overlay { RoundedRectangle.garden(GardenRadius.button).strokeBorder(palette.line, lineWidth: 1) }
             }
         }
     }
@@ -300,7 +305,7 @@ struct SectionReviewSheet: View {
             HStack(spacing: GardenSpacing.xs) {
                 Spacer()
                 Button("Skip Review", action: close)
-                    .buttonStyle(.garden(.soft))
+                    .buttonStyle(.garden(.bordered))
                     .keyboardShortcut(.cancelAction)
                 Button("Continue to Section", action: close)
                     .buttonStyle(.garden())

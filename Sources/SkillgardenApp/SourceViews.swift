@@ -52,25 +52,25 @@ private struct SourceCardContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: GardenSpacing.xxs) {
             Text(source.title)
-                .font(.headline)
+                .font(GardenFont.cardTitle)
                 .foregroundStyle(palette.ink)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
             Label(source.channel, systemImage: "person.crop.square")
-                .font(.subheadline)
+                .font(GardenFont.meta)
                 .foregroundStyle(palette.muted)
                 .lineLimit(1)
             HStack(alignment: .firstTextBaseline) {
                 if let range = source.rangeText {
                     Label(range, systemImage: "clock")
-                        .font(.caption.monospacedDigit())
+                        .font(GardenFont.small.monospacedDigit())
                         .foregroundStyle(palette.muted)
                 }
                 Spacer(minLength: GardenSpacing.xs)
                 if source.url != nil {
                     Label("Open", systemImage: "arrow.up.right.square")
-                        .font(.subheadline)
-                        .foregroundStyle(palette.accent)
+                        .font(GardenFont.meta)
+                        .foregroundStyle(palette.muted)
                 }
             }
             .padding(.top, 2)
@@ -87,7 +87,7 @@ private struct SourceCardStyle: ButtonStyle {
     }
 }
 
-/// Padding 12 pt, radius 8 pt, the card fill and a 1 pt line border. A linked card has a quaternary fill and a hand pointer on hover.
+/// Padding 12 pt, radius 8 pt, the card fill and a 1 pt line border. A linked card has the neutral fill and a hand pointer on hover.
 private struct SourceCardBody<Content: View>: View {
     let linked: Bool
     let isPressed: Bool
@@ -101,7 +101,7 @@ private struct SourceCardBody<Content: View>: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background {
                 RoundedRectangle(cornerRadius: 8).fill(palette.card)
-                if linked, hovers { RoundedRectangle(cornerRadius: 8).fill(.quaternary) }
+                if linked, hovers { RoundedRectangle(cornerRadius: 8).fill(palette.fill) }
             }
             .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(palette.line, lineWidth: 1) }
             .opacity(isPressed ? 0.7 : 1)
