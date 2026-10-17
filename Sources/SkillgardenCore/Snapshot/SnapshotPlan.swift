@@ -25,13 +25,27 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case interactiveResult = "interactive-result"
     /// The video lecture after the learner started it, so the real AVKit player view shows. Playback stays paused.
     case videoPlayer = "video-player"
+    /// The video lecture scrolled to the end, so the Transcript panel and all its lines show. The second cue is active.
+    case videoTranscript = "video-transcript"
+    /// The spaced review sheet of the "plan" section, after the quiz section moved first.
+    /// Two questions: one unanswered, one answered correctly.
+    case sectionReview = "section-review"
     /// The fixture assignment with its draft section and lecture published. No rubric row is checked.
     case assignment
     /// The same assignment with every rubric row checked, so the success line shows.
     case assignmentComplete = "assignment-complete"
 
     /// True when the harness opens the player of the video lecture before the capture.
-    public var opensVideoPlayer: Bool { self == .videoPlayer }
+    public var opensVideoPlayer: Bool { self == .videoPlayer || self == .videoTranscript }
+
+    /// The paused player opens at this time instead of the saved position. 3 s is in the second fixture cue (2–4 s).
+    public var videoStartSeconds: Double? { self == .videoTranscript ? 3 : nil }
+
+    /// True when the harness scrolls the lecture page to the end.
+    public var scrollsLectureToEnd: Bool { self == .videoTranscript }
+
+    /// True when the harness draws the review sheet in the window. A real sheet is a separate window, so the capture misses it.
+    public var showsReviewInline: Bool { self == .sectionReview }
 
     /// True when the harness selects the seeded course. The Library screens show the Library home, so they select none.
     public var selectsCourse: Bool { self != .library && self != .libraryEmpty && self != .libraryEmptyCustomFolder }
@@ -77,7 +91,7 @@ public enum SnapshotPlan {
         case .libraryEmpty, .libraryEmptyCustomFolder:
             _ = try CourseStore(root: root)
             return nil
-        case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer:
+        case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -110,7 +124,38 @@ public enum SnapshotPlan {
                 ("objective: Apply the course plan\n    state: draft", "objective: Apply the course plan\n    state: published"),
                 ("objective: Create a course plan\n        state: draft", "objective: Create a course plan\n        state: published"),
             ])
+        case .sectionReview:
+            return try publishCopy(of: fixture, root: root, replacing: reviewCourse)
         }
+    }
+
+    /// The replacements for the `section-review` course: the quiz section is published and comes first.
+    /// The third question is removed, so the review shows two questions.
+    static let reviewCourse = [
+        ("objective: Identify the course structure\n    state: published\n    order: 0",
+         "objective: Identify the course structure\n    state: published\n    order: 2"),
+        ("objective: Apply the course plan\n    state: draft", "objective: Apply the course plan\n    state: published"),
+        ("""
+                    - id: goal
+                      prompt: What does a lecture objective tell the learner?
+                      objective_tag: Check a lecture objective
+                      choices:
+                        - id: skill
+                          text: The skill that the lecture teaches
+                        - id: length
+                          text: The length of the lecture
+                      correct_choice_id: skill
+                      explanation: An objective names the skill that the learner gets from the lecture.
+
+        """, ""),
+    ]
+
+    /// The seed of the review question order in the snapshot harness.
+    public static let reviewSeed: UInt64 = 17
+
+    /// Review answers that the harness applies after the sheet opens: review question id, then choice id.
+    public static func reviewAnswers(for screen: SnapshotScreen) -> [(questionID: String, choiceID: String)] {
+        screen == .sectionReview ? [("check/order", "lowest")] : []
     }
 
     /// The replacements for the second course of the `library` screen: a new id, title and accent.
@@ -155,7 +200,7 @@ public enum SnapshotPlan {
     public static func imageLoads(for screen: SnapshotScreen) -> Int {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder: 0
-        case .library, .quizQuestion, .quizWrongAnswer, .assignment, .assignmentComplete: 2
+        case .library, .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete: 2
         default: 1
         }
     }
@@ -164,8 +209,8 @@ public enum SnapshotPlan {
     public static func destination(for screen: SnapshotScreen) -> CourseDestination? {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library: nil
-        case .section: .section(sectionID: "plan")
-        case .lecture, .lectureComplete, .videoPlayer: .lecture(sectionID: "plan", lectureID: "welcome")
+        case .section, .sectionReview: .section(sectionID: "plan")
+        case .lecture, .lectureComplete, .videoPlayer, .videoTranscript: .lecture(sectionID: "plan", lectureID: "welcome")
         case .article: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme: .overview
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")

@@ -24,28 +24,37 @@ struct FreePreviewBadge: View {
     }
 }
 
-/// Owns the player of one video lecture. The caption text changes only when the cue changes, not on each time tick.
+/// Owns the player of one video lecture.
+/// The caption text and the active transcript line change only when the cue changes, not on each time tick.
 @MainActor @Observable
 final class VideoPlayback {
     let player: AVPlayer
     private(set) var captionText: String?
+    /// The index of the active line in `transcript`.
+    private(set) var activeLine: Int?
+    @ObservationIgnored private let captions: WebVTT?
+    @ObservationIgnored private let transcript: Transcript?
     @ObservationIgnored private var observer: Any?
     @ObservationIgnored private var statusObserver: NSKeyValueObservation?
     @ObservationIgnored private var lastSaved: Double = 0
+    @ObservationIgnored private var pendingSeeks = 0
     @ObservationIgnored private let save: @MainActor (Double) -> Void
 
     /// `save` gets the position every `PlaybackResume.saveInterval` seconds, on pause and on `stop()`.
     /// If `plays` is false, the player opens paused (the snapshot harness).
-    init(url: URL, start: Double, captions: WebVTT?, plays: Bool = true, save: @escaping @MainActor (Double) -> Void) {
+    init(url: URL, start: Double, captions: WebVTT?, transcript: Transcript?, plays: Bool = true,
+         save: @escaping @MainActor (Double) -> Void) {
         player = AVPlayer(url: url)
+        self.captions = captions
+        self.transcript = transcript
         self.save = save
         lastSaved = start
-        if start > 0 { player.seek(to: CMTime(seconds: start, preferredTimescale: 600)) }
+        if start > 0 { player.seek(to: CMTime(seconds: start, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
+        update(at: start)
         observer = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 4), queue: .main) { [weak self] time in
             MainActor.assumeIsolated {
                 guard let self, time.seconds.isFinite else { return }
-                let text = captions?.text(at: time.seconds)
-                if text != self.captionText { self.captionText = text }
+                if self.pendingSeeks == 0 { self.update(at: time.seconds) }
                 if abs(time.seconds - self.lastSaved) >= PlaybackResume.saveInterval {
                     self.lastSaved = time.seconds
                     self.save(time.seconds)
@@ -61,6 +70,26 @@ final class VideoPlayback {
             }
         }
         if plays { player.play() }
+    }
+
+    /// Seeks exactly to `seconds` and plays. A click on a transcript line calls it.
+    /// Time ticks during a seek can show the old time, so they do not change the active line until the seek ends.
+    func seek(to seconds: Double) {
+        pendingSeeks += 1
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.pendingSeeks -= 1 }
+            }
+        }
+        update(at: seconds)
+        player.play()
+    }
+
+    private func update(at seconds: Double) {
+        let text = captions?.text(at: seconds)
+        if text != captionText { captionText = text }
+        let line = transcript?.activeLine(at: seconds)
+        if line != activeLine { activeLine = line }
     }
 
     /// Pauses the player, saves the position and removes the observers.
@@ -81,18 +110,22 @@ final class VideoPlayback {
     }
 }
 
-/// The content block of a video lecture: the metadata row, the player and the controls row.
+/// The content block of a video lecture: the metadata row, the player, the controls row and the transcript.
 /// Before the first play the poster shows with a play button. The player starts on a click or Space.
 struct VideoLectureView: View {
     let video: LectureVideo?
     /// The seek time for the first play.
     let startSeconds: @MainActor () -> Double
     let saveResumePosition: @MainActor @Sendable (Double) -> Void
+    /// The window keeps this choice for all lectures. View > Show Transcript changes it too.
+    @Binding var showsTranscript: Bool
     @Environment(\.imageLoads) private var imageLoads
     @Environment(\.opensVideoPlayer) private var opensVideoPlayer
+    @Environment(\.snapshotVideoStart) private var snapshotVideoStart
     @State private var poster: NSImage?
     @State private var available: Bool?
     @State private var captions: WebVTT?
+    @State private var transcript: Transcript?
     @State private var playback: VideoPlayback?
     @State private var showsCaptions = true
 
@@ -112,16 +145,28 @@ struct VideoLectureView: View {
                                        description: Text("Publish the course again to restore this file."))
             } else {
                 player
-                if video?.captionsURL != nil {
-                    Toggle(isOn: $showsCaptions) { Label("Captions", systemImage: "captions.bubble") }
-                        .toggleStyle(GardenPillToggleStyle())
-                        .disabled(captions == nil)
+                if hasCaptions {
+                    HStack(spacing: GardenSpacing.xs) {
+                        Toggle(isOn: $showsCaptions) { Label("Captions", systemImage: "captions.bubble") }
+                        Toggle(isOn: $showsTranscript) { Label("Transcript", systemImage: "text.quote") }
+                            .help(showsTranscript ? "Hide Transcript (⌥⌘T)" : "Show Transcript (⌥⌘T)")
+                    }
+                    .toggleStyle(GardenPillToggleStyle())
+                    .disabled(captions == nil)
+                    if showsTranscript, let transcript {
+                        TranscriptPanel(transcript: transcript, activeLine: playback?.activeLine, seek: seek)
+                            .frame(maxWidth: Self.maxWidth)
+                    }
                 }
             }
         }
+        .focusedSceneValue(\.showsTranscript, hasCaptions ? $showsTranscript : nil)
         .task(id: video) { await load() }
         .onDisappear { playback?.stop() }
     }
+
+    /// False hides the Captions and Transcript toggles and the transcript.
+    private var hasCaptions: Bool { video?.captionsURL != nil && available != false }
 
     private var player: some View {
         Color.black
@@ -168,8 +213,18 @@ struct VideoLectureView: View {
 
     private func play() {
         guard let video, playback == nil else { return }
-        playback = VideoPlayback(url: video.url, start: startSeconds(), captions: captions,
+        playback = VideoPlayback(url: video.url, start: snapshotVideoStart ?? startSeconds(), captions: captions, transcript: transcript,
                                  plays: !opensVideoPlayer, save: saveResumePosition)
+    }
+
+    /// Seeks to the start of the line and plays. Before the first play, the player starts at the line.
+    private func seek(_ line: Transcript.Line) {
+        if let playback {
+            playback.seek(to: line.start)
+        } else if let video, available == true {
+            playback = VideoPlayback(url: video.url, start: line.start, captions: captions, transcript: transcript,
+                                     save: saveResumePosition)
+        }
     }
 
     /// Checks the video file and reads the poster and the captions off the main actor.
@@ -178,6 +233,7 @@ struct VideoLectureView: View {
         playback = nil
         poster = nil
         captions = nil
+        transcript = nil
         available = nil
         guard let video else { return }
         imageLoads?.start()
@@ -188,6 +244,7 @@ struct VideoLectureView: View {
         }.value
         poster = posterData.flatMap(NSImage.init(data:))
         captions = cues
+        transcript = cues.map(Transcript.init(captions:))
         available = exists
         if exists && opensVideoPlayer { play() }
         imageLoads?.finish(loaded: exists)
@@ -204,6 +261,16 @@ extension EnvironmentValues {
         get { self[OpensVideoPlayerKey.self] }
         set { self[OpensVideoPlayerKey.self] = newValue }
     }
+
+    /// The snapshot harness sets this, so the paused player opens at a fixed time instead of the saved position.
+    var snapshotVideoStart: Double? {
+        get { self[SnapshotVideoStartKey.self] }
+        set { self[SnapshotVideoStartKey.self] = newValue }
+    }
+}
+
+private struct SnapshotVideoStartKey: EnvironmentKey {
+    static let defaultValue: Double? = nil
 }
 
 /// The AVKit player view with inline controls.
@@ -256,5 +323,135 @@ struct CaptionOverlay: View {
         }
         .frame(maxWidth: .infinity)
         .allowsHitTesting(false)
+    }
+}
+
+/// The interactive transcript under the controls row. A click on a line seeks the player to the line start and plays.
+/// The panel scrolls to keep the active line in view. After the learner scrolls the panel, auto-scroll stops for 5 seconds.
+struct TranscriptPanel: View {
+    let transcript: Transcript
+    let activeLine: Int?
+    let seek: (Transcript.Line) -> Void
+    @Environment(\.gardenPalette) private var palette
+    @State private var autoScroll = TranscriptAutoScroll()
+    @State private var learnerScrolls = false
+
+    static let height: CGFloat = 240
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: GardenSpacing.xs) {
+            Text("Transcript")
+                .font(.headline)
+                .foregroundStyle(palette.ink)
+            if transcript.lines.isEmpty {
+                Text("No transcript for this lecture.")
+                    .foregroundStyle(palette.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                lines
+            }
+        }
+        .gardenCard(padding: GardenSpacing.s)
+    }
+
+    private var lines: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(transcript.lines) { line in
+                        TranscriptRow(line: line, isActive: line.id == activeLine) { seek(line) }
+                            .id(line.id)
+                    }
+                }
+            }
+            .frame(height: Self.height)
+            .onScrollPhaseChange { old, new in
+                // `.animating` is a scroll from `scrollTo`. The other moving phases come from the learner.
+                learnerScrolls = new == .interacting || new == .decelerating
+                if learnerScrolls || old == .interacting || old == .decelerating { autoScroll.learnerScrolled(at: .now) }
+            }
+            .onChange(of: activeLine) { _, line in
+                guard let line, !learnerScrolls, autoScroll.allowsAutoScroll(at: .now) else { return }
+                withAnimation { proxy.scrollTo(line, anchor: .center) }
+            }
+            .onAppear {
+                if let activeLine { proxy.scrollTo(activeLine, anchor: .center) }
+            }
+        }
+    }
+}
+
+/// One transcript line: the start time and the cue text. Each line is a button for the keyboard and VoiceOver.
+private struct TranscriptRow: View {
+    let line: Transcript.Line
+    let isActive: Bool
+    let action: () -> Void
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .firstTextBaseline, spacing: GardenSpacing.xs) {
+                Text(line.timeLabel)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(isActive ? palette.accent : palette.muted)
+                    .frame(width: 48, alignment: .leading)
+                Text(line.text)
+                    .font(.body)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .buttonStyle(TranscriptRowStyle(isActive: isActive))
+        .accessibilityLabel(line.accessibilityLabel)
+        .accessibilityHint("Jumps to this moment.")
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+    }
+}
+
+private struct TranscriptRowStyle: ButtonStyle {
+    let isActive: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        TranscriptRowBody(configuration: configuration, isActive: isActive)
+    }
+}
+
+/// Default: no fill. Hover: quaternary fill and a hand pointer. Active: accent fill at 15% and the time in accent.
+private struct TranscriptRowBody: View {
+    let configuration: ButtonStyleConfiguration
+    let isActive: Bool
+    @Environment(\.gardenPalette) private var palette
+    @State private var hovers = false
+
+    var body: some View {
+        // The time label sets its own color: the muted color, or the accent on the active line.
+        configuration.label
+            .foregroundStyle(palette.ink)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 8)
+            .background {
+                if isActive {
+                    RoundedRectangle(cornerRadius: 6).fill(palette.accent.opacity(0.15))
+                } else if hovers {
+                    RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                }
+            }
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .contentShape(.rect(cornerRadius: 6))
+            .contentShape(.focusEffect, .rect(cornerRadius: 6))
+            .onHover { hovers = $0 }
+            .pointerStyle(.link)
+    }
+}
+
+private struct ShowsTranscriptFocusKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
+extension FocusedValues {
+    /// Set while a video lecture with captions shows. View > Show Transcript uses it.
+    var showsTranscript: Binding<Bool>? {
+        get { self[ShowsTranscriptFocusKey.self] }
+        set { self[ShowsTranscriptFocusKey.self] = newValue }
     }
 }

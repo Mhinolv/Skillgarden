@@ -255,7 +255,7 @@ private func publishDiagnostics(_ folder: URL, root: URL) throws -> [ManifestDia
     #expect(throws: CourseStoreError.databaseFailure) { try old.saveCourse(withModule) }
 
     let store = try CourseStore(root: root)
-    #expect(try store.schemaVersion == 7)
+    #expect(try store.schemaVersion == CourseStore.currentSchemaVersion)
     #expect(try store.loadCourse(id: "c") == course)
     #expect(try store.allProgress() == ["c": ["v": LectureProgress(completed: true)]])
     #expect(try store.allQuizResults() == ["c": ["q": QuizResult(correct: 1, total: 2, weakSkills: ["A"])]])

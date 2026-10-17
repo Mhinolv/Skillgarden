@@ -25,6 +25,11 @@ struct SkillgardenApp: App {
                 }
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(focusedLibrary == nil || focusedLibrary?.isLoading == true)
+                Button(showsTranscript == true ? "Hide Transcript" : "Show Transcript", systemImage: "text.quote") {
+                    showsTranscript?.toggle()
+                }
+                .keyboardShortcut("t", modifiers: [.option, .command])
+                .disabled(showsTranscript == nil)
             }
             CommandMenu("Go") {
                 Button("Previous Lecture") { focusedLibrary?.goToPreviousLecture() }
@@ -47,6 +52,8 @@ struct SkillgardenApp: App {
     }
 
     @FocusedValue(\.library) private var focusedLibrary
+    /// Nil when no video lecture with captions shows.
+    @FocusedBinding(\.showsTranscript) private var showsTranscript
 }
 
 private struct LibraryFocusKey: FocusedValueKey {
@@ -62,9 +69,12 @@ extension FocusedValues {
 
 struct ContentView: View {
     @State private var library: LibraryModel
+    /// The transcript choice stays for the app session and for all lectures of the window.
+    @State private var showsTranscript = true
     private let reloadsOnAppear: Bool
     /// The library folder to show under "No courses yet". It is nil for the default folder.
     private let customRootPath: String?
+    @Environment(\.showsReviewInline) private var showsReviewInline
 
     /// Uses the data folder that `SKILLGARDEN_DATA_DIR` or the saved `DataDirectory` setting names.
     init() {
@@ -129,7 +139,26 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
         } detail: {
             detail.gardenColumn()
+                .sheet(item: Binding(get: { showsReviewInline ? nil : library.sectionReview },
+                                     set: { if $0 == nil { library.closeReview() } })) { review in
+                    reviewSheet(review)
+                }
+                .overlay {
+                    if showsReviewInline, let review = library.sectionReview {
+                        ZStack {
+                            Color.black.opacity(0.25)
+                            reviewSheet(review)
+                                .clipShape(.garden(GardenRadius.card))
+                                .shadow(radius: 12)
+                        }
+                    }
+                }
         }
+    }
+
+    private func reviewSheet(_ review: SectionReview) -> some View {
+        SectionReviewSheet(review: review, answer: { library.answerReview(questionID: $0, choiceID: $1) },
+                           close: { library.closeReview() })
     }
 
     @ViewBuilder private var detail: some View {
@@ -157,7 +186,8 @@ struct ContentView: View {
                                                  let duration = library.video(forLecture: lecture.id).map { Double($0.durationSeconds) }
                                                  return library.startSeconds(forLecture: lecture.id, duration: duration)
                                              },
-                                             saveResumePosition: { [library] in library.saveResumePosition($0, lectureID: lecture.id) })
+                                             saveResumePosition: { [library] in library.saveResumePosition($0, lectureID: lecture.id) },
+                                             showsTranscript: $showsTranscript)
                         case .interactive:
                             InteractiveLectureView(lecture: lecture, module: library.selectedInteractive,
                                                    result: library.selectedInteractiveResult) {
@@ -195,6 +225,18 @@ struct ContentView: View {
                 ContentUnavailableView("Select a lecture", systemImage: "list.bullet")
             }
         }
+    }
+}
+
+private struct ShowsReviewInlineKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// The snapshot harness sets this, so the review sheet draws in the window and the capture shows it. The app sets none.
+    var showsReviewInline: Bool {
+        get { self[ShowsReviewInlineKey.self] }
+        set { self[ShowsReviewInlineKey.self] = newValue }
     }
 }
 

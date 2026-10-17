@@ -24,10 +24,14 @@ private func temporaryFolder() throws -> URL {
         "course-landing-dark-theme-light.png", "course-landing-dark-theme-dark.png",
         "quiz-question-light.png", "quiz-question-dark.png", "quiz-wrong-answer-light.png", "quiz-wrong-answer-dark.png",
         "quiz-results-light.png", "quiz-results-dark.png", "interactive-result-light.png", "interactive-result-dark.png",
-        "video-player-light.png", "video-player-dark.png",
+        "video-player-light.png", "video-player-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
+        "section-review-light.png", "section-review-dark.png",
         "assignment-light.png", "assignment-dark.png", "assignment-complete-light.png", "assignment-complete-dark.png",
     ])
-    #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer])
+    #expect(SnapshotScreen.allCases.filter(\.showsReviewInline) == [.sectionReview])
+    #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer, .videoTranscript])
+    #expect(SnapshotScreen.allCases.filter { $0.videoStartSeconds != nil } == [.videoTranscript])
+    #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [.videoTranscript])
     #expect(SnapshotScreen.allCases.filter { !$0.selectsCourse } == [.libraryEmpty, .libraryEmptyCustomFolder, .library])
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
@@ -144,6 +148,17 @@ private func temporaryFolder() throws -> URL {
             let video = try #require(library.video(forLecture: "welcome"))
             #expect(FileManager.default.fileExists(atPath: video.url.path))
             #expect(video.captionsURL != nil)
+        case .videoTranscript:
+            #expect(courseID == "sample-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            let video = try #require(library.video(forLecture: "welcome"))
+            // The start time makes the second of the two fixture lines active.
+            let transcript = Transcript(captions: try #require(try video.loadCaptions()))
+            #expect(transcript.lines.count == 2)
+            let start = try #require(screen.videoStartSeconds)
+            #expect(transcript.activeLine(at: start) == 1)
+            #expect(SnapshotPlan.imageLoads(for: screen) == 1)
         case .interactiveResult:
             #expect(courseID == "interactive-course")
             library.selectCourse(courseID)
@@ -168,6 +183,22 @@ private func temporaryFolder() throws -> URL {
             } else {
                 #expect(checklist.allMet)
             }
+        case .sectionReview:
+            #expect(courseID == "sample-course")
+            #expect(SnapshotPlan.imageLoads(for: screen) == 2)
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            for item in SnapshotPlan.reviewAnswers(for: screen) { library.answerReview(questionID: item.questionID, choiceID: item.choiceID) }
+            // Two questions: the image question is unanswered, the other one is answered correctly.
+            let review = try #require(library.sectionReview)
+            #expect(Set(review.questions.map(\.id)) == ["check/outline", "check/order"])
+            #expect(review.isCorrect("check/order") == true)
+            #expect(review.isCorrect("check/outline") == nil)
+            #expect(review.questions.first { $0.id == "check/outline" }?.question.image != nil)
+        }
+        if screen != .sectionReview {
+            // Other screens open the first section or a section without earlier quizzes, so no review sheet shows.
+            #expect(library.sectionReview == nil)
         }
     }
 }
