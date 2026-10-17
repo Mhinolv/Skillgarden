@@ -41,6 +41,8 @@ public final class LibraryModel {
     private var quizAttempts: [String: [String: QuizAttempt]] = [:]
     /// Rubric checks of this session by course id, then lecture id. They are not saved.
     private var rubricChecklists: [String: [String: RubricChecklist]] = [:]
+    /// Video quick-check answers of this session by course id, then lecture id. They are not saved.
+    private var quickCheckSessions: [String: [String: QuickCheckSession]] = [:]
     /// Section ids whose review sheet opened, by course id.
     public private(set) var reviewedSections: [String: Set<String>] = [:]
     /// The open spaced review sheet. Nil when no sheet shows.
@@ -273,6 +275,33 @@ public final class LibraryModel {
               let lectureID = selectedLecture?.id else { return }
         body(&checklist)
         rubricChecklists[courseID, default: [:]][lectureID] = checklist
+    }
+
+    // MARK: Quick checks
+
+    /// The quick checks of this session for the selected video. Nil if the video has no checks.
+    /// A republish that changes the checks clears the answers.
+    public var selectedQuickChecks: QuickCheckSession? {
+        guard let courseID = selectedCourseID, let lecture = selectedLecture, lecture.type == .video,
+              let checks = videos[courseID]?[lecture.id]?.quickChecks, !checks.isEmpty else { return nil }
+        if let session = quickCheckSessions[courseID]?[lecture.id], session.checks == checks { return session }
+        return QuickCheckSession(checks: checks)
+    }
+
+    /// Answers one quick check of the selected video. The first answer locks the check.
+    public func answerQuickCheck(_ checkID: Int, choiceID: String) {
+        updateQuickChecks { $0.answer(checkID: checkID, choiceID: choiceID) }
+    }
+
+    /// Unlocks one quick check of the selected video.
+    public func retryQuickCheck(_ checkID: Int) {
+        updateQuickChecks { $0.tryAgain(checkID: checkID) }
+    }
+
+    private func updateQuickChecks(_ body: (inout QuickCheckSession) -> Void) {
+        guard var session = selectedQuickChecks, let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return }
+        body(&session)
+        quickCheckSessions[courseID, default: [:]][lectureID] = session
     }
 
     // MARK: Spaced review

@@ -46,9 +46,24 @@ public struct ManifestVideo: Codable, Equatable, Sendable {
     public var poster: ManifestImage?
     /// Optional. Nil when the manifest has no `free_preview` field.
     public var freePreview: Bool?
+    /// Optional, one or two ungraded checks after the video. Nil when the manifest has no `quick_checks` field.
+    public var quickChecks: [ManifestQuickCheck]?
     enum CodingKeys: String, CodingKey {
         case path, captions, poster
-        case durationSeconds = "duration_seconds", freePreview = "free_preview"
+        case durationSeconds = "duration_seconds", freePreview = "free_preview", quickChecks = "quick_checks"
+    }
+}
+
+/// One ungraded question after a video. Choice ids are unique inside the check.
+public struct ManifestQuickCheck: Codable, Equatable, Sendable {
+    public var prompt: String
+    public var choices: [ManifestQuizChoice]
+    public var correctChoiceID: String
+    /// Optional. Shown after the learner picks any choice.
+    public var explanation: String?
+    enum CodingKeys: String, CodingKey {
+        case prompt, choices, explanation
+        case correctChoiceID = "correct_choice_id"
     }
 }
 

@@ -182,6 +182,9 @@ struct ContentView: View {
                         case .article: ArticleLectureView(article: library.article(forLecture: lecture.id))
                         case .video:
                             VideoLectureView(video: library.video(forLecture: lecture.id),
+                                             quickChecks: library.selectedQuickChecks,
+                                             answerQuickCheck: { library.answerQuickCheck($0, choiceID: $1) },
+                                             retryQuickCheck: { library.retryQuickCheck($0) },
                                              startSeconds: { [library] in
                                                  let duration = library.video(forLecture: lecture.id).map { Double($0.durationSeconds) }
                                                  return library.startSeconds(forLecture: lecture.id, duration: duration)

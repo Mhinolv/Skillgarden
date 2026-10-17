@@ -10,6 +10,8 @@ public struct LectureVideo: Equatable, Sendable {
     public let posterAlt: String
     public let durationSeconds: Int
     public let isFreePreview: Bool
+    /// The ungraded checks after the video. Empty when the manifest has no `quick_checks`.
+    public let quickChecks: [QuickCheck]
 
     /// Returns nil if the video path is not a file inside the snapshot. A caption or poster path outside it is ignored.
     public init?(folder: URL, video: ManifestVideo) {
@@ -23,6 +25,7 @@ public struct LectureVideo: Equatable, Sendable {
         posterAlt = video.poster?.alt ?? ""
         durationSeconds = video.durationSeconds
         isFreePreview = video.freePreview ?? false
+        quickChecks = QuickCheck.checks(manifest: video.quickChecks)
     }
 
     /// "Video · 12:34".

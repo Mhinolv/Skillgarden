@@ -27,6 +27,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case videoPlayer = "video-player"
     /// The video lecture scrolled to the end, so the Transcript panel and all its lines show. The second cue is active.
     case videoTranscript = "video-transcript"
+    /// The video lecture with its quick-check card open and scrolled into view.
+    /// Two checks: the first is unanswered, the second is answered wrong and shows its explanation.
+    case videoQuickCheck = "video-quick-check"
     /// The spaced review sheet of the "plan" section, after the quiz section moved first.
     /// Two questions: one unanswered, one answered correctly.
     case sectionReview = "section-review"
@@ -42,7 +45,10 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     public var videoStartSeconds: Double? { self == .videoTranscript ? 3 : nil }
 
     /// True when the harness scrolls the lecture page to the end.
-    public var scrollsLectureToEnd: Bool { self == .videoTranscript }
+    public var scrollsLectureToEnd: Bool { self == .videoTranscript || self == .videoQuickCheck }
+
+    /// True when the harness opens the quick-check card of the video lecture.
+    public var showsQuickChecks: Bool { self == .videoQuickCheck }
 
     /// True when the harness draws the review sheet in the window. A real sheet is a separate window, so the capture misses it.
     public var showsReviewInline: Bool { self == .sectionReview }
@@ -91,7 +97,8 @@ public enum SnapshotPlan {
         case .libraryEmpty, .libraryEmptyCustomFolder:
             _ = try CourseStore(root: root)
             return nil
-        case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript:
+        case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
+             .videoQuickCheck:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -189,6 +196,11 @@ public enum SnapshotPlan {
         }
     }
 
+    /// Quick-check answers that the harness applies after it opens the video lecture: check id, then choice id.
+    public static func quickCheckAnswers(for screen: SnapshotScreen) -> [(checkID: Int, choiceID: String)] {
+        screen == .videoQuickCheck ? [(1, "scores")] : []
+    }
+
     /// The rubric rows that the harness checks after it opens the assignment lecture.
     public static func rubricChecks(for screen: SnapshotScreen) -> [String] {
         screen == .assignmentComplete ? ["goal", "sections", "order", "length"] : []
@@ -210,7 +222,7 @@ public enum SnapshotPlan {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library: nil
         case .section, .sectionReview: .section(sectionID: "plan")
-        case .lecture, .lectureComplete, .videoPlayer, .videoTranscript: .lecture(sectionID: "plan", lectureID: "welcome")
+        case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck: .lecture(sectionID: "plan", lectureID: "welcome")
         case .article: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme: .overview
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")
