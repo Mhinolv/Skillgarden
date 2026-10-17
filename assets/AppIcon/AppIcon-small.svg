@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Skillgarden Sprout Book, small variant for the 16 px and 32 px files</title>
+  <!-- Same design as AppIcon.svg: no shadow, larger tile, thicker stem, wider book gutter. -->
+  <rect x="40" y="40" width="944" height="944" rx="212" fill="#3B7A57"/>
+  <g transform="translate(512 530) scale(1.2) translate(-512 -560)">
+  <!-- stem -->
+  <path d="M512 690 C512 600 508 520 512 430" fill="none" stroke="#F7F5F0" stroke-width="72" stroke-linecap="round"/>
+  <!-- leaves -->
+  <path d="M500 540 C470 450 390 420 300 438 C318 520 400 566 500 540 Z" fill="#CFE9B8"/>
+  <path d="M524 452 C540 340 640 282 754 300 C744 410 650 470 524 452 Z" fill="#CFE9B8"/>
+  <!-- open book -->
+  <path d="M484 712 C420 660 320 636 222 656 L222 790 C320 772 420 790 484 846 Z" fill="#F7F5F0"/>
+  <path d="M540 712 C604 660 704 636 802 656 L802 790 C704 772 604 790 540 846 Z" fill="#F7F5F0"/>
+  </g>
+</svg>
