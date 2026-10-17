@@ -136,7 +136,7 @@ func manifestRejectsPaths(path: String) throws {
 @Test func manifestEveryRequiredField() throws {
     let object = try fixtureObject()
     func checkFields(_ fields: [String: Any], prefix: String, wrap: ([String: Any]) -> [String: Any]) throws {
-        for key in fields.keys.sorted() where !["recommended_next", "role", "url"].contains(key) {
+        for key in fields.keys.sorted() where !["recommended_next", "role", "url", "internal"].contains(key) {
             let path = prefix.isEmpty ? key : "\(prefix).\(key)"
             var missing = fields
             missing.removeValue(forKey: key)
