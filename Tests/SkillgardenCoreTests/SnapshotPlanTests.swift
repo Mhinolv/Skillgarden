@@ -27,6 +27,7 @@ private func temporaryFolder() throws -> URL {
         "video-player-light.png", "video-player-dark.png",
     ])
     #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer])
+    #expect(SnapshotScreen.allCases.filter { !$0.selectsCourse } == [.libraryEmpty, .libraryEmptyCustomFolder, .library])
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
@@ -45,9 +46,19 @@ private func temporaryFolder() throws -> URL {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder:
             #expect(courseID == nil)
+            #expect(!screen.selectsCourse)
+            #expect(SnapshotPlan.imageLoads(for: screen) == 0)
             #expect(library.courses.isEmpty)
         case .library:
             #expect(courseID == "sample-course")
+            // The Library home: no selected course, the fixture course is the hero and a second course is new.
+            #expect(!screen.selectsCourse)
+            #expect(SnapshotPlan.imageLoads(for: screen) == 2)
+            #expect(library.courses.map(\.id) == ["garden-tools", "sample-course"])
+            #expect(library.heroCourse?.id == "sample-course")
+            #expect(library.courses.map { library.summary(of: $0).status } == [.new, .inProgress])
+            #expect(library.accent(ofCourse: "garden-tools") == ThemeColor(hex: "#2F6FED"))
+            #expect(library.libraryMeta == "2 courses · 1 in progress")
             library.selectCourse(courseID)
             library.selectDestination(nil)
             #expect(library.selectedCourse?.title == "Local Course Basics")

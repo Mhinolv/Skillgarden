@@ -158,14 +158,14 @@ private struct GardenTheme: ViewModifier {
             .environment(\.gardenPalette, palette)
             .environment(\.colorScheme, colorScheme)
             .preferredColorScheme(theme?.appearance.colorScheme)
-            // Hide the toolbar material, so the column page colors show below the toolbar.
-            .toolbarBackground(theme == nil ? .automatic : .hidden, for: .windowToolbar)
-            .background(TransparentTitlebar(isTransparent: theme != nil))
+            // Hide the toolbar material, so the page colors of the Library home and the columns show below the toolbar.
+            .toolbarBackground(.hidden, for: .windowToolbar)
+            .background(TransparentTitlebar(isTransparent: true))
     }
 }
 
-/// Makes the window titlebar transparent while a course theme colors the window.
-/// The columns fill below the toolbar, so the toolbar shows the page color.
+/// Makes the window titlebar transparent. The Library home and the columns fill below the toolbar,
+/// so the toolbar shows the page color.
 private struct TransparentTitlebar: NSViewRepresentable {
     let isTransparent: Bool
 
