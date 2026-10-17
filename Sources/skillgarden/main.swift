@@ -1,11 +1,7 @@
 import Foundation
 import SkillgardenCore
 
-// Agent-facing CLI. Subcommands (publish, ...) arrive with the MVP issues.
-let args = CommandLine.arguments.dropFirst()
-switch args.first {
-case "--version", "version":
-    print("skillgarden \(Skillgarden.version)")
-default:
-    print("usage: skillgarden <command>\n  version    print the version")
-}
+let result = SkillgardenCommand.run(arguments: Array(CommandLine.arguments.dropFirst()))
+FileHandle.standardOutput.write(Data(result.stdout.utf8))
+FileHandle.standardError.write(Data(result.stderr.utf8))
+exit(result.exitCode)
