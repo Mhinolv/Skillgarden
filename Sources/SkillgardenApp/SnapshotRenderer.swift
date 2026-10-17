@@ -65,6 +65,7 @@ enum SnapshotRenderer {
             .environment(\.timeZone, TimeZone(identifier: SnapshotPlan.timeZoneIdentifier)!)
             .environment(\.imageLoads, imageLoads)
             .environment(\.opensVideoPlayer, output.screen.opensVideoPlayer)
+            .environment(\.snapshotVideoStart, output.screen.videoStartSeconds)
             .environment(\.showsReviewInline, true)
             .transaction { $0.disablesAnimations = true; $0.animation = nil }
         let size = NSSize(width: SnapshotPlan.width, height: SnapshotPlan.height)
@@ -96,6 +97,11 @@ enum SnapshotRenderer {
             }
             guard imageLoads.loaded > 0 else { throw SnapshotError.courseImage }
         }
+        if output.screen.scrollsLectureToEnd {
+            scrollToEnd(in: frameView)
+            ticks = 0
+            pump { frameView.layoutSubtreeIfNeeded(); ticks += 1; return ticks >= 5 }
+        }
 
         let png = try image(of: frameView, appearance: appearance)
         try png.write(to: output.url, options: .atomic)
@@ -107,6 +113,23 @@ enum SnapshotRenderer {
         while !done(), Date() < end {
             RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
         }
+    }
+
+    /// Scrolls the scroll view with the most hidden content (the lecture page) to its end.
+    /// The sidebar list and the transcript panel scroll less, so they stay as they are.
+    private static func scrollToEnd(in view: NSView) {
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews(in:))
+        }
+        func hiddenHeight(_ scrollView: NSScrollView) -> CGFloat {
+            (scrollView.documentView?.frame.height ?? 0) - scrollView.contentView.bounds.height
+        }
+        guard let scrollView = scrollViews(in: view).max(by: { hiddenHeight($0) < hiddenHeight($1) }),
+              let document = scrollView.documentView, hiddenHeight(scrollView) > 0 else { return }
+        let clip = scrollView.contentView
+        let y = document.isFlipped ? document.frame.height - clip.bounds.height : 0
+        clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: y))
+        scrollView.reflectScrolledClipView(clip)
     }
 
     private static func image(of view: NSView, appearance: NSAppearance) throws -> Data {

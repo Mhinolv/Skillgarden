@@ -24,10 +24,13 @@ private func temporaryFolder() throws -> URL {
         "course-landing-dark-theme-light.png", "course-landing-dark-theme-dark.png",
         "quiz-question-light.png", "quiz-question-dark.png", "quiz-wrong-answer-light.png", "quiz-wrong-answer-dark.png",
         "quiz-results-light.png", "quiz-results-dark.png", "interactive-result-light.png", "interactive-result-dark.png",
-        "video-player-light.png", "video-player-dark.png", "section-review-light.png", "section-review-dark.png",
+        "video-player-light.png", "video-player-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
+        "section-review-light.png", "section-review-dark.png",
     ])
     #expect(SnapshotScreen.allCases.filter(\.showsReviewInline) == [.sectionReview])
-    #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer])
+    #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer, .videoTranscript])
+    #expect(SnapshotScreen.allCases.filter { $0.videoStartSeconds != nil } == [.videoTranscript])
+    #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [.videoTranscript])
     #expect(SnapshotScreen.allCases.filter { !$0.selectsCourse } == [.libraryEmpty, .libraryEmptyCustomFolder, .library])
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
@@ -144,6 +147,17 @@ private func temporaryFolder() throws -> URL {
             let video = try #require(library.video(forLecture: "welcome"))
             #expect(FileManager.default.fileExists(atPath: video.url.path))
             #expect(video.captionsURL != nil)
+        case .videoTranscript:
+            #expect(courseID == "sample-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            let video = try #require(library.video(forLecture: "welcome"))
+            // The start time makes the second of the two fixture lines active.
+            let transcript = Transcript(captions: try #require(try video.loadCaptions()))
+            #expect(transcript.lines.count == 2)
+            let start = try #require(screen.videoStartSeconds)
+            #expect(transcript.activeLine(at: start) == 1)
+            #expect(SnapshotPlan.imageLoads(for: screen) == 1)
         case .interactiveResult:
             #expect(courseID == "interactive-course")
             library.selectCourse(courseID)
