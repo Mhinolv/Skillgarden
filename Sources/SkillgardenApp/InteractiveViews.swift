@@ -20,17 +20,16 @@ struct InteractiveLectureView: View {
     @State private var blockedLink = false
     /// A new value makes a new web view, so the module starts again.
     @State private var session = 0
+    @Environment(\.gardenPalette) private var palette
 
     var body: some View {
         VStack(alignment: .leading, spacing: CourseStyle.spacing) {
             Label("Interactive", systemImage: LectureType.interactive.symbolName)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .gardenText(.meta)
             frame
             if blockedLink {
                 Text("Skillgarden blocked a link outside this course.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .gardenText(.meta)
             }
             HStack {
                 Spacer()
@@ -39,8 +38,7 @@ struct InteractiveLectureView: View {
                     blockedLink = false
                     session += 1
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.garden(.soft, .small))
                 .disabled(available != true)
             }
             if let result { InteractiveResultView(result: result).padding(.top, CourseStyle.spacing) }
@@ -70,30 +68,33 @@ struct InteractiveLectureView: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: InteractiveStyle.frameHeight)
-        .background(.background, in: .rect(cornerRadius: CourseStyle.cornerRadius))
-        .clipShape(.rect(cornerRadius: CourseStyle.cornerRadius))
-        .overlay(RoundedRectangle(cornerRadius: CourseStyle.cornerRadius).strokeBorder(.separator, lineWidth: 1))
+        .background(palette.card, in: .garden(24))
+        .clipShape(.garden(24))
+        .overlay(RoundedRectangle.garden(24).strokeBorder(palette.line, lineWidth: 1.5))
     }
 }
 
-/// The latest score of the module, with the skills to review when the score is weak.
+/// The latest score of the module in a card, with the skills to review when the score is weak.
 struct InteractiveResultView: View {
     let result: InteractiveResult
+    @Environment(\.gardenPalette) private var palette
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CourseStyle.spacing) {
-            Text("Score: \(result.score)%").font(.title3.weight(.semibold))
-            if result.weakSkills.isEmpty {
-                Label {
-                    Text("You met the objective.")
-                } icon: {
-                    Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+        GardenCard {
+            VStack(alignment: .leading, spacing: GardenSpacing.s) {
+                Text("Score: \(result.score)%").gardenText(.cardTitle).monospacedDigit()
+                if result.weakSkills.isEmpty {
+                    Label {
+                        Text("You met the objective.").font(GardenFont.body.weight(.bold)).foregroundStyle(palette.ink)
+                    } icon: {
+                        Image(systemName: "checkmark.seal.fill").foregroundStyle(palette.accent)
+                    }
+                } else {
+                    SkillsToReviewList(skills: result.weakSkills)
                 }
-            } else {
-                SkillsToReviewList(skills: result.weakSkills)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

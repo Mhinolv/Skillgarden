@@ -127,6 +127,12 @@ public final class LibraryModel {
         return SteppingStone.states(lectureIDs: lectures.map(\.id)) { isComplete($0) }
     }
 
+    /// The "Your path" rows of the selected course.
+    public var coursePath: [CoursePathRow] {
+        guard let course = selectedCourse else { return [] }
+        return CoursePathRow.rows(course: course, progress: progress[course.id] ?? [:])
+    }
+
     // MARK: Library home
 
     /// The tile progress of any course in the library. It does not need a selected course.

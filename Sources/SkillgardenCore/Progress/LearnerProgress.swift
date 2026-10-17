@@ -41,6 +41,32 @@ public enum SteppingStone: Equatable, Sendable {
     }
 }
 
+/// One section row of "Your path" on the course landing.
+public struct CoursePathRow: Equatable, Sendable {
+    public let section: CourseSection
+    /// The 1-based section number.
+    public let number: Int
+    /// The section part of the course stones. Only the first incomplete lecture of the course is `next`.
+    public let stones: [SteppingStone]
+    public let progress: SectionProgress
+    /// The first incomplete learner lecture of the course, if this section has it.
+    public let nextLectureID: String?
+
+    /// One row per learner section. A lecture id that repeats gets its own stone in each section.
+    public static func rows(course: Course, progress: [String: LectureProgress]) -> [CoursePathRow] {
+        let sections = course.learnerSections
+        let isComplete = { (id: String) in progress[id]?.completed == true }
+        var stones = SteppingStone.states(lectureIDs: sections.flatMap { $0.lectures.map(\.id) }, isComplete: isComplete)[...]
+        return sections.enumerated().map { index, section in
+            let own = Array(stones.prefix(section.lectures.count))
+            stones = stones.dropFirst(section.lectures.count)
+            let next = own.firstIndex(of: .next).map { section.lectures[$0].id }
+            return CoursePathRow(section: section, number: index + 1, stones: own,
+                                 progress: SectionProgress(section: section, progress: progress), nextLectureID: next)
+        }
+    }
+}
+
 /// Rules for the saved video position.
 public enum PlaybackResume {
     /// The player saves the position at this interval, on pause and when the learner leaves the lecture.
