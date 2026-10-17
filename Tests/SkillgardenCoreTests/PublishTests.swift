@@ -126,7 +126,11 @@ private func counts(_ result: PublishResult) -> [Int] {
                 Lecture(id: "l", title: "Lecture", type: .article, order: 0, state: .published),
             ]),
         ])
-        try old.saveCourse(saved)
+        // Write the rows with version 1 SQL. Current store code writes the image columns.
+        let v1 = try SQLiteDatabase(url: old.databaseURL)
+        try v1.execute("INSERT INTO courses (id, title, subtitle, state) VALUES ('old-course', 'Old course', '', 'published')")
+        try v1.execute("INSERT INTO sections (course_id, id, title, objective, sort_order, state) VALUES ('old-course', 's', 'Section', '', 0, 'published')")
+        try v1.execute("INSERT INTO lectures (course_id, section_id, id, title, type, objective, sort_order, state) VALUES ('old-course', 's', 'l', 'Lecture', 'article', '', 0, 'published')")
         let upgraded = try CourseStore(root: root)
         #expect(try upgraded.schemaVersion == CourseStore.currentSchemaVersion)
         #expect(try upgraded.loadCourse(id: "old-course") == saved)
