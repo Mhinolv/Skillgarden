@@ -17,7 +17,7 @@ public final class LibraryModel {
     public private(set) var destination: CourseDestination? = nil
     /// Section header images by course id, then section id. Courses without an installed snapshot have none.
     public private(set) var headerImages: [String: [String: SectionHeaderImage]] = [:]
-    private let root: URL
+    public let root: URL
 
     public init(root: URL = Skillgarden.defaultDataDirectory) {
         self.root = root

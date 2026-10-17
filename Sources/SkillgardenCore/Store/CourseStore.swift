@@ -3,7 +3,7 @@ import SQLite3
 
 /// A synchronous local store. The lock protects the connection and each complete operation.
 public final class CourseStore: @unchecked Sendable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
     public let databaseURL: URL
     private let database: SQLiteDatabase
     private let lock = NSLock()
@@ -57,13 +57,14 @@ public final class CourseStore: @unchecked Sendable {
 
     private func saveCourseRows(_ course: Course) throws {
         try database.execute("""
-            INSERT INTO courses (id, title, subtitle, state) VALUES (?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET title=excluded.title, subtitle=excluded.subtitle, state=excluded.state
-            """, [course.id, course.title, course.subtitle, course.state.rawValue])
+            INSERT INTO courses (id, title, subtitle, state, image) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET title=excluded.title, subtitle=excluded.subtitle, state=excluded.state, image=excluded.image
+            """, [course.id, course.title, course.subtitle, course.state.rawValue, try Self.encode(course.image)])
         try database.execute("DELETE FROM sections WHERE course_id = ?", [course.id])
         for section in course.sections {
-            try database.execute("INSERT INTO sections (course_id, id, title, objective, sort_order, state) VALUES (?, ?, ?, ?, ?, ?)",
-                                 [course.id, section.id, section.title, section.objective, String(section.order), section.state.rawValue])
+            try database.execute("INSERT INTO sections (course_id, id, title, objective, sort_order, state, header_image) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                 [course.id, section.id, section.title, section.objective, String(section.order), section.state.rawValue,
+                                  try Self.encode(section.headerImage)])
             for lecture in section.lectures {
                 try database.execute("""
                     INSERT INTO lectures (course_id, section_id, id, title, type, objective, sort_order, state, recommended_next)
@@ -93,17 +94,18 @@ public final class CourseStore: @unchecked Sendable {
             try database.transaction(readOnly: true) {
                 let filter = "(? IS NULL OR c.id = ?) AND (? = '1' OR c.state = 'published')"
                 let values: [String?] = [id, id, includeDrafts ? "1" : "0"]
-                let courses = try database.query("SELECT c.id, c.title, c.subtitle, c.state FROM courses c WHERE \(filter) ORDER BY c.title COLLATE NOCASE, c.title, c.id", values) { row in
+                let courses = try database.query("SELECT c.id, c.title, c.subtitle, c.state, c.image FROM courses c WHERE \(filter) ORDER BY c.title COLLATE NOCASE, c.title, c.id", values) { row in
                     Course(id: SQLiteDatabase.text(row, 0), title: SQLiteDatabase.text(row, 1),
-                           subtitle: SQLiteDatabase.text(row, 2), state: try Self.state(row, 3))
+                           subtitle: SQLiteDatabase.text(row, 2), state: try Self.state(row, 3), image: try Self.image(row, 4))
                 }
                 let sectionRows = try database.query("""
-                    SELECT s.course_id, s.id, s.title, s.objective, s.sort_order, s.state
+                    SELECT s.course_id, s.id, s.title, s.objective, s.sort_order, s.state, s.header_image
                     FROM sections s JOIN courses c ON c.id = s.course_id
                     WHERE \(filter) AND (? = '1' OR s.state = 'published') ORDER BY s.sort_order, s.id
                     """, values + [includeDrafts ? "1" : "0"]) { row in
                         (SQLiteDatabase.text(row, 0), CourseSection(id: SQLiteDatabase.text(row, 1), title: SQLiteDatabase.text(row, 2),
-                            objective: SQLiteDatabase.text(row, 3), order: Int(sqlite3_column_int64(row, 4)), state: try Self.state(row, 5)))
+                            objective: SQLiteDatabase.text(row, 3), order: Int(sqlite3_column_int64(row, 4)), state: try Self.state(row, 5),
+                            headerImage: try Self.image(row, 6)))
                     }
                 let lectureRows = try database.query("""
                     SELECT l.course_id, l.section_id, l.id, l.title, l.type, l.objective, l.sort_order, l.state, l.recommended_next
@@ -137,6 +139,21 @@ public final class CourseStore: @unchecked Sendable {
     private static func state(_ row: OpaquePointer, _ column: Int32) throws -> PublicationState {
         guard let state = PublicationState(rawValue: SQLiteDatabase.text(row, column)) else { throw CourseStoreError.invalidData }
         return state
+    }
+
+    /// Rows saved before schema version 3 have no image and read as nil.
+    private static func image(_ row: OpaquePointer, _ column: Int32) throws -> CourseImage? {
+        guard sqlite3_column_type(row, column) != SQLITE_NULL else { return nil }
+        guard let image = try? JSONDecoder().decode(CourseImage.self, from: Data(SQLiteDatabase.text(row, column).utf8)) else {
+            throw CourseStoreError.invalidData
+        }
+        return image
+    }
+
+    private static func encode(_ image: CourseImage?) throws -> String? {
+        guard let image else { return nil }
+        guard let data = try? JSONEncoder().encode(image) else { throw CourseStoreError.invalidData }
+        return String(decoding: data, as: UTF8.self)
     }
 
     func publication(id: String) throws -> (manifest: Data, directory: String)? {
@@ -229,5 +246,9 @@ public final class CourseStore: @unchecked Sendable {
             resume_seconds REAL NOT NULL DEFAULT 0, PRIMARY KEY(course_id, lecture_id)
         )
         """,
+    ], [
+        // Image metadata is a CourseImage JSON object. NULL means that the row has no image metadata.
+        "ALTER TABLE courses ADD COLUMN image TEXT",
+        "ALTER TABLE sections ADD COLUMN header_image TEXT",
     ]]
 }
