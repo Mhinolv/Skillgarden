@@ -9,8 +9,11 @@ let package = Package(
         .executable(name: "skillgarden", targets: ["skillgarden"]),
         .executable(name: "SkillgardenApp", targets: ["SkillgardenApp"]),
     ],
+    dependencies: [
+        .package(path: "Vendor/Yams"),
+    ],
     targets: [
-        .target(name: "SkillgardenCore"),
+        .target(name: "SkillgardenCore", dependencies: [.product(name: "Yams", package: "Yams")]),
         .executableTarget(name: "skillgarden", dependencies: ["SkillgardenCore"]),
         .executableTarget(name: "SkillgardenApp", dependencies: ["SkillgardenCore"]),
         .testTarget(name: "SkillgardenCoreTests", dependencies: ["SkillgardenCore"]),

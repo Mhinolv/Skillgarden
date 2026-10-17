@@ -21,7 +21,7 @@ Skillgarden is a Mac-native, local course platform, like Udemy, for content that
 - Build: `./scripts/build.sh` (app bundle: `./scripts/build.sh app`). Full suite: `./scripts/build.sh test`. Filtered: `./scripts/build.sh test --filter <name>`. Both must pass before a PR. Do not call `swift build` directly: it fails in the agent sandbox.
 - Put logic in `SkillgardenCore` so tests can reach it. Keep the CLI and the app thin.
 - Data lives in `~/Library/Application Support/Skillgarden` (`Skillgarden.defaultDataDirectory`). Tests use a temporary directory, never the real one.
-- Use only Apple frameworks (Foundation, SwiftUI, AVKit, PDFKit, ImageIO, SQLite3) unless an issue names a dependency.
+- Use only Apple frameworks (Foundation, SwiftUI, AVKit, PDFKit, ImageIO, SQLite3) plus vendored Yams (`Vendor/Yams`, for YAML manifests). Do not add package dependencies: the agent sandbox has no network.
 - Store format changes need a migration. Data saved before a change must still load.
 - Internal-only course material is never shown in the learner app.
 - Use `PreviewProvider`, not the `#Preview` macro (macros do not run in the agent sandbox).
