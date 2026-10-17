@@ -43,6 +43,11 @@ sections:
         objective: Describe the course plan
         state: published
         order: 1
+        article:
+          path: content/plan.md
+          images:
+            - path: media/section.svg
+              alt: The two sections of the course plan
   - id: practice
     title: Check your work
     objective: Apply the course plan

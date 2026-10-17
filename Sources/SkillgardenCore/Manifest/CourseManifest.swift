@@ -21,6 +21,14 @@ public struct ManifestCredit: Codable, Equatable, Sendable {
     public var url: String?
 }
 
+/// The Markdown file of an article lecture. `images` gives the alt text of each embedded image.
+/// Image paths are relative to the course folder. The Markdown refers to them relative to its own folder.
+public struct ManifestArticle: Codable, Equatable, Sendable {
+    public var path: String
+    /// Optional. Nil when the manifest has no `images` field.
+    public var images: [ManifestImage]?
+}
+
 public struct ManifestLecture: Codable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -29,10 +37,12 @@ public struct ManifestLecture: Codable, Equatable, Sendable {
     public var state: ManifestState
     public var order: Int
     public var recommendedNext: String?
+    /// Required when `type` is `article`, and not allowed for other types.
+    public var article: ManifestArticle?
     /// Required when `type` is `quiz`. Nil for every other type.
     public var quiz: ManifestQuiz?
     enum CodingKeys: String, CodingKey {
-        case id, title, type, objective, state, order, quiz
+        case id, title, type, objective, state, order, article, quiz
         case recommendedNext = "recommended_next"
     }
 }

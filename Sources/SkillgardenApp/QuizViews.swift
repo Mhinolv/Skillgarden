@@ -86,6 +86,7 @@ struct QuizImageView: View {
         .accessibilityAddTraits(.isImage)
         .task(id: image.url) {
             loaded = nil
+            imageLoads?.start()
             let url = image.url
             let data = await Task.detached { try? Data(contentsOf: url) }.value
             loaded = data.flatMap(NSImage.init(data:))

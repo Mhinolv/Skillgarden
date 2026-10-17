@@ -146,6 +146,8 @@ struct ContentView: View {
                 ) {
                     if let attempt = library.selectedQuizAttempt {
                         QuizView(attempt: attempt) { library.performQuizAction($0) }
+                    } else if lecture.type == .article {
+                        ArticleLectureView(article: library.article(forLecture: lecture.id))
                     } else {
                         LectureContentPlaceholder(lecture: lecture)
                     }

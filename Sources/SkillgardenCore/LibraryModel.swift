@@ -17,6 +17,8 @@ public final class LibraryModel {
     public private(set) var destination: CourseDestination? = nil
     /// Section header images by course id, then section id. Courses without an installed snapshot have none.
     public private(set) var headerImages: [String: [String: SectionHeaderImage]] = [:]
+    /// Article files by course id, then lecture id. Courses without an installed snapshot have none.
+    public private(set) var articles: [String: [String: LectureArticle]] = [:]
     /// Course page fields and theme by course id. Courses without an installed snapshot have none.
     public private(set) var landings: [String: CourseLanding] = [:]
     /// Learner progress by course id, then lecture id.
@@ -75,6 +77,11 @@ public final class LibraryModel {
 
     public func headerImage(forSection sectionID: String) -> SectionHeaderImage? {
         selectedCourseID.flatMap { headerImages[$0]?[sectionID] }
+    }
+
+    /// The article file of a lecture in the selected course, or nil if the snapshot has none.
+    public func article(forLecture lectureID: String) -> LectureArticle? {
+        selectedCourseID.flatMap { articles[$0]?[lectureID] }
     }
 
     public func goToPreviousLecture() { if let previousLecture { open(previousLecture) } }
@@ -215,6 +222,7 @@ public final class LibraryModel {
             courses = loaded
             headerImages = installed.headerImages
             landings = installed.landings
+            articles = installed.articles
             self.progress = progress
             lastOpenedLectures = lastOpened
             quizzes = installed.quizzes
@@ -231,6 +239,7 @@ public final class LibraryModel {
             courses = []
             headerImages = [:]
             landings = [:]
+            articles = [:]
             progress = [:]
             lastOpenedLectures = [:]
             quizzes = [:]
@@ -253,27 +262,41 @@ public final class LibraryModel {
         }
     }
 
-    /// Reads header images, course page fields and quizzes from each installed manifest.
-    /// A header image path outside the snapshot folder is ignored.
-    nonisolated private static func installedData(store: CourseStore, root: URL) throws
-        -> (headerImages: [String: [String: SectionHeaderImage]], landings: [String: CourseLanding],
-            quizzes: [String: [String: Quiz]]) {
-        var images: [String: [String: SectionHeaderImage]] = [:]
-        var landings: [String: CourseLanding] = [:]
-        var quizzes: [String: [String: Quiz]] = [:]
+    /// Reads header images, course page fields, article files and quizzes from each installed manifest.
+    /// A path outside the snapshot folder is ignored.
+    nonisolated private static func installedData(store: CourseStore, root: URL) throws -> InstalledCourseData {
+        var data = InstalledCourseData()
         for (courseID, publication) in try store.publications() {
             guard let manifest = try? JSONDecoder().decode(CourseManifest.self, from: publication.manifest) else { continue }
-            landings[courseID] = CourseLanding(manifest: manifest)
+            data.landings[courseID] = CourseLanding(manifest: manifest)
             let folder = root.appending(path: publication.directory).standardizedFileURL
             for section in manifest.sections {
                 let url = folder.appending(path: section.headerImage.path).standardizedFileURL
-                guard url.path.hasPrefix(folder.path + "/") else { continue }
-                images[courseID, default: [:]][section.id] = SectionHeaderImage(url: url, alt: section.headerImage.alt)
+                if url.path.hasPrefix(folder.path + "/") {
+                    data.headerImages[courseID, default: [:]][section.id] = SectionHeaderImage(url: url, alt: section.headerImage.alt)
+                }
+                // Manifests saved before article support have no `article` field.
+                for lecture in section.lectures {
+                    guard let article = lecture.article, let path = LectureArticle.normalize(article.path) else { continue }
+                    data.articles[courseID, default: [:]][lecture.id] = LectureArticle(folder: folder, path: path, images: article.images ?? [])
+                }
             }
             for lecture in manifest.sections.flatMap(\.lectures) {
-                if let quiz = lecture.quiz { quizzes[courseID, default: [:]][lecture.id] = Quiz(manifest: quiz, folder: folder) }
+                if let quiz = lecture.quiz { data.quizzes[courseID, default: [:]][lecture.id] = Quiz(manifest: quiz, folder: folder) }
             }
         }
-        return (images, landings, quizzes)
+        return data
     }
+}
+
+/// The data that `LibraryModel` reads from the installed publication folders. Add new fields here.
+struct InstalledCourseData: Sendable {
+    /// Section header images by course id, then section id.
+    var headerImages: [String: [String: SectionHeaderImage]] = [:]
+    /// Course page fields and theme by course id.
+    var landings: [String: CourseLanding] = [:]
+    /// Article files by course id, then lecture id.
+    var articles: [String: [String: LectureArticle]] = [:]
+    /// Quizzes by course id, then lecture id.
+    var quizzes: [String: [String: Quiz]] = [:]
 }

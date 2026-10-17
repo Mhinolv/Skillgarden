@@ -40,6 +40,7 @@ struct ManifestValidator {
             ("type", .choices(["video", "article", "quiz", "assignment"])),
             ("objective", .string), ("state", state), ("order", .integer),
             ("recommended_next", .optional(.string)),
+            ("article", .optional(.object([("path", .string), ("images", .optional(.array(image)))]))),
             ("quiz", .optional(.object([("questions", .array(question))]))),
         ])
         let section = FieldRule.object([
@@ -132,6 +133,12 @@ struct ManifestValidator {
                 } else if let child = object[key] {
                     checkExtensionPaths(child, path: childPath, key: key)
                 }
+            }
+            // Only lectures have an `article` rule. The field must match the lecture type.
+            if rules["article"] != nil, case .string(let type)? = object["type"] {
+                let present: Bool = if case .null? = object["article"] { false } else { object["article"] != nil }
+                if type == "article", !present { add("\(path).article", "required field is missing") }
+                if type != "article", present { add("\(path).article", "allowed only when type is article") }
             }
         case (.array(let values), .array(let childRule)):
             for (index, child) in values.enumerated() {

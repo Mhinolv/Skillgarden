@@ -80,11 +80,18 @@ enum SnapshotRenderer {
         var ticks = 0
         pump { frameView.layoutSubtreeIfNeeded(); ticks += 1; return ticks >= 20 }
         if courseID != nil {
-            // Capture only after the Library row and question image loads end, then let SwiftUI draw the loaded images.
-            pump { frameView.layoutSubtreeIfNeeded(); return imageLoads.finished >= SnapshotPlan.imageLoads(for: output.screen) }
+            // Capture only after all loads end, then let SwiftUI draw the loaded images.
+            // An article starts its image loads after its Markdown loads, so wait two times.
+            let expected = SnapshotPlan.imageLoads(for: output.screen)
+            for _ in 0..<2 {
+                pump {
+                    frameView.layoutSubtreeIfNeeded()
+                    return imageLoads.finished >= expected && imageLoads.pending == 0
+                }
+                ticks = 0
+                pump { frameView.layoutSubtreeIfNeeded(); ticks += 1; return ticks >= 5 }
+            }
             guard imageLoads.loaded > 0 else { throw SnapshotError.courseImage }
-            ticks = 0
-            pump { frameView.layoutSubtreeIfNeeded(); ticks += 1; return ticks >= 5 }
         }
 
         let png = try image(of: frameView, appearance: appearance)
