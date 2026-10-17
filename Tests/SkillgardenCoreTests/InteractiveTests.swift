@@ -67,6 +67,10 @@ private func publishDiagnostics(_ folder: URL, root: URL) throws -> [ManifestDia
     }
     for (path, message) in [("../outside", "path must stay inside the course folder"),
                             ("internal/module", "path must not be inside internal/"),
+                            // The folder name `internal` matches in any case, also after `./`.
+                            ("./internal/module", "path must not be inside internal/"),
+                            ("Internal/module", "path must not be inside internal/"),
+                            ("./INTERNAL/module", "path must not be inside internal/"),
                             ("/tmp/module", "path must stay inside the course folder"),
                             ("''", "must not be empty")] {
         try withCourse { folder, root in
