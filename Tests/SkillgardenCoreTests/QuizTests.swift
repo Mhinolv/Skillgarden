@@ -216,6 +216,32 @@ func validationFailsWhenAQuestionLacksAField(field: String) throws {
     #expect(QuizAttempt(quiz: Quiz(questions: [])).showsResults)
 }
 
+@Test func questionStonesShowAnsweredCurrentAndLaterQuestions() {
+    let quiz = Quiz(questions: [question("q1", tag: "One"), question("q2", tag: "Two"), question("q3", tag: "Three")])
+    var attempt = QuizAttempt(quiz: quiz)
+    #expect(attempt.questionStones == [.next, .todo, .todo])
+    // A selection without Submit does not change the stones.
+    attempt.perform(.select(choiceID: "b"))
+    #expect(attempt.questionStones == [.next, .todo, .todo])
+    // A wrong answer is missed. The current question stays missed until Next.
+    attempt.perform(.submit)
+    #expect(attempt.questionStones == [.missed, .todo, .todo])
+    attempt.perform(.next)
+    #expect(attempt.questionStones == [.missed, .next, .todo])
+    attempt.perform(.select(choiceID: "a"))
+    attempt.perform(.submit)
+    attempt.perform(.next)
+    attempt.perform(.select(choiceID: "a"))
+    attempt.perform(.submit)
+    attempt.perform(.next)
+    // The results screen has no current question.
+    #expect(attempt.showsResults)
+    #expect(attempt.questionStones == [.missed, .done, .done])
+    attempt.perform(.retake)
+    #expect(attempt.questionStones == [.next, .todo, .todo])
+    #expect(QuizAttempt(quiz: Quiz(questions: [])).questionStones.isEmpty)
+}
+
 // MARK: Store and library
 
 @Test func quizResultsSaveAndMigrateFromSchemaVersion5() throws {

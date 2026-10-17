@@ -103,8 +103,7 @@ struct VideoLectureView: View {
             if let video {
                 HStack(spacing: CourseStyle.spacing) {
                     Label(video.metadataLabel, systemImage: LectureType.video.symbolName)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .gardenText(.meta)
                     if video.isFreePreview { FreePreviewBadge() }
                 }
             }
@@ -114,13 +113,9 @@ struct VideoLectureView: View {
             } else {
                 player
                 if video?.captionsURL != nil {
-                    HStack {
-                        Toggle(isOn: $showsCaptions) { Label("Captions", systemImage: "captions.bubble") }
-                            .toggleStyle(.button)
-                            .disabled(captions == nil)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    Toggle(isOn: $showsCaptions) { Label("Captions", systemImage: "captions.bubble") }
+                        .toggleStyle(GardenPillToggleStyle())
+                        .disabled(captions == nil)
                 }
             }
         }
@@ -141,7 +136,7 @@ struct VideoLectureView: View {
                     posterView
                 }
             }
-            .clipShape(.rect(cornerRadius: CourseStyle.cornerRadius))
+            .clipShape(.garden(24))
             .frame(maxWidth: Self.maxWidth)
     }
 
@@ -230,6 +225,15 @@ struct PlayerView: NSViewRepresentable {
 
     static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
         view.player = nil
+    }
+}
+
+/// A small Garden pill for an on and off toggle: primary when on, soft when off.
+struct GardenPillToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: { configuration.label }
+            .buttonStyle(.garden(configuration.isOn ? .primary : .soft, .small))
+            .accessibilityValue(configuration.isOn ? "On" : "Off")
     }
 }
 
