@@ -1,0 +1,166 @@
+import Foundation
+import SQLite3
+
+/// A synchronous local store. The lock protects the connection and each complete operation.
+public final class CourseStore: @unchecked Sendable {
+    public static let currentSchemaVersion = 1
+    public let databaseURL: URL
+    private let database: SQLiteDatabase
+    private let lock = NSLock()
+
+    public convenience init(root: URL = Skillgarden.defaultDataDirectory) throws {
+        try self.init(root: root, migrations: Self.migrations)
+    }
+
+    // Tests append a migration to prove that a prior database still loads.
+    init(root: URL, migrations: [[String]]) throws {
+        databaseURL = root.appending(path: "library.sqlite")
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        } catch {
+            throw CourseStoreError.cannotOpen
+        }
+        database = try SQLiteDatabase(url: databaseURL)
+        try database.transaction {
+            try database.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
+            let versions = try database.query("SELECT version FROM schema_version") { Int(sqlite3_column_int64($0, 0)) }
+            guard versions.count <= 1 else { throw CourseStoreError.invalidData }
+            let version = versions.first ?? 0
+            guard version >= 0 else { throw CourseStoreError.invalidData }
+            guard version <= migrations.count else {
+                throw CourseStoreError.unsupportedSchema(found: version, supported: migrations.count)
+            }
+            if versions.isEmpty { try database.execute("INSERT INTO schema_version VALUES (0)") }
+            for index in version..<migrations.count {
+                for sql in migrations[index] { try database.execute(sql) }
+                try database.execute("UPDATE schema_version SET version = ?", [String(index + 1)])
+            }
+        }
+    }
+
+    public var schemaVersion: Int {
+        get throws {
+            try lock.withLock {
+                try database.query("SELECT version FROM schema_version") { Int(sqlite3_column_int64($0, 0)) }.first ?? 0
+            }
+        }
+    }
+
+    /// Saves the whole outline atomically and removes sections and lectures absent from the course.
+    public func saveCourse(_ course: Course) throws {
+        try lock.withLock {
+            try database.transaction {
+                try database.execute("""
+                    INSERT INTO courses (id, title, subtitle, state) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET title=excluded.title, subtitle=excluded.subtitle, state=excluded.state
+                    """, [course.id, course.title, course.subtitle, course.state.rawValue])
+                try database.execute("DELETE FROM sections WHERE course_id = ?", [course.id])
+                for section in course.sections {
+                    try database.execute("INSERT INTO sections (course_id, id, title, objective, sort_order, state) VALUES (?, ?, ?, ?, ?, ?)",
+                                         [course.id, section.id, section.title, section.objective, String(section.order), section.state.rawValue])
+                    for lecture in section.lectures {
+                        try database.execute("""
+                            INSERT INTO lectures (course_id, section_id, id, title, type, objective, sort_order, state, recommended_next)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, [course.id, section.id, lecture.id, lecture.title, lecture.type.rawValue, lecture.objective,
+                                  String(lecture.order), lecture.state.rawValue, lecture.recommendedNext])
+                    }
+                }
+            }
+        }
+    }
+
+    /// Learner reads exclude draft courses and all descendants of draft sections.
+    public func listCourses(includeDrafts: Bool = false) throws -> [Course] {
+        try readCourses(id: nil, includeDrafts: includeDrafts)
+    }
+
+    public func loadCourse(id: String, includeDrafts: Bool = false) throws -> Course? {
+        try readCourses(id: id, includeDrafts: includeDrafts).first
+    }
+
+    public func deleteCourse(id: String) throws {
+        try lock.withLock { try database.execute("DELETE FROM courses WHERE id = ?", [id]) }
+    }
+
+    private func readCourses(id: String?, includeDrafts: Bool) throws -> [Course] {
+        try lock.withLock {
+            // Three queries fetch any library size. The transaction gives all queries one snapshot.
+            try database.transaction(readOnly: true) {
+                let filter = "(? IS NULL OR c.id = ?) AND (? = '1' OR c.state = 'published')"
+                let values: [String?] = [id, id, includeDrafts ? "1" : "0"]
+                let courses = try database.query("SELECT c.id, c.title, c.subtitle, c.state FROM courses c WHERE \(filter) ORDER BY c.title COLLATE NOCASE, c.title, c.id", values) { row in
+                    Course(id: SQLiteDatabase.text(row, 0), title: SQLiteDatabase.text(row, 1),
+                           subtitle: SQLiteDatabase.text(row, 2), state: try Self.state(row, 3))
+                }
+                let sectionRows = try database.query("""
+                    SELECT s.course_id, s.id, s.title, s.objective, s.sort_order, s.state
+                    FROM sections s JOIN courses c ON c.id = s.course_id
+                    WHERE \(filter) AND (? = '1' OR s.state = 'published') ORDER BY s.sort_order, s.id
+                    """, values + [includeDrafts ? "1" : "0"]) { row in
+                        (SQLiteDatabase.text(row, 0), CourseSection(id: SQLiteDatabase.text(row, 1), title: SQLiteDatabase.text(row, 2),
+                            objective: SQLiteDatabase.text(row, 3), order: Int(sqlite3_column_int64(row, 4)), state: try Self.state(row, 5)))
+                    }
+                let lectureRows = try database.query("""
+                    SELECT l.course_id, l.section_id, l.id, l.title, l.type, l.objective, l.sort_order, l.state, l.recommended_next
+                    FROM lectures l JOIN sections s ON s.course_id = l.course_id AND s.id = l.section_id
+                    JOIN courses c ON c.id = l.course_id
+                    WHERE \(filter) AND (? = '1' OR (s.state = 'published' AND l.state = 'published'))
+                    ORDER BY l.sort_order, l.id
+                    """, values + [includeDrafts ? "1" : "0"]) { row in
+                        guard let type = LectureType(rawValue: SQLiteDatabase.text(row, 4)) else { throw CourseStoreError.invalidData }
+                        return (SQLiteDatabase.text(row, 0), SQLiteDatabase.text(row, 1),
+                                Lecture(id: SQLiteDatabase.text(row, 2), title: SQLiteDatabase.text(row, 3), type: type,
+                                    objective: SQLiteDatabase.text(row, 5), order: Int(sqlite3_column_int64(row, 6)),
+                                    state: try Self.state(row, 7), recommendedNext: sqlite3_column_type(row, 8) == SQLITE_NULL ? nil : SQLiteDatabase.text(row, 8)))
+                    }
+                var lectures: [String: [String: [Lecture]]] = [:]
+                for (courseID, sectionID, lecture) in lectureRows { lectures[courseID, default: [:]][sectionID, default: []].append(lecture) }
+                var sections: [String: [CourseSection]] = [:]
+                for (courseID, var section) in sectionRows {
+                    section.lectures = lectures[courseID]?[section.id] ?? []
+                    sections[courseID, default: []].append(section)
+                }
+                return courses.map { course in
+                    var course = course
+                    course.sections = sections[course.id] ?? []
+                    return course
+                }
+            }
+        }
+    }
+
+    private static func state(_ row: OpaquePointer, _ column: Int32) throws -> PublicationState {
+        guard let state = PublicationState(rawValue: SQLiteDatabase.text(row, column)) else { throw CourseStoreError.invalidData }
+        return state
+    }
+
+    static let migrations: [[String]] = [[
+        """
+        CREATE TABLE courses (
+            id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, subtitle TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL CHECK(state IN ('draft', 'published'))
+        )
+        """,
+        """
+        CREATE TABLE sections (
+            course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+            id TEXT NOT NULL, title TEXT NOT NULL, objective TEXT NOT NULL DEFAULT '', sort_order INTEGER NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('draft', 'published')), PRIMARY KEY(course_id, id)
+        )
+        """,
+        """
+        CREATE TABLE lectures (
+            course_id TEXT NOT NULL, section_id TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('video', 'article', 'quiz', 'assignment')),
+            objective TEXT NOT NULL DEFAULT '', sort_order INTEGER NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('draft', 'published')), recommended_next TEXT,
+            PRIMARY KEY(course_id, id),
+            FOREIGN KEY(course_id, section_id) REFERENCES sections(course_id, id) ON DELETE CASCADE
+        )
+        """,
+        "CREATE INDEX sections_outline ON sections(course_id, sort_order, id)",
+        "CREATE INDEX lectures_outline ON lectures(course_id, section_id, sort_order, id)",
+        "CREATE INDEX courses_title ON courses(title COLLATE NOCASE, title, id)",
+    ]]
+}
