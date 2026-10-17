@@ -44,6 +44,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// True when the harness scrolls the lecture page to the end.
     public var scrollsLectureToEnd: Bool { self == .videoTranscript }
 
+    /// True when the harness fails if the capture has black video pixels in the title bar and the toolbar (#55).
+    public var checksTitlebarForVideo: Bool { opensVideoPlayer }
+
     /// True when the harness draws the review sheet in the window. A real sheet is a separate window, so the capture misses it.
     public var showsReviewInline: Bool { self == .sectionReview }
 
@@ -73,8 +76,9 @@ public enum SnapshotPlan {
     }
 
     /// One output per screen and appearance, in a fixed order: `<out-dir>/<screen>-<light|dark>.png`.
-    public static func outputs(outDirectory: URL) -> [Output] {
-        SnapshotScreen.allCases.flatMap { screen in
+    /// `screens` limits the outputs to these screens. The order stays the same.
+    public static func outputs(outDirectory: URL, screens: Set<SnapshotScreen>? = nil) -> [Output] {
+        SnapshotScreen.allCases.filter { screens?.contains($0) ?? true }.flatMap { screen in
             SnapshotAppearance.allCases.map { appearance in
                 Output(screen: screen, appearance: appearance,
                        url: outDirectory.appending(path: "\(screen.rawValue)-\(appearance.rawValue).png"))
