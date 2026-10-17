@@ -110,51 +110,6 @@ private let course = Course(id: "c", title: "Course", state: .published, section
     }
 }
 
-@Test func coursePathMarksOnlyTheFirstIncompleteLectureOfTheCourseAsNext() {
-    let path = Course(id: "p", title: "Path", state: .published, sections: [
-        CourseSection(id: "s1", title: "One", order: 0, state: .published, lectures: [lecture("a", order: 0), lecture("b", order: 1)]),
-        CourseSection(id: "hidden", title: "Hidden", order: 1, state: .draft, lectures: [lecture("h", order: 0)]),
-        CourseSection(id: "empty", title: "Empty", order: 2, state: .published),
-        CourseSection(id: "s2", title: "Two", order: 3, state: .published, lectures: [
-            lecture("c", order: 0), lecture("draft", order: 1, state: .draft), lecture("a", order: 2),
-        ]),
-    ])
-    let done = LectureProgress(completed: true)
-
-    var rows = CoursePathRow.rows(course: path, progress: [:])
-    // The draft section has no row. Numbers follow the learner sections.
-    #expect(rows.map(\.section.id) == ["s1", "empty", "s2"])
-    #expect(rows.map(\.number) == [1, 2, 3])
-    #expect(rows.map(\.stones) == [[.next, .todo], [], [.todo, .todo]])
-    #expect(rows.map(\.nextLectureID) == ["a", nil, nil])
-    #expect(rows[1].progress.percent == nil)
-
-    // Section 1 is done, so the next lecture is the first lecture of section 2.
-    rows = CoursePathRow.rows(course: path, progress: ["a": done, "b": done])
-    #expect(rows.map(\.stones) == [[.done, .done], [], [.next, .done]])
-    #expect(rows.map(\.nextLectureID) == [nil, nil, "c"])
-    #expect(rows.map(\.progress.percent) == [100, nil, 50])
-
-    // Every lecture is done: no row has a next lecture.
-    rows = CoursePathRow.rows(course: path, progress: ["a": done, "b": done, "c": done])
-    #expect(rows.allSatisfy { $0.nextLectureID == nil && !$0.stones.contains(.next) })
-    #expect(CoursePathRow.rows(course: Course(id: "e", title: "E", state: .published), progress: [:]).isEmpty)
-}
-
-@MainActor @Test func libraryCoursePathUsesTheSelectedCourse() async throws {
-    try await withRoot { root in
-        try CourseStore(root: root).saveCourse(course)
-        let library = LibraryModel(root: root)
-        await library.reload()
-        #expect(library.coursePath.isEmpty)
-        library.selectCourse("c")
-        #expect(library.coursePath.map(\.stones) == [[.next, .todo, .todo, .todo, .todo], []])
-        library.selectDestination(.lecture(sectionID: "s1", lectureID: "video"))
-        await library.toggleSelectedLectureComplete()
-        #expect(library.coursePath.first?.nextLectureID == "a")
-    }
-}
-
 @Test func resumeStartIgnoresTheFirstAndLastFiveSeconds() {
     #expect(PlaybackResume.startSeconds(saved: 0, duration: 120) == 0)
     #expect(PlaybackResume.startSeconds(saved: 4.9, duration: 120) == 0)

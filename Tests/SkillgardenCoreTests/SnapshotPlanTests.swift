@@ -22,6 +22,7 @@ private func temporaryFolder() throws -> URL {
         "lecture-complete-light.png", "lecture-complete-dark.png", "article-light.png", "article-dark.png",
         "course-landing-light.png", "course-landing-dark.png",
         "course-landing-dark-theme-light.png", "course-landing-dark-theme-dark.png",
+        "course-landing-details-light.png", "course-landing-details-dark.png",
         "quiz-question-light.png", "quiz-question-dark.png", "quiz-wrong-answer-light.png", "quiz-wrong-answer-dark.png",
         "quiz-results-light.png", "quiz-results-dark.png", "interactive-result-light.png", "interactive-result-dark.png",
         "video-player-light.png", "video-player-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
@@ -36,10 +37,11 @@ private func temporaryFolder() throws -> URL {
     #expect(SnapshotScreen.allCases.filter { $0.transcriptQuery != nil } == [.transcriptSearch, .transcriptSearchNoResults])
     #expect(SnapshotScreen.allCases.filter(\.showsReviewInline) == [.sectionReview])
     #expect(SnapshotScreen.allCases.filter(\.showsPDFPreviewInline) == [.pdfPreview])
+    #expect(SnapshotScreen.allCases.filter(\.showsLandingDetails) == [.courseLandingDetails])
     #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer, .videoTranscript, .videoQuickCheck])
     #expect(SnapshotScreen.allCases.filter { $0.videoStartSeconds != nil } == [.videoTranscript])
     #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [
-        .videoTranscript, .videoQuickCheck, .lectureDownloads, .pdfPreview, .lectureSources,
+        .courseLandingDetails, .videoTranscript, .videoQuickCheck, .lectureDownloads, .pdfPreview, .lectureSources,
     ])
     #expect(SnapshotScreen.allCases.filter(\.showsQuickChecks) == [.videoQuickCheck])
     #expect(SnapshotScreen.allCases.filter(\.checksTitlebarForVideo) == [.videoPlayer, .videoTranscript, .videoQuickCheck])
@@ -103,9 +105,8 @@ private func temporaryFolder() throws -> URL {
             #expect(library.nudge?.kind == .recommended)
             #expect(library.nudge?.lecture.id == "read")
             #expect(!library.isSelectedLectureComplete)
-            // The video lecture shows its poster and the "Free preview" capsule in the header and the outline row.
+            // The video lecture shows its poster.
             #expect(library.selectedLecture?.type == .video)
-            #expect(library.isFreePreview("welcome"))
             #expect(library.video(forLecture: "welcome")?.posterAlt == "The first frame of the welcome video")
         case .lectureComplete:
             library.selectCourse(courseID)
@@ -142,6 +143,16 @@ private func temporaryFolder() throws -> URL {
                 #expect(theme.accent == ThemeColor(hex: SnapshotPlan.darkThemeAccent))
                 #expect(library.resumeLecture == nil)
             }
+        case .courseLandingDetails:
+            #expect(courseID == "sample-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.destination == .overview)
+            let landing = try #require(library.selectedLanding)
+            #expect(landing.summaryOutcomes == ["Plan a course", "Check your work", "Order the sections"])
+            #expect(landing.detailOutcomes.count == 5)
+            #expect(landing.requirements == ["A Mac"])
+            #expect(landing.hasDetails)
         case .quizQuestion, .quizWrongAnswer, .quizResults:
             #expect(courseID == "sample-course")
             library.selectCourse(courseID)

@@ -20,7 +20,7 @@ Compiled from the Course Studio team (Udemy Course Developer, L&D Agent, Graphic
 - A "recommended next" nudge (sequencing locks come after the MVP).
 
 ## 4. Lecture types
-- **Video:** MP4 player, .vtt captions, duration, poster frame, "free preview" flag.
+- **Video:** MP4 player, .vtt captions, duration, poster frame. The manifest accepts a `free_preview` flag, and the app ignores it (#66).
 - **Article:** Markdown with embedded images.
 - **Quiz:** multiple choice, an explanation for every answer, score at the end, images in questions, each question tagged to an objective so results show weak skills.
 - **Assignment:** written brief plus a rubric learners check themselves against.

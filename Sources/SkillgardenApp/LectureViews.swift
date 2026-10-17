@@ -70,7 +70,6 @@ struct SectionPageView: View {
     let progress: SectionProgress
     let stones: [SteppingStone]
     let isComplete: (String) -> Bool
-    let isFreePreview: (String) -> Bool
     let openLecture: (Lecture) -> Void
     @Environment(\.gardenPalette) private var palette
 
@@ -108,8 +107,7 @@ struct SectionPageView: View {
                             ForEach(Array(section.lectures.enumerated()), id: \.element.id) { index, lecture in
                                 Button { openLecture(lecture) } label: {
                                     LectureStopRow(lecture: lecture, stop: stop(index, lecture),
-                                                   isFirst: index == 0, isLast: index == section.lectures.count - 1,
-                                                   freePreview: isFreePreview(lecture.id))
+                                                   isFirst: index == 0, isLast: index == section.lectures.count - 1)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .contentShape(.rect)
                                 }

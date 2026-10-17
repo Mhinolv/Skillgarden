@@ -185,7 +185,6 @@ func manifestRejectsInvalidVideoPayloads(old: String, new: String, expected: [St
     #expect(lecture.posterURL?.standardizedFileURL == snapshot.appending(path: "media/poster.svg"))
     #expect(lecture.posterAlt == "The first frame of the welcome video")
     #expect(lecture.metadataLabel == "Video · 0:04")
-    #expect(lecture.isFreePreview)
 
     let media = try await mediaFacts(lecture.url)
     #expect(media.isPlayable)
@@ -209,26 +208,27 @@ private func mediaFacts(_ url: URL) async throws -> (isPlayable: Bool, seconds: 
     return (isPlayable, seconds, videoTracks)
 }
 
-@MainActor @Test func freePreviewFlagTogglesTheBadgeData() async throws {
+@MainActor @Test func freePreviewFlagPublishesAndChangesNoVideoData() async throws {
     try await withCourseAsync { folder, root in
+        // The app ignores `free_preview` (#66). True, false and no flag give the same video.
         _ = try CoursePublisher.publish(courseFolder: folder, root: root)
         let library = LibraryModel(root: root)
         await library.reload()
         library.selectCourse("sample-course")
-        #expect(library.isFreePreview("welcome"))
-        #expect(!library.isFreePreview("read"))
-        #expect(!library.isFreePreview("missing"))
+        let flagged = try #require(library.video(forLecture: "welcome"))
 
         try edit(folder, "          free_preview: true\n", "          free_preview: false\n")
         _ = try CoursePublisher.publish(courseFolder: folder, root: root)
         await library.reload()
-        #expect(!library.isFreePreview("welcome"))
+        #expect(library.errorMessage == nil)
+        #expect(library.video(forLecture: "welcome")?.metadataLabel == flagged.metadataLabel)
+        #expect(library.video(forLecture: "welcome")?.posterAlt == flagged.posterAlt)
 
         try edit(folder, "          free_preview: false\n", "")
         try edit(folder, "          captions:\n            path: content/welcome.vtt\n", "")
         _ = try CoursePublisher.publish(courseFolder: folder, root: root)
         await library.reload()
-        #expect(!library.isFreePreview("welcome"))
+        #expect(library.errorMessage == nil)
         // Without captions the app hides the Captions toggle.
         #expect(library.video(forLecture: "welcome")?.captionsURL == nil)
         #expect(try library.video(forLecture: "welcome")?.loadCaptions() == nil)
@@ -255,7 +255,6 @@ private func mediaFacts(_ url: URL) async throws -> (isPlayable: Bool, seconds: 
     #expect(video?.url.path == "/tmp/snapshot/a.mp4")
     #expect(video?.captionsURL == nil)
     #expect(video?.posterURL == nil)
-    #expect(video?.isFreePreview == false)
 }
 
 // MARK: Duration label

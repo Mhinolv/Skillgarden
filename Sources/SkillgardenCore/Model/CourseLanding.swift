@@ -148,6 +148,20 @@ public struct CourseLanding: Equatable, Sendable {
                             appearance: manifest.theme.appearance == .dark ? .dark : .light)
         credits = manifest.credits.compactMap { CourseCredit(manifest: $0, folder: folder) }
     }
+
+    /// The landing page shows this many outcomes. "Details" shows all of them.
+    public static let summaryOutcomeLimit = 3
+
+    /// The outcomes that the landing page shows above "Details".
+    public var summaryOutcomes: [String] { Array(learningOutcomes.prefix(Self.summaryOutcomeLimit)) }
+
+    /// All outcomes for "Details". Empty if the landing page already shows all of them, so no list repeats.
+    public var detailOutcomes: [String] { learningOutcomes.count > Self.summaryOutcomeLimit ? learningOutcomes : [] }
+
+    /// True if "Details" has content: more outcomes, requirements, the audience or the description.
+    public var hasDetails: Bool {
+        !detailOutcomes.isEmpty || !requirements.isEmpty || !targetAudience.isEmpty || !description.isEmpty
+    }
 }
 
 extension Course {

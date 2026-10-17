@@ -235,19 +235,15 @@ struct ContentView: View {
                                 headerImage: library.headerImage(forSection: section.id),
                                 progress: library.sectionProgress(section),
                                 stones: library.steppingStones(in: section),
-                                isComplete: { library.isComplete($0) },
-                                isFreePreview: { library.isFreePreview($0) }) { lecture in
+                                isComplete: { library.isComplete($0) }) { lecture in
                     library.selectDestination(.lecture(sectionID: section.id, lectureID: lecture.id))
                 }
                 .id(section.id)
             } else if library.destination == .overview {
                 CourseLandingView(course: course, landing: library.selectedLanding, root: library.root,
-                                  path: library.coursePath, percent: library.summary(of: course).percent,
+                                  percent: library.summary(of: course).percent,
                                   resumeLecture: library.resumeLecture, resume: { library.resume() },
                                   start: course.firstLecture.map { first in { library.selectDestination(first) } },
-                                  openLecture: { section, lecture in
-                                      library.selectDestination(.lecture(sectionID: section.id, lectureID: lecture.id))
-                                  },
                                   openCredits: library.selectedCredits.isEmpty ? nil : { library.selectDestination(.credits) })
             } else if library.destination == .credits {
                 CourseCreditsView(credits: library.selectedCredits)

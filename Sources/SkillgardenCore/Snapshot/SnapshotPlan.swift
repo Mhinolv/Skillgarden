@@ -15,6 +15,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case courseLanding = "course-landing"
     /// The fixture course with `theme.appearance: dark` and a light accent. No lecture is opened, so "Start Course" shows.
     case courseLandingDarkTheme = "course-landing-dark-theme"
+    /// The fixture course with five outcomes and "Details" open: all outcomes, requirements, audience and description.
+    case courseLandingDetails = "course-landing-details"
     /// The fixture quiz with its draft section published. The first question has an image and no selection.
     case quizQuestion = "quiz-question"
     /// The same question after the learner submitted a wrong choice.
@@ -58,9 +60,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The paused player opens at this time instead of the saved position. 3 s is in the second fixture cue (2–4 s).
     public var videoStartSeconds: Double? { self == .videoTranscript ? 3 : nil }
 
-    /// True when the harness scrolls the lecture page to the end.
+    /// True when the harness scrolls the lecture page, or the course landing with "Details" open, to the end.
     public var scrollsLectureToEnd: Bool {
-        [.videoTranscript, .videoQuickCheck, .lectureSources, .lectureDownloads, .pdfPreview].contains(self)
+        [.courseLandingDetails, .videoTranscript, .videoQuickCheck, .lectureSources, .lectureDownloads, .pdfPreview].contains(self)
     }
 
     /// True when the harness opens the quick-check card of the video lecture.
@@ -68,6 +70,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// True when the harness fails if the capture has black video pixels in the title bar and the toolbar (#55).
     public var checksTitlebarForVideo: Bool { opensVideoPlayer }
+
+    /// True when the harness opens "Details" on the course landing.
+    public var showsLandingDetails: Bool { self == .courseLandingDetails }
 
     /// True when the harness draws the review sheet in the window. A real sheet is a separate window, so the capture misses it.
     public var showsReviewInline: Bool { self == .sectionReview }
@@ -146,6 +151,8 @@ public enum SnapshotPlan {
                 ("appearance: light", "appearance: dark"),
                 ("accent_color: '#286644'", "accent_color: '\(darkThemeAccent)'"),
             ])
+        case .courseLandingDetails:
+            return try publishCopy(of: fixture, root: root, replacing: detailsCourse)
         case .interactiveResult:
             // The interactive fixture is next to the sample fixture.
             let folder = fixture.deletingLastPathComponent().appending(path: "interactive-course")
@@ -199,6 +206,12 @@ public enum SnapshotPlan {
                       explanation: An objective names the skill that the learner gets from the lecture.
 
         """, ""),
+    ]
+
+    /// The replacement for the `course-landing-details` course: five outcomes, so the page shows three
+    /// and "Details" shows all five.
+    static let detailsCourse = [
+        ("  - Check your work\n", "  - Check your work\n  - Order the sections\n  - Write a lecture objective\n  - Publish the course\n"),
     ]
 
     /// The replacement for the `course-credits` course: a second credit with no role and no URL.
@@ -310,7 +323,7 @@ public enum SnapshotPlan {
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck: .lecture(sectionID: "plan", lectureID: "welcome")
         case .article, .lectureSources, .lectureDownloads, .pdfPreview: .lecture(sectionID: "plan", lectureID: "read")
-        case .courseLanding, .courseLandingDarkTheme, .transcriptSearch, .transcriptSearchNoResults: .overview
+        case .courseLanding, .courseLandingDarkTheme, .courseLandingDetails, .transcriptSearch, .transcriptSearchNoResults: .overview
         case .courseCredits: .credits
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")
         case .interactiveResult: .lecture(sectionID: "practice", lectureID: "order-steps")
