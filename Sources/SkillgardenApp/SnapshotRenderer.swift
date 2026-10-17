@@ -46,7 +46,7 @@ enum SnapshotRenderer {
         defer { try? FileManager.default.removeItem(at: root) }
         let courseID = try SnapshotPlan.seedStore(for: output.screen, root: root, fixture: fixture)
 
-        let library = LibraryModel(root: root)
+        let library = LibraryModel(root: root, reviewRandom: SeededRandomNumberGenerator(seed: SnapshotPlan.reviewSeed))
         var loaded = false
         Task { await library.reload(); loaded = true }
         pump { loaded }
@@ -55,6 +55,7 @@ enum SnapshotRenderer {
             library.selectCourse(courseID)
             library.selectDestination(SnapshotPlan.destination(for: output.screen))
             for action in SnapshotPlan.quizActions(for: output.screen) { library.performQuizAction(action) }
+            for item in SnapshotPlan.reviewAnswers(for: output.screen) { library.answerReview(questionID: item.questionID, choiceID: item.choiceID) }
         }
 
         let imageLoads = ImageLoadTracker()
@@ -64,6 +65,7 @@ enum SnapshotRenderer {
             .environment(\.timeZone, TimeZone(identifier: SnapshotPlan.timeZoneIdentifier)!)
             .environment(\.imageLoads, imageLoads)
             .environment(\.opensVideoPlayer, output.screen.opensVideoPlayer)
+            .environment(\.showsReviewInline, true)
             .transaction { $0.disablesAnimations = true; $0.animation = nil }
         let size = NSSize(width: SnapshotPlan.width, height: SnapshotPlan.height)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),

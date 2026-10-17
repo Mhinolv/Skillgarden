@@ -24,8 +24,9 @@ private func temporaryFolder() throws -> URL {
         "course-landing-dark-theme-light.png", "course-landing-dark-theme-dark.png",
         "quiz-question-light.png", "quiz-question-dark.png", "quiz-wrong-answer-light.png", "quiz-wrong-answer-dark.png",
         "quiz-results-light.png", "quiz-results-dark.png", "interactive-result-light.png", "interactive-result-dark.png",
-        "video-player-light.png", "video-player-dark.png",
+        "video-player-light.png", "video-player-dark.png", "section-review-light.png", "section-review-dark.png",
     ])
+    #expect(SnapshotScreen.allCases.filter(\.showsReviewInline) == [.sectionReview])
     #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer])
     #expect(SnapshotScreen.allCases.filter { !$0.selectsCourse } == [.libraryEmpty, .libraryEmptyCustomFolder, .library])
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
@@ -151,6 +152,22 @@ private func temporaryFolder() throws -> URL {
             let module = try #require(library.selectedInteractive)
             #expect(module.entryExists())
             #expect(library.selectedInteractiveResult == InteractiveResult(score: 75, weakSkills: ["Order the steps of a course plan"]))
+        case .sectionReview:
+            #expect(courseID == "sample-course")
+            #expect(SnapshotPlan.imageLoads(for: screen) == 2)
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            for item in SnapshotPlan.reviewAnswers(for: screen) { library.answerReview(questionID: item.questionID, choiceID: item.choiceID) }
+            // Two questions: the image question is unanswered, the other one is answered correctly.
+            let review = try #require(library.sectionReview)
+            #expect(Set(review.questions.map(\.id)) == ["check/outline", "check/order"])
+            #expect(review.isCorrect("check/order") == true)
+            #expect(review.isCorrect("check/outline") == nil)
+            #expect(review.questions.first { $0.id == "check/outline" }?.question.image != nil)
+        }
+        if screen != .sectionReview {
+            // Other screens open the first section or a section without earlier quizzes, so no review sheet shows.
+            #expect(library.sectionReview == nil)
         }
     }
 }
