@@ -83,6 +83,7 @@ enum SnapshotRenderer {
             .environment(\.opensVideoPlayer, output.screen.opensVideoPlayer)
             .environment(\.snapshotVideoStart, output.screen.videoStartSeconds)
             .environment(\.snapshotShowsQuickChecks, output.screen.showsQuickChecks)
+            .environment(\.snapshotShowsLandingDetails, output.screen.showsLandingDetails)
             .environment(\.showsReviewInline, true)
             .environment(\.showsPDFPreviewInline, output.screen.showsPDFPreviewInline)
             .transaction { $0.disablesAnimations = true; $0.animation = nil }

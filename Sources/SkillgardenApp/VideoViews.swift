@@ -3,27 +3,6 @@ import AVKit
 import SwiftUI
 import SkillgardenCore
 
-/// The "Free preview" capsule of the lecture header and the lecture rows.
-/// In a row the capsule is filled, so it stays readable on a gray or dark selected row.
-/// On an accent-colored selected row the capsule uses white.
-struct FreePreviewBadge: View {
-    var filled = false
-    @Environment(\.backgroundProminence) private var prominence
-
-    var body: some View {
-        let selected = prominence == .increased
-        Text("Free preview")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(selected || filled ? AnyShapeStyle(.white) : AnyShapeStyle(.tint))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            .background(selected ? AnyShapeStyle(.white.opacity(0.25))
-                        : filled ? AnyShapeStyle(.tint) : AnyShapeStyle(.tint.opacity(0.15)), in: .capsule)
-            .fixedSize()
-            .accessibilityLabel("Free preview")
-    }
-}
-
 /// Owns the player of one video lecture.
 /// The caption text and the active transcript line change only when the cue changes, not on each time tick.
 @MainActor @Observable
@@ -155,11 +134,8 @@ struct VideoLectureView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if let video {
-                HStack(spacing: CourseStyle.spacing) {
-                    Label(video.metadataLabel, systemImage: LectureType.video.symbolName)
-                        .gardenText(.meta)
-                    if video.isFreePreview { FreePreviewBadge() }
-                }
+                Label(video.metadataLabel, systemImage: LectureType.video.symbolName)
+                    .gardenText(.meta)
             }
             if available == false || video == nil {
                 ContentUnavailableView("Video unavailable", systemImage: "exclamationmark.triangle",

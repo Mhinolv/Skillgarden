@@ -9,7 +9,6 @@ public struct LectureVideo: Equatable, Sendable {
     public let posterURL: URL?
     public let posterAlt: String
     public let durationSeconds: Int
-    public let isFreePreview: Bool
     /// The ungraded checks after the video. Empty when the manifest has no `quick_checks`.
     public let quickChecks: [QuickCheck]
 
@@ -24,7 +23,6 @@ public struct LectureVideo: Equatable, Sendable {
         posterURL = resolve(video.poster?.path)
         posterAlt = video.poster?.alt ?? ""
         durationSeconds = video.durationSeconds
-        isFreePreview = video.freePreview ?? false
         quickChecks = QuickCheck.checks(manifest: video.quickChecks)
     }
 

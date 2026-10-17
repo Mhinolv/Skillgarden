@@ -149,3 +149,36 @@ func themeColorRejectsAnyFormOtherThanSixHexDigits(_ value: String) {
     ]))
     #expect(later.firstLecture == .lecture(sectionID: "s", lectureID: "b"))
 }
+
+// MARK: Landing summary and "Details" (#66)
+
+private func landing(outcomes: [String], requirements: [String] = [], audience: String = "",
+                     description: String = "") throws -> CourseLanding {
+    let data = try Data(contentsOf: fixture.appending(path: "equivalent.json"))
+    var manifest = try JSONDecoder().decode(CourseManifest.self, from: data)
+    manifest.learningOutcomes = outcomes
+    manifest.requirements = requirements
+    manifest.targetAudience = audience
+    manifest.description = description
+    return CourseLanding(manifest: manifest)
+}
+
+@Test(arguments: [0, 1, 3, 4, 10])
+func landingShowsAtMostThreeOutcomesAndDetailsListsAllOnlyWhenMore(count: Int) throws {
+    let outcomes = (0..<count).map { "Outcome \($0 + 1)" }
+    let page = try landing(outcomes: outcomes)
+    #expect(CourseLanding.summaryOutcomeLimit == 3)
+    #expect(page.summaryOutcomes == Array(outcomes.prefix(3)))
+    #expect(page.detailOutcomes == (count > 3 ? outcomes : []))
+    // With no other field, "Details" has content only if it lists more outcomes than the page.
+    #expect(page.hasDetails == (count > 3))
+}
+
+@Test func landingDetailsShowForEachOtherField() throws {
+    #expect(try landing(outcomes: ["A"], requirements: ["A Mac"]).hasDetails)
+    #expect(try landing(outcomes: [], audience: "New learners").hasDetails)
+    #expect(try landing(outcomes: [], description: "Learn it.").hasDetails)
+    // Blank fields are trimmed away, so "Details" stays hidden.
+    #expect(try !landing(outcomes: [" "], requirements: ["  "], audience: " \n", description: "\t").hasDetails)
+}
+

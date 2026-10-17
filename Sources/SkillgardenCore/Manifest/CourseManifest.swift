@@ -34,7 +34,7 @@ public struct ManifestCaptions: Codable, Equatable, Sendable {
     public var path: String
 }
 
-/// The MP4 file of a video lecture with its captions, poster and free-preview flag.
+/// The MP4 file of a video lecture with its captions, poster and the ignored free-preview flag.
 public struct ManifestVideo: Codable, Equatable, Sendable {
     /// An MP4 file.
     public var path: String
@@ -44,7 +44,7 @@ public struct ManifestVideo: Codable, Equatable, Sendable {
     public var captions: ManifestCaptions?
     /// Optional. Nil when the manifest has no `poster` field.
     public var poster: ManifestImage?
-    /// Optional. Nil when the manifest has no `free_preview` field.
+    /// Optional. Nil when the manifest has no `free_preview` field. The app ignores it, so old manifests still publish.
     public var freePreview: Bool?
     /// Optional, one or two ungraded checks after the video. Nil when the manifest has no `quick_checks` field.
     public var quickChecks: [ManifestQuickCheck]?

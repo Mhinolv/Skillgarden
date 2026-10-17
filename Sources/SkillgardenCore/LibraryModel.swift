@@ -137,11 +137,6 @@ public final class LibraryModel {
         selectedCourseID.flatMap { downloads[$0]?[lectureID] } ?? []
     }
 
-    /// True if the lecture is a video lecture with `free_preview: true`.
-    public func isFreePreview(_ lectureID: String) -> Bool {
-        video(forLecture: lectureID)?.isFreePreview ?? false
-    }
-
     public func goToPreviousLecture() { if let previousLecture { open(previousLecture) } }
     public func goToNextLecture() { if let nextLecture { open(nextLecture) } }
     public func goToNudge() { if let nudge { open(nudge.destination) } }
@@ -164,12 +159,6 @@ public final class LibraryModel {
     public func steppingStones(in section: CourseSection? = nil) -> [SteppingStone] {
         let lectures = section?.lectures ?? selectedCourse?.learnerLectures.map(\.lecture) ?? []
         return SteppingStone.states(lectureIDs: lectures.map(\.id)) { isComplete($0) }
-    }
-
-    /// The "Your path" rows of the selected course.
-    public var coursePath: [CoursePathRow] {
-        guard let course = selectedCourse else { return [] }
-        return CoursePathRow.rows(course: course, progress: progress[course.id] ?? [:])
     }
 
     // MARK: Library home

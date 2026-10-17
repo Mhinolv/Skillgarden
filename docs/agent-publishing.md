@@ -143,7 +143,7 @@ See `Tests/Fixtures/sample-course/skillgarden.yaml` for a full example.
 
 | Type | Field | Notes |
 |---|---|---|
-| `video` | `video.path`, `video.duration_seconds` | An `.mp4` file. `duration_seconds` is the video length in seconds. Validate accepts a value within 2 seconds of the real length. Optional: `captions.path` (`.vtt`), `poster` (`path`, `alt`), `free_preview`. |
+| `video` | `video.path`, `video.duration_seconds` | An `.mp4` file. `duration_seconds` is the video length in seconds. Validate accepts a value within 2 seconds of the real length. Optional: `captions.path` (`.vtt`), `poster` (`path`, `alt`), `free_preview` (accepted, and the app ignores it). |
 | `article` | `article.path` | A UTF-8 Markdown file. Each Markdown image needs an entry in `article.images` with `alt`. |
 | `quiz` | `quiz.questions` | Each question has `id`, `prompt`, `objective_tag`, `choices` (`id`, `text`), `correct_choice_id`, `explanation`. Optional: `image`. |
 | `assignment` | `assignment.brief.path`, `assignment.rubric` | The brief is a UTF-8 Markdown file with the article rules (optional `brief.images`). The rubric has one or more rows with `id`, `criterion`, `guidance`. |
