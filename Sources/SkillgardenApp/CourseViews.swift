@@ -88,7 +88,7 @@ extension EnvironmentValues {
     }
 }
 
-/// The outline column: the course card, "Course Overview", then each section with its lecture stops.
+/// The outline column: the course card, "Course Overview", each section with its lecture stops, then "Credits".
 /// It keeps `List(selection:)`, so the arrow keys move the selection.
 struct CourseOutlineView: View {
     let course: Course
@@ -124,6 +124,12 @@ struct CourseOutlineView: View {
             }
             if sections.allSatisfy({ $0.lectures.isEmpty }) {
                 ContentUnavailableView("No lectures yet", systemImage: "list.bullet")
+            }
+            if !library.selectedCredits.isEmpty {
+                Label("Credits", systemImage: "person.2")
+                    .font(GardenFont.body.weight(.heavy))
+                    .foregroundStyle(palette.ink)
+                    .tag(CourseDestination.credits)
             }
         }
     }
@@ -264,6 +270,8 @@ struct CourseLandingView: View {
     let resume: () -> Void
     let start: (() -> Void)?
     let openLecture: (CourseSection, Lecture) -> Void
+    /// Opens the credits page. Nil hides "View credits" because the course has no credits.
+    var openCredits: (() -> Void)? = nil
     @Environment(\.gardenPalette) private var palette
 
     static let twoColumnWidth: CGFloat = 1040
@@ -278,6 +286,7 @@ struct CourseLandingView: View {
                     VStack(alignment: .leading, spacing: GardenSpacing.m) {
                         pathCard
                         blocks
+                        creditsLink
                     }
                 }
                 // The ideal width is fixed, so this layout fits only in a column of 1040 pt or wider.
@@ -286,6 +295,7 @@ struct CourseLandingView: View {
                     hero
                     pathCard
                     blocks
+                    creditsLink
                 }
                 .frame(maxWidth: CourseStyle.textWidth, alignment: .leading)
             }
@@ -427,6 +437,15 @@ struct CourseLandingView: View {
         }
     }
 
+    @ViewBuilder private var creditsLink: some View {
+        if let openCredits {
+            Button("View credits", action: openCredits)
+                .buttonStyle(.link)
+                .font(GardenFont.body.weight(.semibold))
+                .tint(palette.accent)
+        }
+    }
+
     private func block<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         GardenCard {
             VStack(alignment: .leading, spacing: 10) {
@@ -437,6 +456,70 @@ struct CourseLandingView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+/// The course credits page: one row for each credit in manifest order, with a divider between rows.
+struct CourseCreditsView: View {
+    let credits: [CourseCredit]
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Credits")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(palette.ink)
+                    .accessibilityAddTraits(.isHeader)
+                Text("People and sources that made this course.")
+                    .font(.subheadline)
+                    .foregroundStyle(palette.muted)
+                    .padding(.top, GardenSpacing.xxs)
+                    .padding(.bottom, GardenSpacing.s)
+                ForEach(Array(credits.enumerated()), id: \.offset) { index, credit in
+                    if index > 0 { Divider() }
+                    CreditRow(credit: credit)
+                }
+            }
+            .textSelection(.enabled)
+            .frame(maxWidth: CourseStyle.textWidth, alignment: .leading)
+            .padding(CourseStyle.detailPadding)
+            .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+/// One credit: the name, the optional role under it and the optional trailing "Open Link".
+struct CreditRow: View {
+    let credit: CourseCredit
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: GardenSpacing.s) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(credit.name)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(palette.ink)
+                if let role = credit.role {
+                    Text(role)
+                        .font(.subheadline)
+                        .foregroundStyle(palette.muted)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(credit.role.map { "\(credit.name), \($0)" } ?? credit.name)
+            if let url = credit.url {
+                // `Link` opens the URL with `openURL`, so a web link opens in the default browser.
+                Link(destination: url) {
+                    Label("Open Link", systemImage: "arrow.up.right.square")
+                }
+                .foregroundStyle(palette.accent)
+                .accessibilityLabel("Open link for \(credit.name)")
+            }
+        }
+        .padding(.vertical, 10)
     }
 }
 

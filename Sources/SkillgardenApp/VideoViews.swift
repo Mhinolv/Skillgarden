@@ -122,6 +122,7 @@ struct VideoLectureView: View {
     @Environment(\.imageLoads) private var imageLoads
     @Environment(\.opensVideoPlayer) private var opensVideoPlayer
     @Environment(\.snapshotVideoStart) private var snapshotVideoStart
+    @Environment(\.pageVisibleTop) private var pageVisibleTop
     @State private var poster: NSImage?
     @State private var available: Bool?
     @State private var captions: WebVTT?
@@ -182,6 +183,7 @@ struct VideoLectureView: View {
                 }
             }
             .clipShape(.garden(24))
+            .mask { PageTopClip(visibleTop: pageVisibleTop) }
             .frame(maxWidth: Self.maxWidth)
     }
 
@@ -271,6 +273,37 @@ extension EnvironmentValues {
 
 private struct SnapshotVideoStartKey: EnvironmentKey {
     static let defaultValue: Double? = nil
+}
+
+private struct PageVisibleTopKey: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
+}
+
+extension EnvironmentValues {
+    /// The bottom edge of the toolbar in global coordinates. The lecture page sets it. Nil shows the whole player.
+    var pageVisibleTop: CGFloat? {
+        get { self[PageVisibleTopKey.self] }
+        set { self[PageVisibleTopKey.self] = newValue }
+    }
+}
+
+/// The mask of the player block: it hides the part above the toolbar bottom (#55).
+/// The lecture page scrolls under the transparent title bar, and the black player must not cover the window title.
+/// Only this mask reads the scroll position, so a scroll publishes no state.
+private struct PageTopClip: View {
+    let visibleTop: CGFloat?
+
+    var body: some View {
+        if let visibleTop {
+            GeometryReader { proxy in
+                let hidden = PlayerClip.hiddenTop(playerMinY: proxy.frame(in: .global).minY, height: proxy.size.height,
+                                                  visibleTop: visibleTop)
+                Rectangle().padding(.top, hidden)
+            }
+        } else {
+            Rectangle()
+        }
+    }
 }
 
 /// The AVKit player view with inline controls.

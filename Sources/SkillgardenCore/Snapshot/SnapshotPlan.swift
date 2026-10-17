@@ -30,6 +30,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The spaced review sheet of the "plan" section, after the quiz section moved first.
     /// Two questions: one unanswered, one answered correctly.
     case sectionReview = "section-review"
+    /// The credits page of the fixture course with a second credit. One row has a role and a URL, one row has neither.
+    case courseCredits = "course-credits"
     /// The fixture assignment with its draft section and lecture published. No rubric row is checked.
     case assignment
     /// The same assignment with every rubric row checked, so the success line shows.
@@ -46,6 +48,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// True when the harness scrolls the lecture page to the end.
     public var scrollsLectureToEnd: Bool { self == .videoTranscript || self == .lectureSources }
+
+    /// True when the harness fails if the capture has black video pixels in the title bar and the toolbar (#55).
+    public var checksTitlebarForVideo: Bool { opensVideoPlayer }
 
     /// True when the harness draws the review sheet in the window. A real sheet is a separate window, so the capture misses it.
     public var showsReviewInline: Bool { self == .sectionReview }
@@ -76,8 +81,9 @@ public enum SnapshotPlan {
     }
 
     /// One output per screen and appearance, in a fixed order: `<out-dir>/<screen>-<light|dark>.png`.
-    public static func outputs(outDirectory: URL) -> [Output] {
-        SnapshotScreen.allCases.flatMap { screen in
+    /// `screens` limits the outputs to these screens. The order stays the same.
+    public static func outputs(outDirectory: URL, screens: Set<SnapshotScreen>? = nil) -> [Output] {
+        SnapshotScreen.allCases.filter { screens?.contains($0) ?? true }.flatMap { screen in
             SnapshotAppearance.allCases.map { appearance in
                 Output(screen: screen, appearance: appearance,
                        url: outDirectory.appending(path: "\(screen.rawValue)-\(appearance.rawValue).png"))
@@ -130,6 +136,8 @@ public enum SnapshotPlan {
             ])
         case .sectionReview:
             return try publishCopy(of: fixture, root: root, replacing: reviewCourse)
+        case .courseCredits:
+            return try publishCopy(of: fixture, root: root, replacing: creditsCourse)
         }
     }
 
@@ -152,6 +160,11 @@ public enum SnapshotPlan {
                       explanation: An objective names the skill that the learner gets from the lecture.
 
         """, ""),
+    ]
+
+    /// The replacement for the `course-credits` course: a second credit with no role and no URL.
+    static let creditsCourse = [
+        ("    url: https://example.com/credits\n", "    url: https://example.com/credits\n  - name: Garden Photo Library\n"),
     ]
 
     /// The seed of the review question order in the snapshot harness.
@@ -217,6 +230,7 @@ public enum SnapshotPlan {
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript: .lecture(sectionID: "plan", lectureID: "welcome")
         case .article, .lectureSources: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme: .overview
+        case .courseCredits: .credits
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")
         case .interactiveResult: .lecture(sectionID: "practice", lectureID: "order-steps")
         case .assignment, .assignmentComplete: .lecture(sectionID: "practice", lectureID: "apply")
