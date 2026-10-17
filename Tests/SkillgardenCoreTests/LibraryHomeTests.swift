@@ -1,0 +1,122 @@
+import Foundation
+import Testing
+@testable import SkillgardenCore
+
+private func lecture(_ id: String, order: Int, state: PublicationState = .published) -> Lecture {
+    Lecture(id: id, title: id.capitalized, type: .article, order: order, state: state)
+}
+
+private func course(_ id: String, lectures: [Lecture] = []) -> Course {
+    Course(id: id, title: id.capitalized, state: .published, sections: [
+        CourseSection(id: "s1", title: "One", order: 0, state: .published, lectures: Array(lectures.prefix(2))),
+        CourseSection(id: "s2", title: "Two", order: 1, state: .published, lectures: Array(lectures.dropFirst(2))),
+        CourseSection(id: "draft", title: "Hidden", order: 2, lectures: [lecture("hidden", order: 0)]),
+    ])
+}
+
+private let threeLectures = [lecture("a", order: 0), lecture("b", order: 1), lecture("c", order: 0),
+                             lecture("x", order: 1, state: .draft)]
+
+private func done(_ ids: String...) -> [String: LectureProgress] {
+    Dictionary(uniqueKeysWithValues: ids.map { ($0, LectureProgress(completed: true)) })
+}
+
+@Test func courseSummaryCoversEveryTileState() {
+    let empty = CourseSummary(course: course("e"), progress: done("hidden"))
+    #expect(empty.status == .noLectures)
+    #expect(empty.stones.isEmpty && empty.total == 0 && empty.percent == 0)
+    #expect(empty.meta == "No lectures yet")
+    #expect(empty.statusText == nil)
+    #expect(empty.nextLecture == nil && empty.nextDestination == nil)
+
+    let new = CourseSummary(course: course("n", lectures: threeLectures), progress: done("x"))
+    #expect(new.status == .new)
+    #expect(new.stones == [.next, .todo, .todo])
+    #expect(new.meta == "3 lectures")
+    #expect(new.statusText == "New")
+    #expect(new.nextDestination == .lecture(sectionID: "s1", lectureID: "a"))
+
+    // The first incomplete lecture is the next lecture, also after a gap.
+    let progress = CourseSummary(course: course("p", lectures: threeLectures), progress: done("a", "c"))
+    #expect(progress.status == .inProgress)
+    #expect(progress.stones == [.done, .next, .done])
+    #expect(progress.completed == 2 && progress.total == 3)
+    #expect(progress.percent == 66)
+    #expect(progress.meta == "Next: B")
+    #expect(progress.statusText == "66%")
+    #expect(progress.nextDestination == .lecture(sectionID: "s1", lectureID: "b"))
+
+    let finished = CourseSummary(course: course("d", lectures: threeLectures), progress: done("a", "b", "c"))
+    #expect(finished.status == .done)
+    #expect(finished.meta == "3 lectures · all done")
+    #expect(finished.statusText == "Done")
+    #expect(finished.percent == 100)
+    #expect(finished.nextLecture == nil && finished.nextDestination == nil)
+
+    let one = CourseSummary(course: course("o", lectures: [lecture("a", order: 0)]), progress: [:])
+    #expect(one.meta == "1 lecture")
+    let oneDone = CourseSummary(course: course("o", lectures: [lecture("a", order: 0)]), progress: done("a"))
+    #expect(oneDone.meta == "1 lecture · all done")
+}
+
+@Test func bentoColumnsDependOnTheWindowWidth() {
+    #expect(LibraryBento.columns(forWidth: 0) == 3)
+    #expect(LibraryBento.columns(forWidth: 1179.9) == 3)
+    #expect(LibraryBento.columns(forWidth: 1180) == 4)
+    #expect(LibraryBento.columns(forWidth: 4000) == 4)
+}
+
+@Test func bentoTilesFillTheCellsBesideTheHeroFirst() {
+    let cell = { (row: Int, column: Int) in BentoCell(row: row, column: column) }
+    #expect(LibraryBento.tileCells(count: 0, columns: 4, hasHero: true) == [])
+    #expect(LibraryBento.tileCells(count: 6, columns: 4, hasHero: true) == [
+        cell(0, 2), cell(0, 3), cell(1, 2), cell(1, 3), cell(2, 0), cell(2, 1),
+    ])
+    #expect(LibraryBento.tileCells(count: 4, columns: 3, hasHero: true) == [cell(0, 2), cell(1, 2), cell(2, 0), cell(2, 1)])
+    #expect(LibraryBento.tileCells(count: 5, columns: 4, hasHero: false) == [
+        cell(0, 0), cell(0, 1), cell(0, 2), cell(0, 3), cell(1, 0),
+    ])
+    #expect(LibraryBento.tileCells(count: 1, columns: 3, hasHero: false) == [cell(0, 0)])
+    #expect(LibraryBento.meta(courses: 1, inProgress: 0) == "1 course · 0 in progress")
+    #expect(LibraryBento.meta(courses: 6, inProgress: 3) == "6 courses · 3 in progress")
+}
+
+@MainActor @Test func libraryHomePicksTheHeroAndOpensCourses() async throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: "LibraryHomeTests-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = try CourseStore(root: root)
+    // Library order is by title: Done, Empty, First, New, Second.
+    for id in ["done", "empty", "first", "new", "second"] {
+        try store.saveCourse(course(id, lectures: id == "empty" ? [] : threeLectures))
+    }
+    for id in ["a", "b", "c"] { try store.setCompleted(true, courseID: "done", lectureID: id) }
+    try store.setCompleted(true, courseID: "first", lectureID: "a")
+    try store.setCompleted(true, courseID: "second", lectureID: "b")
+    let library = LibraryModel(root: root)
+    await library.reload()
+    #expect(library.courses.map(\.id) == ["done", "empty", "first", "new", "second"])
+    #expect(library.libraryMeta == "5 courses · 2 in progress")
+    #expect(library.heroCourse?.id == "first")
+    #expect(library.courses.map { library.summary(of: $0).status } == [.done, .noLectures, .inProgress, .new, .inProgress])
+    // The summary does not need a selected course.
+    #expect(library.selectedCourse == nil)
+    #expect(library.accent(ofCourse: "first") == nil)
+
+    library.openNextLecture(ofCourse: "first")
+    #expect(library.selectedCourseID == "first")
+    #expect(library.destination == .lecture(sectionID: "s1", lectureID: "b"))
+    library.selectCourse(nil)
+    #expect(library.selectedCourse == nil && library.destination == nil)
+    library.openNextLecture(ofCourse: "done")
+    #expect(library.destination == .overview)
+    library.selectCourse(nil)
+    library.openNextLecture(ofCourse: "missing")
+    #expect(library.selectedCourse == nil && library.destination == nil)
+
+    // With no course in progress, there is no hero.
+    try store.setCompleted(false, courseID: "first", lectureID: "a")
+    try store.setCompleted(false, courseID: "second", lectureID: "b")
+    await library.reload()
+    #expect(library.heroCourse == nil)
+    #expect(library.libraryMeta == "5 courses · 0 in progress")
+}

@@ -75,63 +75,50 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            libraryList
-                .gardenColumn()
-                .navigationTitle("Library")
-                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 300)
-        } content: {
+        Group {
             if let course = library.selectedCourse {
-                CourseOutlineView(course: course, library: library, selection: Binding(
-                    get: { library.destination }, set: { library.selectDestination($0) }
-                ))
-                .gardenColumn()
-                .navigationTitle(course.title)
-                .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
+                workspace(course)
             } else {
-                ContentUnavailableView("Select a course", systemImage: "books.vertical")
+                LibraryHomeView(library: library)
             }
-        } detail: {
-            detail.gardenColumn()
+        }
+        // The toolbar is inside the theme, so its buttons get the Garden palette.
+        .toolbar {
+            if library.selectedCourse != nil {
+                ToolbarItem(placement: .navigation) {
+                    Button("Library", systemImage: "chevron.left") { library.selectCourse(nil) }
+                        .buttonStyle(GardenToolbarButtonStyle())
+                        .keyboardShortcut("[", modifiers: .command)
+                        .help("Library (⌘[)")
+                }
+            }
+            ToolbarItem {
+                Button("Reload Library", systemImage: "arrow.clockwise") {
+                    Task { await library.reload() }
+                }
+                .buttonStyle(GardenToolbarButtonStyle())
+                .help("Reload Library (⌘R)")
+                .disabled(library.isLoading)
+            }
         }
         // The course theme colors the whole window: sidebar, toolbar and content.
         .gardenTheme(library.selectedLanding?.theme)
         .frame(minWidth: 900, minHeight: 600)
         .focusedSceneValue(\.library, library)
         .task { if reloadsOnAppear { await library.reload() } }
-        .toolbar {
-            ToolbarItem {
-                Button("Reload Library", systemImage: "arrow.clockwise") {
-                    Task { await library.reload() }
-                }
-                .help("Reload Library (⌘R)")
-                .disabled(library.isLoading)
-            }
-        }
     }
 
-    @ViewBuilder private var libraryList: some View {
-        if let error = library.errorMessage {
-            ContentUnavailableView {
-                Label("Can't open the library", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(error)
-            } actions: {
-                Button("Try Again") { Task { await library.reload() } }
-                    .disabled(library.isLoading)
-            }
-        } else if library.isLoading && library.courses.isEmpty {
-            ProgressView("Load Library")
-        } else if library.courses.isEmpty {
-            ContentUnavailableView("No courses yet", systemImage: "books.vertical",
-                                   description: Text("Publish a course with the skillgarden CLI."))
-        } else {
-            List(selection: Binding(get: { library.selectedCourseID }, set: { library.selectCourse($0) })) {
-                ForEach(library.courses) { course in
-                    LibraryRow(course: course, root: library.root).tag(course.id)
-                }
-            }
-            .listStyle(.sidebar)
+    /// The course workspace: the outline and the selected page.
+    private func workspace(_ course: Course) -> some View {
+        NavigationSplitView {
+            CourseOutlineView(course: course, library: library, selection: Binding(
+                get: { library.destination }, set: { library.selectDestination($0) }
+            ))
+            .gardenColumn()
+            .navigationTitle(course.title)
+            .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
+        } detail: {
+            detail.gardenColumn()
         }
     }
 
@@ -186,8 +173,32 @@ struct ContentView: View {
             } else {
                 ContentUnavailableView("Select a lecture", systemImage: "list.bullet")
             }
-        } else {
-            ContentUnavailableView("Select a course", systemImage: "books.vertical")
         }
+    }
+}
+
+/// A 40 pt round toolbar button: card fill and a `line` stroke. It shows only the symbol of its label.
+struct GardenToolbarButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        GardenToolbarButton(configuration: configuration)
+    }
+}
+
+private struct GardenToolbarButton: View {
+    let configuration: ButtonStyleConfiguration
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        configuration.label
+            .labelStyle(.iconOnly)
+            .font(.system(size: 15, weight: .heavy))
+            .foregroundStyle(palette.ink)
+            .frame(width: 40, height: 40)
+            .background(palette.card, in: Circle())
+            .overlay { Circle().strokeBorder(palette.line, lineWidth: 1) }
+            .opacity(isEnabled ? (configuration.isPressed ? 0.6 : 1) : 0.4)
+            .contentShape(Circle())
+            .contentShape(.focusEffect, Circle())
     }
 }
