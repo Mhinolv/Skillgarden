@@ -36,6 +36,12 @@ struct SkillgardenApp: App {
                 Button("Recommended Next") { focusedLibrary?.goToNudge() }
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(focusedLibrary?.nudge == nil)
+                Divider()
+                Button(focusedLibrary?.isSelectedLectureComplete == true ? "Mark as Incomplete" : "Mark as Complete") {
+                    Task { await focusedLibrary?.toggleSelectedLectureComplete() }
+                }
+                .keyboardShortcut("m", modifiers: [.shift, .command])
+                .disabled(focusedLibrary?.selectedLecture == nil)
             }
         }
     }
@@ -75,7 +81,7 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 300)
         } content: {
             if let course = library.selectedCourse {
-                CourseOutlineView(course: course, selection: Binding(
+                CourseOutlineView(course: course, library: library, selection: Binding(
                     get: { library.destination }, set: { library.selectDestination($0) }
                 ))
                 .navigationTitle(course.title)
@@ -131,6 +137,8 @@ struct ContentView: View {
                 LectureFrameView(
                     sectionTitle: section.title, number: course.lectureNumber(of: lecture.id) ?? 1, lecture: lecture,
                     nudge: library.nudge,
+                    completed: library.isComplete(lecture.id),
+                    toggleComplete: { Task { await library.toggleSelectedLectureComplete() } },
                     previous: library.previousLecture == nil ? nil : { library.goToPreviousLecture() },
                     next: library.nextLecture == nil ? nil : { library.goToNextLecture() },
                     openNudge: { library.goToNudge() }
@@ -140,12 +148,18 @@ struct ContentView: View {
                 .id(lecture.id)
             } else if let section = library.selectedSection {
                 SectionPageView(section: section, number: course.sectionNumber(of: section.id) ?? 1,
-                                headerImage: library.headerImage(forSection: section.id)) { lecture in
+                                headerImage: library.headerImage(forSection: section.id),
+                                progress: library.sectionProgress(section),
+                                isComplete: { library.isComplete($0) }) { lecture in
                     library.selectDestination(.lecture(sectionID: section.id, lectureID: lecture.id))
                 }
                 .id(section.id)
             } else if library.destination == .overview {
-                CourseDetailPlaceholder(title: course.title, symbol: "info.circle", titleFont: .largeTitle.bold())
+                CourseDetailPlaceholder(title: course.title, symbol: "info.circle", titleFont: .largeTitle.bold()) {
+                    if let lecture = library.resumeLecture {
+                        ResumeButton(lecture: lecture) { library.resume() }
+                    }
+                }
             } else {
                 ContentUnavailableView("Select a lecture", systemImage: "list.bullet")
             }

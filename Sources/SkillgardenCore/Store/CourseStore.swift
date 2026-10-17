@@ -3,7 +3,7 @@ import SQLite3
 
 /// A synchronous local store. The lock protects the connection and each complete operation.
 public final class CourseStore: @unchecked Sendable {
-    public static let currentSchemaVersion = 4
+    public static let currentSchemaVersion = 5
     public let databaseURL: URL
     private let database: SQLiteDatabase
     private let lock = NSLock()
@@ -208,6 +208,58 @@ public final class CourseStore: @unchecked Sendable {
         }
     }
 
+    /// Sets the complete flag and keeps the saved resume position.
+    public func setCompleted(_ completed: Bool, courseID: String, lectureID: String) throws {
+        try lock.withLock {
+            try database.execute("""
+                INSERT INTO lecture_progress (course_id, lecture_id, completed) VALUES (?, ?, ?)
+                ON CONFLICT(course_id, lecture_id) DO UPDATE SET completed=excluded.completed
+                """, [courseID, lectureID, completed ? "1" : "0"])
+        }
+    }
+
+    /// Sets the resume position and keeps the complete flag.
+    public func saveResumePosition(_ seconds: Double, courseID: String, lectureID: String) throws {
+        try lock.withLock {
+            try database.execute("""
+                INSERT INTO lecture_progress (course_id, lecture_id, resume_seconds) VALUES (?, ?, ?)
+                ON CONFLICT(course_id, lecture_id) DO UPDATE SET resume_seconds=excluded.resume_seconds
+                """, [courseID, lectureID, String(seconds.isFinite ? max(0, seconds) : 0)])
+        }
+    }
+
+    /// All learner progress by course id, then lecture id, read in one query.
+    public func allProgress() throws -> [String: [String: LectureProgress]] {
+        try lock.withLock {
+            var result: [String: [String: LectureProgress]] = [:]
+            try database.query("SELECT course_id, lecture_id, completed, resume_seconds FROM lecture_progress") {
+                result[SQLiteDatabase.text($0, 0), default: [:]][SQLiteDatabase.text($0, 1)] =
+                    LectureProgress(completed: sqlite3_column_int64($0, 2) != 0, resumeSeconds: sqlite3_column_double($0, 3))
+            }
+            return result
+        }
+    }
+
+    /// Learner data, so a republish keeps it. The lecture may leave the outline later.
+    public func saveLastOpenedLecture(courseID: String, lectureID: String) throws {
+        try lock.withLock {
+            try database.execute("""
+                INSERT INTO course_resume (course_id, lecture_id) VALUES (?, ?)
+                ON CONFLICT(course_id) DO UPDATE SET lecture_id=excluded.lecture_id
+                """, [courseID, lectureID])
+        }
+    }
+
+    /// The last opened lecture id by course id. Stores saved before schema version 5 have none.
+    public func lastOpenedLectures() throws -> [String: String] {
+        try lock.withLock {
+            let rows = try database.query("SELECT course_id, lecture_id FROM course_resume") {
+                (SQLiteDatabase.text($0, 0), SQLiteDatabase.text($0, 1))
+            }
+            return Dictionary(rows, uniquingKeysWith: { first, _ in first })
+        }
+    }
+
     static let migrations: [[String]] = [[
         """
         CREATE TABLE courses (
@@ -256,5 +308,8 @@ public final class CourseStore: @unchecked Sendable {
     ], [
         // Internal files live outside the learner snapshot. Learner reads never select this column.
         "ALTER TABLE course_publications ADD COLUMN internal_directory TEXT",
+    ], [
+        // Learner data has no foreign key to outline rows, so a republish keeps it.
+        "CREATE TABLE course_resume (course_id TEXT PRIMARY KEY NOT NULL, lecture_id TEXT NOT NULL)",
     ]]
 }
