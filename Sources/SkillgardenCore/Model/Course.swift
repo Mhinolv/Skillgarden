@@ -5,7 +5,7 @@ public enum PublicationState: String, Codable, Sendable, CaseIterable {
 }
 
 public enum LectureType: String, Codable, Sendable, CaseIterable {
-    case video, article, quiz, assignment
+    case video, article, quiz, assignment, interactive
 }
 
 public struct Course: Identifiable, Codable, Equatable, Sendable {

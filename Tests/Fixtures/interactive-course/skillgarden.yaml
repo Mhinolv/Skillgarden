@@ -1,0 +1,38 @@
+schema_version: 1
+id: interactive-course
+title: Interactive Course Basics
+subtitle: A course with an interactive module
+description: Put the steps of a course plan in order.
+learning_outcomes:
+  - Order the steps of a course plan
+requirements:
+  - A Mac
+target_audience: New learners
+state: published
+theme:
+  accent_color: '#286644'
+  appearance: light
+course_image:
+  path: media/course.svg
+  alt: A green garden with two plants
+credits:
+  - name: Skillgarden Team
+    role: Author
+sections:
+  - id: practice
+    title: Practice the plan
+    objective: Apply the course plan
+    state: published
+    order: 0
+    header_image:
+      path: media/section.svg
+      alt: Two course sections
+    lectures:
+      - id: order-steps
+        title: Order the steps
+        type: interactive
+        objective: Order the steps of a course plan
+        state: published
+        order: 0
+        interactive:
+          bundle_path: modules/order

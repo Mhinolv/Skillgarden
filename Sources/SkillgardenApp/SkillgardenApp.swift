@@ -142,10 +142,16 @@ struct ContentView: View {
                     toggleComplete: { Task { await library.toggleSelectedLectureComplete() } },
                     previous: library.previousLecture == nil ? nil : { library.goToPreviousLecture() },
                     next: library.nextLecture == nil ? nil : { library.goToNextLecture() },
-                    openNudge: { library.goToNudge() }
+                    openNudge: { library.goToNudge() },
+                    maxWidth: lecture.type == .interactive ? InteractiveStyle.maxWidth : CourseStyle.textWidth
                 ) {
                     if let attempt = library.selectedQuizAttempt {
                         QuizView(attempt: attempt) { library.performQuizAction($0) }
+                    } else if lecture.type == .interactive {
+                        InteractiveLectureView(lecture: lecture, module: library.selectedInteractive,
+                                               result: library.selectedInteractiveResult) {
+                            library.receiveInteractiveMessage($0, lectureID: lecture.id)
+                        }
                     } else if lecture.type == .article {
                         ArticleLectureView(article: library.article(forLecture: lecture.id))
                     } else {

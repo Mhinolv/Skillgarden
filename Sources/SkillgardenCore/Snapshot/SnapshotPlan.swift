@@ -18,6 +18,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case quizWrongAnswer = "quiz-wrong-answer"
     /// The results screen with two weak skills.
     case quizResults = "quiz-results"
+    /// The interactive fixture course (`Tests/Fixtures/interactive-course`) with a saved weak score of 75.
+    case interactiveResult = "interactive-result"
 }
 
 public enum SnapshotAppearance: String, CaseIterable, Sendable {
@@ -70,6 +72,13 @@ public enum SnapshotPlan {
                 ("appearance: light", "appearance: dark"),
                 ("accent_color: '#286644'", "accent_color: '\(darkThemeAccent)'"),
             ])
+        case .interactiveResult:
+            // The interactive fixture is next to the sample fixture.
+            let folder = fixture.deletingLastPathComponent().appending(path: "interactive-course")
+            let id = try CoursePublisher.publish(courseFolder: folder, root: root).id
+            try CourseStore(root: root).saveInteractiveResult(
+                InteractiveResult(score: 75, objective: "Order the steps of a course plan"), courseID: id, lectureID: "order-steps")
+            return id
         case .quizQuestion, .quizWrongAnswer, .quizResults:
             // The fixture quiz is in a draft section. The copy publishes that section so the learner sees the quiz.
             return try publishCopy(of: fixture, root: root, replacing: [
@@ -116,6 +125,7 @@ public enum SnapshotPlan {
         case .article: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme: .overview
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")
+        case .interactiveResult: .lecture(sectionID: "practice", lectureID: "order-steps")
         }
     }
 }

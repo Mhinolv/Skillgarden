@@ -37,11 +37,12 @@ struct ManifestValidator {
         ])
         let lecture = FieldRule.object([
             ("id", .string), ("title", .string),
-            ("type", .choices(["video", "article", "quiz", "assignment"])),
+            ("type", .choices(["video", "article", "quiz", "assignment", "interactive"])),
             ("objective", .string), ("state", state), ("order", .integer),
             ("recommended_next", .optional(.string)),
             ("article", .optional(.object([("path", .string), ("images", .optional(.array(image)))]))),
             ("quiz", .optional(.object([("questions", .array(question))]))),
+            ("interactive", .optional(.object([("bundle_path", .string)]))),
         ])
         let section = FieldRule.object([
             ("id", .string), ("title", .string), ("objective", .string),
@@ -134,11 +135,13 @@ struct ManifestValidator {
                     checkExtensionPaths(child, path: childPath, key: key)
                 }
             }
-            // Only lectures have an `article` rule. The field must match the lecture type.
+            // Only lectures have `article` and `interactive` rules. Each field must match the lecture type.
             if rules["article"] != nil, case .string(let type)? = object["type"] {
-                let present: Bool = if case .null? = object["article"] { false } else { object["article"] != nil }
-                if type == "article", !present { add("\(path).article", "required field is missing") }
-                if type != "article", present { add("\(path).article", "allowed only when type is article") }
+                for field in ["article", "interactive"] {
+                    let present: Bool = if case .null? = object[field] { false } else { object[field] != nil }
+                    if type == field, !present { add("\(path).\(field)", "required field is missing") }
+                    if type != field, present { add("\(path).\(field)", "allowed only when type is \(field)") }
+                }
             }
         case (.array(let values), .array(let childRule)):
             for (index, child) in values.enumerated() {
@@ -152,7 +155,7 @@ struct ManifestValidator {
             let key = path.components(separatedBy: ".").last ?? path
             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 add(path, "must not be empty")
-            } else if key == "path" {
+            } else if key == "path" || key == "bundle_path" {
                 checkPath(text, path: path)
             }
             // Question and choice ids are unique inside their quiz or question only. `checkQuizzes` checks them.
