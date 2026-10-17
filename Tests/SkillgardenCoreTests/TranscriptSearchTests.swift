@@ -6,9 +6,8 @@ private let fixture = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent()
     .appendingPathComponent("Fixtures/sample-course")
 
-/// A second video lecture after "read". Its captions share the token "plan" with the welcome video.
+/// Two video lectures for the end of the "plan" section. Their captions share the token "plan" with the welcome video.
 private let recapLecture = """
-              alt: The two sections of the course plan
       - id: recap
         title: Recap the plan
         type: video
@@ -31,7 +30,7 @@ private let recapLecture = """
           duration_seconds: 4
           captions:
             path: content/recap.vtt
-  - id: practice
+
 """
 
 private let recapCaptions = """
@@ -57,9 +56,11 @@ private func withCourse(isolation: isolated (any Actor)? = #isolation, _ body: (
     try FileManager.default.removeItem(at: folder.appending(path: "equivalent.json"))
     let manifest = folder.appending(path: "skillgarden.yaml")
     let text = try String(contentsOf: manifest, encoding: .utf8)
-    let anchor = "              alt: The two sections of the course plan\n  - id: practice\n"
-    #expect(text.contains(anchor))
-    try text.replacingOccurrences(of: anchor, with: recapLecture + "\n").write(to: manifest, atomically: true, encoding: .utf8)
+    // The "practice" section follows the "plan" section. Its key line is stable, so the lectures go in before it.
+    let anchor = try #require(text.range(of: "\n  - id: practice\n"))
+    var patched = text
+    patched.insert(contentsOf: "\n" + recapLecture, at: anchor.lowerBound)
+    try patched.write(to: manifest, atomically: true, encoding: .utf8)
     try recapCaptions.write(to: folder.appending(path: "content/recap.vtt"), atomically: true, encoding: .utf8)
     try await body(folder, base.appending(path: "library"))
 }

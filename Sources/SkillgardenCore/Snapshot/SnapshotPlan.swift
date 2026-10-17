@@ -189,9 +189,10 @@ public enum SnapshotPlan {
     ]
 
     /// The replacement for the transcript search course: a second video lecture after "read" with the welcome captions.
+    /// The stable key line of the "practice" section is the anchor, so the lecture goes in at the end of "plan".
     static let searchCourse = [
-        ("              alt: The two sections of the course plan\n  - id: practice\n", """
-                      alt: The two sections of the course plan
+        ("\n  - id: practice\n", """
+
               - id: recap
                 title: Recap the plan
                 type: video
