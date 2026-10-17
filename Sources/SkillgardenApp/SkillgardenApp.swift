@@ -137,6 +137,7 @@ struct ContentView: View {
             if let lecture = library.selectedLecture, let section = library.selectedSection {
                 LectureFrameView(
                     sectionTitle: section.title, number: course.lectureNumber(of: lecture.id) ?? 1, lecture: lecture,
+                    stones: library.steppingStones(in: section),
                     nudge: library.nudge,
                     completed: library.isComplete(lecture.id),
                     toggleComplete: { Task { await library.toggleSelectedLectureComplete() } },
@@ -171,6 +172,7 @@ struct ContentView: View {
                 SectionPageView(section: section, number: course.sectionNumber(of: section.id) ?? 1,
                                 headerImage: library.headerImage(forSection: section.id),
                                 progress: library.sectionProgress(section),
+                                stones: library.steppingStones(in: section),
                                 isComplete: { library.isComplete($0) },
                                 isFreePreview: { library.isFreePreview($0) }) { lecture in
                     library.selectDestination(.lecture(sectionID: section.id, lectureID: lecture.id))
@@ -178,8 +180,12 @@ struct ContentView: View {
                 .id(section.id)
             } else if library.destination == .overview {
                 CourseLandingView(course: course, landing: library.selectedLanding, root: library.root,
+                                  path: library.coursePath, percent: library.summary(of: course).percent,
                                   resumeLecture: library.resumeLecture, resume: { library.resume() },
-                                  start: course.firstLecture.map { first in { library.selectDestination(first) } })
+                                  start: course.firstLecture.map { first in { library.selectDestination(first) } },
+                                  openLecture: { section, lecture in
+                                      library.selectDestination(.lecture(sectionID: section.id, lectureID: lecture.id))
+                                  })
             } else {
                 ContentUnavailableView("Select a lecture", systemImage: "list.bullet")
             }

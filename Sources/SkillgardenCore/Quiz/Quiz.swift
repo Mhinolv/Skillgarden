@@ -168,6 +168,15 @@ public struct QuizAttempt: Equatable, Sendable {
 
     public var result: QuizResult { QuizResult(quiz: quiz, answers: answers) }
 
+    /// One stone per question: `done` for a correct answer, `missed` for a wrong one,
+    /// `next` for the current question before Submit and `todo` for later questions.
+    public var questionStones: [SteppingStone] {
+        quiz.questions.map { question in
+            if let answer = answers[question.id] { return answer == question.correctChoiceID ? .done : .missed }
+            return question.id == self.question?.id ? .next : .todo
+        }
+    }
+
     public func state(of choice: QuizChoice) -> ChoiceState {
         guard let question else { return .normal }
         guard isSubmitted else { return choice.id == selection ? .selected : .normal }
