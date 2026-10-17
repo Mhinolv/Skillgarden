@@ -163,7 +163,12 @@ struct ContentView: View {
                                                    result: library.selectedInteractiveResult) {
                                 library.receiveInteractiveMessage($0, lectureID: lecture.id)
                             }
-                        case .quiz, .assignment: LectureContentPlaceholder(lecture: lecture)
+                        case .assignment:
+                            AssignmentLectureView(assignment: library.selectedAssignment,
+                                                  checklist: library.selectedRubricChecklist,
+                                                  toggle: { library.toggleRubricCriterion($0) },
+                                                  reset: { library.resetRubric() })
+                        case .quiz: LectureContentPlaceholder(lecture: lecture)
                         }
                     }
                 }
