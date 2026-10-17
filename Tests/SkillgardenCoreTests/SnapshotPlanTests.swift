@@ -26,11 +26,18 @@ private func temporaryFolder() throws -> URL {
         "quiz-results-light.png", "quiz-results-dark.png", "interactive-result-light.png", "interactive-result-dark.png",
         "video-player-light.png", "video-player-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
         "section-review-light.png", "section-review-dark.png", "course-credits-light.png", "course-credits-dark.png",
+        "assignment-light.png", "assignment-dark.png", "assignment-complete-light.png", "assignment-complete-dark.png",
     ])
     #expect(SnapshotScreen.allCases.filter(\.showsReviewInline) == [.sectionReview])
     #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer, .videoTranscript])
     #expect(SnapshotScreen.allCases.filter { $0.videoStartSeconds != nil } == [.videoTranscript])
     #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [.videoTranscript])
+    #expect(SnapshotScreen.allCases.filter(\.checksTitlebarForVideo) == [.videoPlayer, .videoTranscript])
+    #expect(SnapshotPlan.outputs(outDirectory: out, screens: [.videoTranscript, .library]).map(\.url.lastPathComponent) == [
+        "library-light.png", "library-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
+    ])
+    #expect(SnapshotPlan.outputs(outDirectory: out, screens: []).isEmpty)
+    #expect(SnapshotPlan.outputs(outDirectory: out, screens: nil) == outputs)
     #expect(SnapshotScreen.allCases.filter { !$0.selectsCourse } == [.libraryEmpty, .libraryEmptyCustomFolder, .library])
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
@@ -166,6 +173,22 @@ private func temporaryFolder() throws -> URL {
             let module = try #require(library.selectedInteractive)
             #expect(module.entryExists())
             #expect(library.selectedInteractiveResult == InteractiveResult(score: 75, weakSkills: ["Order the steps of a course plan"]))
+        case .assignment, .assignmentComplete:
+            #expect(courseID == "sample-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.selectedLecture?.type == .assignment)
+            let brief = try #require(library.selectedAssignment?.brief)
+            #expect(FileManager.default.fileExists(atPath: brief.url.path))
+            #expect(SnapshotPlan.imageLoads(for: screen) == 2)
+            for id in SnapshotPlan.rubricChecks(for: screen) { library.toggleRubricCriterion(id) }
+            let checklist = try #require(library.selectedRubricChecklist)
+            #expect(checklist.rubric.count == 4)
+            if screen == .assignment {
+                #expect(checklist.summary == "0 of 4 criteria met")
+            } else {
+                #expect(checklist.allMet)
+            }
         case .sectionReview:
             #expect(courseID == "sample-course")
             #expect(SnapshotPlan.imageLoads(for: screen) == 2)

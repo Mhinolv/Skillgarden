@@ -134,7 +134,7 @@ See `Tests/Fixtures/sample-course/skillgarden.yaml` for a full example.
 | `type` | yes | `video`, `article`, `quiz`, `assignment` or `interactive`. |
 | `state`, `order` | yes | Same as for a section. |
 | `recommended_next` | no | The id of a lecture in the same course. |
-| `video`, `article`, `quiz`, `interactive` | for that type | Give only the field that matches `type`. |
+| `video`, `article`, `quiz`, `assignment`, `interactive` | for that type | Give only the field that matches `type`. |
 
 ## 5. Lecture types
 
@@ -143,7 +143,7 @@ See `Tests/Fixtures/sample-course/skillgarden.yaml` for a full example.
 | `video` | `video.path`, `video.duration_seconds` | An `.mp4` file. Optional: `captions.path` (`.vtt`), `poster` (`path`, `alt`), `free_preview`. |
 | `article` | `article.path` | A UTF-8 Markdown file. Each Markdown image needs an entry in `article.images` with `alt`. |
 | `quiz` | `quiz.questions` | Each question has `id`, `prompt`, `objective_tag`, `choices` (`id`, `text`), `correct_choice_id`, `explanation`. Optional: `image`. |
-| `assignment` | none | The app shows the title and objective. |
+| `assignment` | `assignment.brief.path`, `assignment.rubric` | The brief is a UTF-8 Markdown file with the article rules (optional `brief.images`). The rubric has one or more rows with `id`, `criterion`, `guidance`. |
 | `interactive` | `interactive.bundle_path` | A folder that holds `index.html`. See `Tests/Fixtures/interactive-course`. |
 
 ## 6. Internal files

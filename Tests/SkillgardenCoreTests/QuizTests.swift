@@ -114,7 +114,7 @@ func validationFailsWhenAQuestionLacksAField(field: String) throws {
     let quiz = try #require(lectures[0]["quiz"])
     try editLecture(&object) { $0.removeValue(forKey: "quiz") }
     try editLecture(&object, section: 0, lecture: 0) { $0["quiz"] = quiz }
-    try editLecture(&object, lecture: 1) { $0["type"] = "quiz"; $0["quiz"] = ["questions": [Any]()] }
+    try editLecture(&object, lecture: 1) { $0["type"] = "quiz"; $0["assignment"] = nil; $0["quiz"] = ["questions": [Any]()] }
     let errors = try diagnostics(object)
     #expect(errors.map { "\($0.fieldPath): \($0.message)" } == [
         "sections[0].lectures[0].quiz: allowed only when type is quiz",

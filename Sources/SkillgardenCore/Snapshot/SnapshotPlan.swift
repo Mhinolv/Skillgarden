@@ -32,6 +32,10 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case sectionReview = "section-review"
     /// The credits page of the fixture course with a second credit. One row has a role and a URL, one row has neither.
     case courseCredits = "course-credits"
+    /// The fixture assignment with its draft section and lecture published. No rubric row is checked.
+    case assignment
+    /// The same assignment with every rubric row checked, so the success line shows.
+    case assignmentComplete = "assignment-complete"
 
     /// True when the harness opens the player of the video lecture before the capture.
     public var opensVideoPlayer: Bool { self == .videoPlayer || self == .videoTranscript }
@@ -41,6 +45,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// True when the harness scrolls the lecture page to the end.
     public var scrollsLectureToEnd: Bool { self == .videoTranscript }
+
+    /// True when the harness fails if the capture has black video pixels in the title bar and the toolbar (#55).
+    public var checksTitlebarForVideo: Bool { opensVideoPlayer }
 
     /// True when the harness draws the review sheet in the window. A real sheet is a separate window, so the capture misses it.
     public var showsReviewInline: Bool { self == .sectionReview }
@@ -71,8 +78,9 @@ public enum SnapshotPlan {
     }
 
     /// One output per screen and appearance, in a fixed order: `<out-dir>/<screen>-<light|dark>.png`.
-    public static func outputs(outDirectory: URL) -> [Output] {
-        SnapshotScreen.allCases.flatMap { screen in
+    /// `screens` limits the outputs to these screens. The order stays the same.
+    public static func outputs(outDirectory: URL, screens: Set<SnapshotScreen>? = nil) -> [Output] {
+        SnapshotScreen.allCases.filter { screens?.contains($0) ?? true }.flatMap { screen in
             SnapshotAppearance.allCases.map { appearance in
                 Output(screen: screen, appearance: appearance,
                        url: outDirectory.appending(path: "\(screen.rawValue)-\(appearance.rawValue).png"))
@@ -115,6 +123,12 @@ public enum SnapshotPlan {
             // The fixture quiz is in a draft section. The copy publishes that section so the learner sees the quiz.
             return try publishCopy(of: fixture, root: root, replacing: [
                 ("objective: Apply the course plan\n    state: draft", "objective: Apply the course plan\n    state: published"),
+            ])
+        case .assignment, .assignmentComplete:
+            // The fixture assignment is a draft lecture in a draft section. The copy publishes both.
+            return try publishCopy(of: fixture, root: root, replacing: [
+                ("objective: Apply the course plan\n    state: draft", "objective: Apply the course plan\n    state: published"),
+                ("objective: Create a course plan\n        state: draft", "objective: Create a course plan\n        state: published"),
             ])
         case .sectionReview:
             return try publishCopy(of: fixture, root: root, replacing: reviewCourse)
@@ -188,12 +202,18 @@ public enum SnapshotPlan {
         }
     }
 
+    /// The rubric rows that the harness checks after it opens the assignment lecture.
+    public static func rubricChecks(for screen: SnapshotScreen) -> [String] {
+        screen == .assignmentComplete ? ["goal", "sections", "order", "length"] : []
+    }
+
     /// The image loads to wait for before the capture.
-    /// Library: the hero and the tile images. Course screens: the outline course image, then the question image.
+    /// Library: the hero and the tile images. Course screens: the outline course image, then the question image
+    /// or the assignment brief.
     public static func imageLoads(for screen: SnapshotScreen) -> Int {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder: 0
-        case .library, .quizQuestion, .quizWrongAnswer, .sectionReview: 2
+        case .library, .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete: 2
         default: 1
         }
     }
@@ -209,6 +229,7 @@ public enum SnapshotPlan {
         case .courseCredits: .credits
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")
         case .interactiveResult: .lecture(sectionID: "practice", lectureID: "order-steps")
+        case .assignment, .assignmentComplete: .lecture(sectionID: "practice", lectureID: "apply")
         }
     }
 }

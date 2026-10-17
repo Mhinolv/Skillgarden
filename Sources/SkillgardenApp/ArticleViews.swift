@@ -3,7 +3,7 @@ import SwiftUI
 import SkillgardenCore
 
 /// Markdown blocks with inline styles applied and image references resolved. Build it off the main actor.
-/// The assignment brief (#12) uses the same type and `MarkdownBlocksView`.
+/// The assignment brief (`AssignmentLectureView`) uses the same type and `MarkdownBlocksView`.
 struct RenderedMarkdown: Sendable {
     enum Block: Sendable {
         case heading(level: Int, text: AttributedString)

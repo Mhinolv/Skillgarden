@@ -37,8 +37,12 @@ public final class LibraryModel {
     public private(set) var interactives: [String: [String: InteractiveModule]] = [:]
     /// The latest saved interactive score by course id, then lecture id.
     public private(set) var interactiveResults: [String: [String: InteractiveResult]] = [:]
+    /// Assignment briefs and rubrics by course id, then lecture id, read from each installed manifest.
+    public private(set) var assignments: [String: [String: LectureAssignment]] = [:]
     /// Quiz attempts of this session by course id, then lecture id. They are not saved.
     private var quizAttempts: [String: [String: QuizAttempt]] = [:]
+    /// Rubric checks of this session by course id, then lecture id. They are not saved.
+    private var rubricChecklists: [String: [String: RubricChecklist]] = [:]
     /// Section ids whose review sheet opened, by course id.
     public private(set) var reviewedSections: [String: Set<String>] = [:]
     /// The open spaced review sheet. Nil when no sheet shows.
@@ -244,6 +248,40 @@ public final class LibraryModel {
         enqueueWrite { try $0.saveQuizResult(result, courseID: courseID, lectureID: lectureID) }
     }
 
+    // MARK: Assignment
+
+    /// The assignment of the selected lecture. Nil if the lecture is not an assignment or its course has no installed manifest.
+    public var selectedAssignment: LectureAssignment? {
+        guard let courseID = selectedCourseID, let lecture = selectedLecture, lecture.type == .assignment else { return nil }
+        return assignments[courseID]?[lecture.id]
+    }
+
+    /// The checks of this session for the selected assignment. All rows start unchecked.
+    /// A republish keeps the checks of rows whose id is still in the rubric.
+    public var selectedRubricChecklist: RubricChecklist? {
+        guard let assignment = selectedAssignment, let courseID = selectedCourseID,
+              let lectureID = selectedLecture?.id else { return nil }
+        let checked = rubricChecklists[courseID]?[lectureID]?.checked ?? []
+        return RubricChecklist(rubric: assignment.rubric, checked: checked)
+    }
+
+    /// Toggles one rubric row of the selected assignment.
+    public func toggleRubricCriterion(_ id: String) {
+        updateRubricChecklist { $0.toggle(id) }
+    }
+
+    /// Clears all rubric checks of the selected assignment.
+    public func resetRubric() {
+        updateRubricChecklist { $0.reset() }
+    }
+
+    private func updateRubricChecklist(_ body: (inout RubricChecklist) -> Void) {
+        guard var checklist = selectedRubricChecklist, let courseID = selectedCourseID,
+              let lectureID = selectedLecture?.id else { return }
+        body(&checklist)
+        rubricChecklists[courseID, default: [:]][lectureID] = checklist
+    }
+
     // MARK: Spaced review
 
     /// Opens the review sheet on the first visit to a section that has two or more questions from earlier quizzes.
@@ -373,6 +411,7 @@ public final class LibraryModel {
             quizzes = installed.quizzes
             self.quizResults = quizResults
             interactives = installed.interactives
+            assignments = installed.assignments
             self.interactiveResults = interactiveResults
             reviewedSections = reviewed
             errorMessage = nil
@@ -396,6 +435,7 @@ public final class LibraryModel {
             quizResults = [:]
             interactives = [:]
             interactiveResults = [:]
+            assignments = [:]
             reviewedSections = [:]
             sectionReview = nil
             selectedCourseID = nil
@@ -418,8 +458,8 @@ public final class LibraryModel {
         }
     }
 
-    /// Reads header images, course page fields, article files, video files, quizzes and interactive bundles
-    /// from each installed manifest.
+    /// Reads header images, course page fields, article files, video files, quizzes, interactive bundles
+    /// and assignments from each installed manifest.
     /// A path outside the snapshot folder is ignored.
     nonisolated private static func installedData(store: CourseStore, root: URL) throws -> InstalledCourseData {
         var data = InstalledCourseData()
@@ -448,6 +488,10 @@ public final class LibraryModel {
                 if let module = lecture.interactive.flatMap({ InteractiveModule(snapshot: folder, bundlePath: $0.bundlePath) }) {
                     data.interactives[courseID, default: [:]][lecture.id] = module
                 }
+                // Manifests saved before assignment support have no `assignment` field.
+                if let assignment = lecture.assignment {
+                    data.assignments[courseID, default: [:]][lecture.id] = LectureAssignment(manifest: assignment, folder: folder)
+                }
             }
         }
         return data
@@ -468,4 +512,6 @@ struct InstalledCourseData: Sendable {
     var quizzes: [String: [String: Quiz]] = [:]
     /// Interactive bundles by course id, then lecture id.
     var interactives: [String: [String: InteractiveModule]] = [:]
+    /// Assignment briefs and rubrics by course id, then lecture id.
+    var assignments: [String: [String: LectureAssignment]] = [:]
 }

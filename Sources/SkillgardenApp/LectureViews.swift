@@ -148,6 +148,7 @@ struct LectureFrameView<Content: View>: View {
     /// Interactive modules use a wider column (960 pt).
     var maxWidth: CGFloat = CourseStyle.textWidth
     @ViewBuilder let content: Content
+    @State private var visibleTop: CGFloat?
 
     var body: some View {
         ScrollView {
@@ -179,7 +180,11 @@ struct LectureFrameView<Content: View>: View {
             .frame(maxWidth: maxWidth, alignment: .leading)
             .padding(GardenSpacing.l)
             .frame(maxWidth: .infinity)
+            .environment(\.pageVisibleTop, visibleTop)
         }
+        // The proxy frame leaves out the safe area, so its top is the bottom edge of the toolbar.
+        // It changes with the window layout, not on a scroll.
+        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { visibleTop = $0 }
     }
 }
 

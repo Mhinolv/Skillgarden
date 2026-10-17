@@ -2,22 +2,31 @@ import AppKit
 import SwiftUI
 import SkillgardenCore
 
-/// Offscreen snapshot harness: `SkillgardenApp --snapshot <out-dir> --fixture <course-folder>`.
+/// Offscreen snapshot harness: `SkillgardenApp --snapshot <out-dir> --fixture <course-folder> [--screen <screen>]`.
 /// Renders each `SnapshotScreen` in light and dark mode to `<out-dir>/<screen>-<light|dark>.png`.
+/// `--screen` renders only that screen. Repeat it for more screens.
 @MainActor
 enum SnapshotRenderer {
     static func run(arguments: [String]) -> Int32 {
         guard let outPath = arguments.first, !outPath.hasPrefix("--"),
               let fixtureIndex = arguments.firstIndex(of: "--fixture"), fixtureIndex + 1 < arguments.count else {
-            FileHandle.standardError.write(Data("usage: SkillgardenApp --snapshot <out-dir> --fixture <course-folder>\n".utf8))
+            FileHandle.standardError.write(Data("usage: SkillgardenApp --snapshot <out-dir> --fixture <course-folder> [--screen <screen>]\n".utf8))
             return 2
+        }
+        var screens: Set<SnapshotScreen>?
+        for (index, argument) in arguments.enumerated() where argument == "--screen" {
+            guard index + 1 < arguments.count, let screen = SnapshotScreen(rawValue: arguments[index + 1]) else {
+                FileHandle.standardError.write(Data("snapshot: unknown screen after --screen\n".utf8))
+                return 2
+            }
+            screens = (screens ?? []).union([screen])
         }
         let outDirectory = URL(fileURLWithPath: outPath).standardizedFileURL
         let fixture = URL(fileURLWithPath: arguments[fixtureIndex + 1])
         do {
             try FileManager.default.createDirectory(at: outDirectory, withIntermediateDirectories: true)
             configureEnvironment()
-            let outputs = SnapshotPlan.outputs(outDirectory: outDirectory)
+            let outputs = SnapshotPlan.outputs(outDirectory: outDirectory, screens: screens)
             for output in outputs {
                 try render(output, fixture: fixture)
                 print(output.url.path)
@@ -55,6 +64,7 @@ enum SnapshotRenderer {
             library.selectCourse(courseID)
             library.selectDestination(SnapshotPlan.destination(for: output.screen))
             for action in SnapshotPlan.quizActions(for: output.screen) { library.performQuizAction(action) }
+            for id in SnapshotPlan.rubricChecks(for: output.screen) { library.toggleRubricCriterion(id) }
             for item in SnapshotPlan.reviewAnswers(for: output.screen) { library.answerReview(questionID: item.questionID, choiceID: item.choiceID) }
         }
 
@@ -105,6 +115,13 @@ enum SnapshotRenderer {
 
         let png = try image(of: frameView, appearance: appearance)
         try png.write(to: output.url, options: .atomic)
+        if output.screen.checksTitlebarForVideo {
+            // The title bar and the toolbar are the part of the window above the content layout rect.
+            let titlebar = window.frame.height - window.contentLayoutRect.maxY
+            let rows = Int(titlebar.rounded(.down)) * SnapshotPlan.scale
+            let black = SnapshotCheck.blackPixels(png: png, topRows: rows) ?? 0
+            if black > 0 { throw SnapshotError.videoOverTitlebar(output.url.lastPathComponent, black) }
+        }
     }
 
     /// Runs the main run loop in short steps until `done` is true or the time limit passes.
@@ -162,12 +179,14 @@ enum SnapshotError: Error, CustomStringConvertible {
     case load(String)
     case image
     case courseImage
+    case videoOverTitlebar(String, Int)
 
     var description: String {
         switch self {
         case let .load(message): "cannot load the snapshot library: \(message)"
         case .image: "cannot create the PNG image"
         case .courseImage: "course image did not load"
+        case let .videoOverTitlebar(name, count): "\(name): the video draws \(count) black pixels over the title bar"
         }
     }
 }
