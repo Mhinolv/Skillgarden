@@ -25,17 +25,20 @@ private func temporaryFolder() throws -> URL {
         "quiz-question-light.png", "quiz-question-dark.png", "quiz-wrong-answer-light.png", "quiz-wrong-answer-dark.png",
         "quiz-results-light.png", "quiz-results-dark.png", "interactive-result-light.png", "interactive-result-dark.png",
         "video-player-light.png", "video-player-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
+        "video-quick-check-light.png", "video-quick-check-dark.png",
         "section-review-light.png", "section-review-dark.png", "course-credits-light.png", "course-credits-dark.png",
         "assignment-light.png", "assignment-dark.png", "assignment-complete-light.png", "assignment-complete-dark.png",
         "transcript-search-light.png", "transcript-search-dark.png",
         "transcript-search-no-results-light.png", "transcript-search-no-results-dark.png",
+        "lecture-sources-light.png", "lecture-sources-dark.png",
     ])
     #expect(SnapshotScreen.allCases.filter { $0.transcriptQuery != nil } == [.transcriptSearch, .transcriptSearchNoResults])
     #expect(SnapshotScreen.allCases.filter(\.showsReviewInline) == [.sectionReview])
-    #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer, .videoTranscript])
+    #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer, .videoTranscript, .videoQuickCheck])
     #expect(SnapshotScreen.allCases.filter { $0.videoStartSeconds != nil } == [.videoTranscript])
-    #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [.videoTranscript])
-    #expect(SnapshotScreen.allCases.filter(\.checksTitlebarForVideo) == [.videoPlayer, .videoTranscript])
+    #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [.videoTranscript, .videoQuickCheck, .lectureSources])
+    #expect(SnapshotScreen.allCases.filter(\.showsQuickChecks) == [.videoQuickCheck])
+    #expect(SnapshotScreen.allCases.filter(\.checksTitlebarForVideo) == [.videoPlayer, .videoTranscript, .videoQuickCheck])
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: [.videoTranscript, .library]).map(\.url.lastPathComponent) == [
         "library-light.png", "library-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
     ])
@@ -110,6 +113,15 @@ private func temporaryFolder() throws -> URL {
             library.selectDestination(SnapshotPlan.destination(for: screen))
             #expect(library.selectedLecture?.type == .article)
             #expect(library.article(forLecture: "read")?.path == "content/plan.md")
+        case .lectureSources:
+            #expect(courseID == "sample-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.selectedLecture?.id == "read")
+            // Three cards: a full range with a URL, a start only with a URL, and no URL.
+            let sources = library.selectedSources
+            #expect(sources.map(\.rangeText) == ["4:10 – 9:32", "From 1:02:05", nil])
+            #expect(sources.map { $0.url != nil } == [true, true, false])
         case .courseLanding, .courseLandingDarkTheme:
             #expect(courseID == "sample-course")
             library.selectCourse(courseID)
@@ -168,6 +180,16 @@ private func temporaryFolder() throws -> URL {
             let start = try #require(screen.videoStartSeconds)
             #expect(transcript.activeLine(at: start) == 1)
             #expect(SnapshotPlan.imageLoads(for: screen) == 1)
+        case .videoQuickCheck:
+            #expect(courseID == "sample-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            for item in SnapshotPlan.quickCheckAnswers(for: screen) { library.answerQuickCheck(item.checkID, choiceID: item.choiceID) }
+            let session = try #require(library.selectedQuickChecks)
+            #expect(session.checks.count == 2)
+            #expect(session.isCorrect(0) == nil)
+            #expect(session.isCorrect(1) == false)
+            #expect(session.checks[1].explanation != nil)
         case .interactiveResult:
             #expect(courseID == "interactive-course")
             library.selectCourse(courseID)

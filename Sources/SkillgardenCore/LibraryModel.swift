@@ -39,10 +39,14 @@ public final class LibraryModel {
     public private(set) var interactiveResults: [String: [String: InteractiveResult]] = [:]
     /// Assignment briefs and rubrics by course id, then lecture id, read from each installed manifest.
     public private(set) var assignments: [String: [String: LectureAssignment]] = [:]
+    /// Source cards by course id, then lecture id, read from each installed manifest. Lectures without sources have none.
+    public private(set) var sources: [String: [String: [LectureSource]]] = [:]
     /// Quiz attempts of this session by course id, then lecture id. They are not saved.
     private var quizAttempts: [String: [String: QuizAttempt]] = [:]
     /// Rubric checks of this session by course id, then lecture id. They are not saved.
     private var rubricChecklists: [String: [String: RubricChecklist]] = [:]
+    /// Video quick-check answers of this session by course id, then lecture id. They are not saved.
+    private var quickCheckSessions: [String: [String: QuickCheckSession]] = [:]
     /// Section ids whose review sheet opened, by course id.
     public private(set) var reviewedSections: [String: Set<String>] = [:]
     /// Indexed transcript cues by course id (#18). Courses published before the index have none.
@@ -291,6 +295,41 @@ public final class LibraryModel {
         rubricChecklists[courseID, default: [:]][lectureID] = checklist
     }
 
+    // MARK: Quick checks
+
+    /// The quick checks of this session for the selected video. Nil if the video has no checks.
+    /// A republish that changes the checks clears the answers.
+    public var selectedQuickChecks: QuickCheckSession? {
+        guard let courseID = selectedCourseID, let lecture = selectedLecture, lecture.type == .video,
+              let checks = videos[courseID]?[lecture.id]?.quickChecks, !checks.isEmpty else { return nil }
+        if let session = quickCheckSessions[courseID]?[lecture.id], session.checks == checks { return session }
+        return QuickCheckSession(checks: checks)
+    }
+
+    /// Answers one quick check of the selected video. The first answer locks the check.
+    public func answerQuickCheck(_ checkID: Int, choiceID: String) {
+        updateQuickChecks { $0.answer(checkID: checkID, choiceID: choiceID) }
+    }
+
+    /// Unlocks one quick check of the selected video.
+    public func retryQuickCheck(_ checkID: Int) {
+        updateQuickChecks { $0.tryAgain(checkID: checkID) }
+    }
+
+    private func updateQuickChecks(_ body: (inout QuickCheckSession) -> Void) {
+        guard var session = selectedQuickChecks, let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return }
+        body(&session)
+        quickCheckSessions[courseID, default: [:]][lectureID] = session
+    }
+
+    // MARK: Sources
+
+    /// The source cards of the selected lecture in manifest order. Empty if the lecture has none.
+    public var selectedSources: [LectureSource] {
+        guard let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return [] }
+        return sources[courseID]?[lectureID] ?? []
+    }
+
     // MARK: Spaced review
 
     /// Opens the review sheet on the first visit to a section that has two or more questions from earlier quizzes.
@@ -450,6 +489,7 @@ public final class LibraryModel {
             self.quizResults = quizResults
             interactives = installed.interactives
             assignments = installed.assignments
+            sources = installed.sources
             self.interactiveResults = interactiveResults
             reviewedSections = reviewed
             transcriptCues = cues
@@ -476,6 +516,7 @@ public final class LibraryModel {
             interactives = [:]
             interactiveResults = [:]
             assignments = [:]
+            sources = [:]
             reviewedSections = [:]
             transcriptCues = [:]
             clearTranscriptSearch()
@@ -502,7 +543,7 @@ public final class LibraryModel {
     }
 
     /// Reads header images, course page fields, article files, video files, quizzes, interactive bundles
-    /// and assignments from each installed manifest.
+    /// assignments and source cards from each installed manifest.
     /// A path outside the snapshot folder is ignored.
     nonisolated private static func installedData(store: CourseStore, root: URL) throws -> InstalledCourseData {
         var data = InstalledCourseData()
@@ -535,6 +576,10 @@ public final class LibraryModel {
                 if let assignment = lecture.assignment {
                     data.assignments[courseID, default: [:]][lecture.id] = LectureAssignment(manifest: assignment, folder: folder)
                 }
+                // Manifests saved before source support have no `sources` field.
+                if let sources = lecture.sources, !sources.isEmpty {
+                    data.sources[courseID, default: [:]][lecture.id] = sources.map(LectureSource.init(manifest:))
+                }
             }
         }
         return data
@@ -565,4 +610,6 @@ struct InstalledCourseData: Sendable {
     var interactives: [String: [String: InteractiveModule]] = [:]
     /// Assignment briefs and rubrics by course id, then lecture id.
     var assignments: [String: [String: LectureAssignment]] = [:]
+    /// Source cards by course id, then lecture id.
+    var sources: [String: [String: [LectureSource]]] = [:]
 }

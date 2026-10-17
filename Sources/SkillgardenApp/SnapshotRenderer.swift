@@ -65,6 +65,7 @@ enum SnapshotRenderer {
             library.selectDestination(SnapshotPlan.destination(for: output.screen))
             for action in SnapshotPlan.quizActions(for: output.screen) { library.performQuizAction(action) }
             for id in SnapshotPlan.rubricChecks(for: output.screen) { library.toggleRubricCriterion(id) }
+            for item in SnapshotPlan.quickCheckAnswers(for: output.screen) { library.answerQuickCheck(item.checkID, choiceID: item.choiceID) }
             for item in SnapshotPlan.reviewAnswers(for: output.screen) { library.answerReview(questionID: item.questionID, choiceID: item.choiceID) }
             if let query = output.screen.transcriptQuery {
                 library.transcriptQuery = query
@@ -80,6 +81,7 @@ enum SnapshotRenderer {
             .environment(\.imageLoads, imageLoads)
             .environment(\.opensVideoPlayer, output.screen.opensVideoPlayer)
             .environment(\.snapshotVideoStart, output.screen.videoStartSeconds)
+            .environment(\.snapshotShowsQuickChecks, output.screen.showsQuickChecks)
             .environment(\.showsReviewInline, true)
             .transaction { $0.disablesAnimations = true; $0.animation = nil }
         let size = NSSize(width: SnapshotPlan.width, height: SnapshotPlan.height)

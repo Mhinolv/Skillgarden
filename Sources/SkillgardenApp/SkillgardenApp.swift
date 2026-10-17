@@ -178,7 +178,8 @@ struct ContentView: View {
                     previous: library.previousLecture == nil ? nil : { library.goToPreviousLecture() },
                     next: library.nextLecture == nil ? nil : { library.goToNextLecture() },
                     openNudge: { library.goToNudge() },
-                    maxWidth: lecture.type == .interactive ? InteractiveStyle.maxWidth : CourseStyle.textWidth
+                    maxWidth: lecture.type == .interactive ? InteractiveStyle.maxWidth : CourseStyle.textWidth,
+                    sources: library.selectedSources
                 ) {
                     if let attempt = library.selectedQuizAttempt {
                         QuizView(attempt: attempt) { library.performQuizAction($0) }
@@ -187,6 +188,9 @@ struct ContentView: View {
                         case .article: ArticleLectureView(article: library.article(forLecture: lecture.id))
                         case .video:
                             VideoLectureView(video: library.video(forLecture: lecture.id),
+                                             quickChecks: library.selectedQuickChecks,
+                                             answerQuickCheck: { library.answerQuickCheck($0, choiceID: $1) },
+                                             retryQuickCheck: { library.retryQuickCheck($0) },
                                              startSeconds: { [library] in
                                                  let duration = library.video(forLecture: lecture.id).map { Double($0.durationSeconds) }
                                                  return library.startSeconds(forLecture: lecture.id, duration: duration)

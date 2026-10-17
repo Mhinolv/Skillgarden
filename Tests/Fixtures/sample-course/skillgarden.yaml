@@ -46,6 +46,22 @@ sections:
             path: media/poster.svg
             alt: The first frame of the welcome video
           free_preview: true
+          quick_checks:
+            - prompt: Where does a Skillgarden course live?
+              choices:
+                - id: local
+                  text: On this Mac
+                - id: server
+                  text: On a web server
+              correct_choice_id: local
+            - prompt: What does the course outline show first?
+              choices:
+                - id: sections
+                  text: The sections, in order
+                - id: scores
+                  text: The quiz scores
+              correct_choice_id: sections
+              explanation: The outline lists the sections in order, and each section lists its lectures.
       - id: read
         title: Read the plan
         type: article
@@ -57,6 +73,19 @@ sections:
           images:
             - path: media/section.svg
               alt: The two sections of the course plan
+        # Source cards. timestamp_start and timestamp_end are integer seconds, the same as duration_seconds.
+        sources:
+          - title: Plan a course on one page
+            channel: Skillgarden Studio
+            url: https://example.com/plan-a-course
+            timestamp_start: 250
+            timestamp_end: 572
+          - title: Course outlines that work
+            channel: Learning Lab
+            url: https://example.com/course-outlines
+            timestamp_start: 3725
+          - title: The course plan checklist
+            channel: Skillgarden Docs
   - id: practice
     title: Check your work
     objective: Apply the course plan
