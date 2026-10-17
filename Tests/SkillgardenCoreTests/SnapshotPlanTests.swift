@@ -19,6 +19,7 @@ private func temporaryFolder() throws -> URL {
         "library-empty-light.png", "library-empty-dark.png", "library-light.png", "library-dark.png",
         "section-light.png", "section-dark.png", "lecture-light.png", "lecture-dark.png",
         "lecture-complete-light.png", "lecture-complete-dark.png", "course-landing-light.png", "course-landing-dark.png",
+        "course-landing-dark-theme-light.png", "course-landing-dark-theme-dark.png",
     ])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
@@ -68,11 +69,22 @@ private func temporaryFolder() throws -> URL {
             library.selectDestination(SnapshotPlan.destination(for: screen))
             #expect(library.selectedLecture?.id == "welcome")
             #expect(library.isSelectedLectureComplete)
-        case .courseLanding:
+        case .courseLanding, .courseLandingDarkTheme:
+            #expect(courseID == "sample-course")
             library.selectCourse(courseID)
             library.selectDestination(SnapshotPlan.destination(for: screen))
             #expect(library.destination == .overview)
-            #expect(library.resumeLecture?.title == "Read the plan")
+            #expect(library.selectedLanding?.learningOutcomes == ["Plan a course", "Check your work"])
+            let theme = try #require(library.selectedLanding?.theme)
+            if screen == .courseLanding {
+                #expect(theme.appearance == .light)
+                #expect(theme.accent == ThemeColor(hex: "#286644"))
+                #expect(library.resumeLecture?.title == "Read the plan")
+            } else {
+                #expect(theme.appearance == .dark)
+                #expect(theme.accent == ThemeColor(hex: SnapshotPlan.darkThemeAccent))
+                #expect(library.resumeLecture == nil)
+            }
         }
     }
 }
