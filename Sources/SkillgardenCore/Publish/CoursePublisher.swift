@@ -55,6 +55,11 @@ public enum CoursePublisher {
            try previous.internalDirectory.map({
                try equalFiles(internalFiles, source: internalSource, snapshot: destination.appending(path: $0))
            }) ?? internalFiles.isEmpty {
+            // Courses saved before the transcript index (#18) get it from the installed snapshot.
+            if try !store.hasTranscriptIndex(courseID: manifest.id) {
+                let cues = try? transcriptCues(manifest, snapshot: destination.appending(path: previous.directory))
+                try store.saveTranscriptIndex(cues ?? [], courseID: manifest.id)
+            }
             return result
         }
         let name = UUID().uuidString
@@ -73,7 +78,8 @@ public enum CoursePublisher {
             }
             let stored = try publishImages(images, snapshot: relative, media: media, root: destination, folder: courseFolder)
             try store.savePublication(course(from: manifest, images: stored), manifest: JSONEncoder().encode(manifest),
-                                      directory: relative, internalDirectory: internalRelative)
+                                      directory: relative, internalDirectory: internalRelative,
+                                      transcriptCues: transcriptCues(manifest, snapshot: snapshot))
         } catch {
             try? manager.removeItem(at: snapshot)
             try? manager.removeItem(at: destination.appending(path: media))
@@ -170,6 +176,15 @@ public enum CoursePublisher {
     }
 
     private static let internalPrefix = "internal/"
+
+    /// The caption cues of each video lecture, read from the snapshot. Draft lectures are indexed too.
+    /// The learner search leaves out the lectures that the learner cannot see.
+    private static func transcriptCues(_ manifest: CourseManifest, snapshot: URL) throws -> [TranscriptCue] {
+        try manifest.sections.flatMap(\.lectures).flatMap { lecture -> [TranscriptCue] in
+            guard let path = lecture.video?.captions?.path else { return [] }
+            return TranscriptCue.cues(lectureID: lecture.id, captions: try LectureVideo.captions(at: snapshot.appending(path: path)))
+        }
+    }
 
     private static func copy(_ files: [String], from source: URL, to directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

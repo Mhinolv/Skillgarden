@@ -73,8 +73,9 @@ final class VideoPlayback {
     }
 
     /// Seeks exactly to `seconds` and plays. A click on a transcript line calls it.
+    /// A transcript search result passes `plays: false`, so the player pauses at the cue (#18).
     /// Time ticks during a seek can show the old time, so they do not change the active line until the seek ends.
-    func seek(to seconds: Double) {
+    func seek(to seconds: Double, plays: Bool = true) {
         pendingSeeks += 1
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             DispatchQueue.main.async {
@@ -82,7 +83,7 @@ final class VideoPlayback {
             }
         }
         update(at: seconds)
-        player.play()
+        if plays { player.play() } else { player.pause() }
     }
 
     private func update(at seconds: Double) {
@@ -119,6 +120,8 @@ struct VideoLectureView: View {
     let saveResumePosition: @MainActor @Sendable (Double) -> Void
     /// The window keeps this choice for all lectures. View > Show Transcript changes it too.
     @Binding var showsTranscript: Bool
+    /// A transcript search result of this lecture (#18). The player seeks to the cue and stays paused.
+    var seekRequest: TranscriptSeek? = nil
     @Environment(\.imageLoads) private var imageLoads
     @Environment(\.opensVideoPlayer) private var opensVideoPlayer
     @Environment(\.snapshotVideoStart) private var snapshotVideoStart
@@ -163,6 +166,7 @@ struct VideoLectureView: View {
         }
         .focusedSceneValue(\.showsTranscript, hasCaptions ? $showsTranscript : nil)
         .task(id: video) { await load() }
+        .onChange(of: seekRequest) { applySeekRequest() }
         .onDisappear { playback?.stop() }
     }
 
@@ -249,7 +253,21 @@ struct VideoLectureView: View {
         transcript = cues.map(Transcript.init(captions:))
         available = exists
         if exists && opensVideoPlayer { play() }
+        applySeekRequest()
         imageLoads?.finish(loaded: exists)
+    }
+
+    /// Opens the player paused at the cue of the search result and shows the transcript with the cue active.
+    /// Before the load ends this does nothing. The load calls it again.
+    private func applySeekRequest() {
+        guard let seekRequest, let video, available == true else { return }
+        if captions != nil { showsTranscript = true }
+        if let playback {
+            playback.seek(to: seekRequest.seconds, plays: false)
+        } else {
+            playback = VideoPlayback(url: video.url, start: seekRequest.seconds, captions: captions, transcript: transcript,
+                                     plays: false, save: saveResumePosition)
+        }
     }
 }
 
