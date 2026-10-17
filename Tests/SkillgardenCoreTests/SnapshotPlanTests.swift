@@ -74,11 +74,12 @@ private func temporaryFolder() throws -> URL {
             #expect(library.courses.isEmpty)
         case .library:
             #expect(courseID == "sample-course")
-            // The Library home: no selected course, the fixture course is the hero and a second course is new.
+            // The Library home: no selected course, the fixture course is in the "Continue" strip and a second course is new.
+            // Three images: the strip and one tile per course.
             #expect(!screen.selectsCourse)
-            #expect(SnapshotPlan.imageLoads(for: screen) == 2)
+            #expect(SnapshotPlan.imageLoads(for: screen) == 3)
             #expect(library.courses.map(\.id) == ["garden-tools", "sample-course"])
-            #expect(library.heroCourse?.id == "sample-course")
+            #expect(library.continueCourse?.id == "sample-course")
             #expect(library.courses.map { library.summary(of: $0).status } == [.new, .inProgress])
             #expect(library.accent(ofCourse: "garden-tools") == ThemeColor(hex: "#2F6FED"))
             #expect(library.libraryMeta == "2 courses · 1 in progress")

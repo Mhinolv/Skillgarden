@@ -1,13 +1,13 @@
 import SwiftUI
 import SkillgardenCore
 
-/// The Library home: the full window while no course is open. A bento grid with the hero and one tile per course.
+/// The Library home: the full window while no course is open. The "Continue" strip, then one tile per course in a grid.
 struct LibraryHomeView: View {
     let library: LibraryModel
     /// The library folder to show under "No courses yet". It is nil for the default folder.
     var customRootPath: String? = nil
     @Environment(\.gardenPalette) private var palette
-    @State private var width = LibraryBento.wideWidth
+    @State private var width = LibraryGrid.wideWidth
 
     var body: some View {
         Group {
@@ -39,23 +39,20 @@ struct LibraryHomeView: View {
     }
 
     private var home: some View {
-        let hero = library.heroCourse
-        let tiles = library.courses.filter { $0.id != hero?.id }
-        return ScrollView {
+        ScrollView {
             VStack(alignment: .leading, spacing: GardenSpacing.m) {
                 HStack(alignment: .firstTextBaseline, spacing: GardenSpacing.s) {
                     Text("Library").gardenText(.title).accessibilityAddTraits(.isHeader)
                     Text(library.libraryMeta).gardenText(.meta).monospacedDigit()
                 }
-                LibraryBentoLayout(columns: LibraryBento.columns(forWidth: width), spacing: GardenSpacing.m,
-                                   hasHero: hero != nil) {
-                    if let hero {
-                        LibraryHeroCard(course: hero, summary: library.summary(of: hero), root: library.root,
-                                        open: { library.selectCourse(hero.id) },
-                                        resume: { library.openNextLecture(ofCourse: hero.id) })
-                            .coursePalette(library.accent(ofCourse: hero.id))
-                    }
-                    ForEach(tiles) { course in
+                if let course = library.continueCourse {
+                    LibraryContinueStrip(course: course, summary: library.summary(of: course), root: library.root,
+                                         open: { library.selectCourse(course.id) },
+                                         resume: { library.openNextLecture(ofCourse: course.id) })
+                        .coursePalette(library.accent(ofCourse: course.id))
+                }
+                LibraryGridLayout(columns: LibraryGrid.columns(forWidth: width), spacing: GardenSpacing.m) {
+                    ForEach(library.courses) { course in
                         LibraryTile(course: course, summary: library.summary(of: course), root: library.root) {
                             library.selectCourse(course.id)
                         }
@@ -127,9 +124,9 @@ private struct LibraryCardImage: View {
     }
 }
 
-/// The 2×2 hero: the first course in progress, its next lecture, "Resume", the stones and "14 / 32".
-/// A click opens the course landing. "Resume" opens the next lecture.
-struct LibraryHeroCard: View {
+/// The one-row "Continue" strip: the first course in progress, a 128 × 72 image, the title, the next lecture,
+/// the section stones, "14 of 32 done" and "Resume". A click opens the course landing. "Resume" opens the next lecture.
+struct LibraryContinueStrip: View {
     let course: Course
     let summary: CourseSummary
     let root: URL
@@ -138,51 +135,55 @@ struct LibraryHeroCard: View {
     @Environment(\.gardenPalette) private var palette
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            LibraryCardImage(course: course, root: root)
-            Text("Pick up where you left off")
-                .font(.system(size: 13, weight: .heavy))
-                .opacity(0.85)
-                .padding(.top, GardenSpacing.m)
-            Text(course.title)
-                .font(.system(size: 38, weight: .heavy))
-                .lineLimit(2)
-                .padding(.top, 6)
-                .accessibilityAddTraits(.isHeader)
-            if let next = summary.nextLecture {
-                Text(next.title).font(GardenFont.body).opacity(0.9).lineLimit(2).padding(.top, GardenSpacing.xs)
+        HStack(spacing: GardenSpacing.m) {
+            CourseImageView(image: course.image, root: root, width: 128, height: 72, cornerRadius: GardenRadius.row)
+                // The ring keeps the image apart from the accent fill when the image has a similar color.
+                .overlay { RoundedRectangle.garden(GardenRadius.row).strokeBorder(.white.opacity(0.7), lineWidth: 2) }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Continue")
+                    .font(.system(size: 13, weight: .heavy))
+                    .opacity(0.85)
+                Text(course.title)
+                    .font(GardenFont.cardTitle)
+                    .lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+                if let next = summary.nextLecture {
+                    Text(next.title).font(GardenFont.body).opacity(0.9).lineLimit(1)
+                }
+                HStack(spacing: GardenSpacing.xs) {
+                    SectionStones(stones: summary.stones, style: .onAccent)
+                    Text(summary.countText ?? "")
+                        .font(.system(size: 13, weight: .heavy)).monospacedDigit()
+                        .fixedSize()
+                        .accessibilityHidden(true)
+                }
+                .padding(.top, GardenSpacing.xxs)
             }
-            Spacer(minLength: 18)
-            HStack(spacing: 18) {
-                Button("Resume", systemImage: "play.fill", action: resume)
-                    .buttonStyle(HeroResumeButtonStyle())
-                    .accessibilityHint(summary.nextLecture?.title ?? "")
-                SteppingStones(states: summary.stones, style: .onAccent)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text("\(summary.completed) / \(summary.total)")
-                    .font(.system(size: 15, weight: .heavy)).monospacedDigit()
-                    .accessibilityHidden(true)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Resume", systemImage: "play.fill", action: resume)
+                .buttonStyle(ResumePillStyle())
+                .fixedSize()
+                .accessibilityHint(summary.nextLecture?.title ?? "")
         }
         .foregroundStyle(palette.onAccent)
-        .padding(GardenSpacing.l)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(palette.accent, in: .garden(GardenRadius.hero))
-        .contentShape(.garden(GardenRadius.hero))
+        .padding(GardenSpacing.s)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(palette.accent, in: .garden(GardenRadius.card))
+        .contentShape(.garden(GardenRadius.card))
         .onTapGesture(perform: open)
         .accessibilityElement(children: .contain)
         .accessibilityAction(named: "Open Course", open)
     }
 }
 
-/// The white "Resume" pill on the hero, with a dark base below it.
-private struct HeroResumeButtonStyle: ButtonStyle {
+/// The white "Resume" pill on the "Continue" strip, with a dark base below it.
+private struct ResumePillStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        HeroResumeButton(configuration: configuration)
+        ResumePill(configuration: configuration)
     }
 }
 
-private struct HeroResumeButton: View {
+private struct ResumePill: View {
     let configuration: ButtonStyleConfiguration
     @Environment(\.gardenPalette) private var palette
 
@@ -202,7 +203,7 @@ private struct HeroResumeButton: View {
     }
 }
 
-/// A 1×1 course tile: image, title, meta line, stones and status. A click or Return opens the course landing.
+/// A 1×1 course tile: image, title, meta line, section stones and "2 of 22 done". A click or Return opens the course landing.
 struct LibraryTile: View {
     let course: Course
     let summary: CourseSummary
@@ -221,11 +222,11 @@ struct LibraryTile: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(course.title).gardenText(.cardTitle).lineLimit(2).padding(.top, GardenSpacing.s)
                     Text(summary.meta).gardenText(.meta).lineLimit(1).padding(.top, GardenSpacing.xxs)
-                    if let status = summary.statusText {
+                    if let count = summary.countText {
                         HStack(spacing: GardenSpacing.xs) {
-                            SteppingStones(states: summary.stones)
+                            SectionStones(stones: summary.stones)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(status)
+                            Text(count)
                                 .font(GardenFont.meta.weight(.heavy)).monospacedDigit()
                                 .foregroundStyle(palette.colorScheme == .dark
                                                  ? palette.accent : palette.accent.mix(with: .black, by: 0.25, in: .device))
@@ -245,17 +246,16 @@ struct LibraryTile: View {
         .contentShape(.focusEffect, .garden(GardenRadius.card))
         .onKeyPress(.return) { open(); return .handled }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(course.title), \(summary.meta)\(summary.statusText.map { ", \($0)" } ?? "")")
+        .accessibilityLabel("\(course.title), \(summary.meta)\(summary.countText.map { ", \($0)" } ?? "")")
         .accessibilityAddTraits(.isButton)
     }
 }
 
-/// Places the hero over 2×2 cells at the top leading corner and the tiles in the cells of `LibraryBento.tileCells`.
-/// Tiles in one row get the same height. Rows 0 and 1 grow if the hero needs more height.
-struct LibraryBentoLayout: Layout {
+/// Places the tiles in the cells of `LibraryGrid.tileCells`. Every tile gets the column width and the height
+/// of the tallest tile, so all tiles have the same size.
+struct LibraryGridLayout: Layout {
     var columns: Int
     var spacing: CGFloat
-    var hasHero: Bool
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? 1100
@@ -270,42 +270,15 @@ struct LibraryBentoLayout: Layout {
         }
     }
 
-    /// One frame per subview, in subview order. The first subview is the hero if `hasHero` is true.
+    /// One frame per subview, in subview order.
     private func frames(width: CGFloat, subviews: Subviews) -> [CGRect] {
         guard !subviews.isEmpty else { return [] }
         let columnWidth = max((width - spacing * CGFloat(columns - 1)) / CGFloat(columns), 0)
-        let tileIndices = Array(subviews.indices.dropFirst(hasHero ? 1 : 0))
-        let cells = LibraryBento.tileCells(count: tileIndices.count, columns: columns, hasHero: hasHero)
-        var heights = Array(repeating: CGFloat(0), count: max((cells.map(\.row).max() ?? -1) + 1, hasHero ? 2 : 0))
-        for (cell, index) in zip(cells, tileIndices) {
-            let size = subviews[index].sizeThatFits(ProposedViewSize(width: columnWidth, height: nil))
-            heights[cell.row] = max(heights[cell.row], size.height)
+        let height = subviews.map { $0.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).height }.max() ?? 0
+        return LibraryGrid.tileCells(count: subviews.count, columns: columns).map { cell in
+            CGRect(x: CGFloat(cell.column) * (columnWidth + spacing), y: CGFloat(cell.row) * (height + spacing),
+                   width: columnWidth, height: height)
         }
-        let heroWidth = columnWidth * 2 + spacing
-        if hasHero {
-            let needed = subviews[0].sizeThatFits(ProposedViewSize(width: heroWidth, height: nil)).height
-            let extra = needed - (heights[0] + spacing + heights[1])
-            // If row 1 has no tiles, it takes all the extra height, so the tiles in row 0 keep their own height.
-            if extra > 0, heights[1] == 0 {
-                heights[1] += extra
-            } else if extra > 0 {
-                heights[0] += extra / 2
-                heights[1] += extra / 2
-            }
-        }
-        var tops: [CGFloat] = []
-        var y: CGFloat = 0
-        for height in heights {
-            tops.append(y)
-            y += height + spacing
-        }
-        let x = { (column: Int) in CGFloat(column) * (columnWidth + spacing) }
-        var frames: [CGRect] = []
-        if hasHero { frames.append(CGRect(x: 0, y: 0, width: heroWidth, height: heights[0] + spacing + heights[1])) }
-        for cell in cells {
-            frames.append(CGRect(x: x(cell.column), y: tops[cell.row], width: columnWidth, height: heights[cell.row]))
-        }
-        return frames
     }
 }
 
@@ -319,9 +292,9 @@ struct LibraryViews_Previews: PreviewProvider {
 
     static var previews: some View {
         let summary = CourseSummary(course: course, progress: ["a": LectureProgress(completed: true)])
-        HStack(alignment: .top, spacing: GardenSpacing.m) {
-            LibraryHeroCard(course: course, summary: summary, root: URL(fileURLWithPath: "/"), open: {}, resume: {})
-                .frame(width: 560, height: 520)
+        VStack(alignment: .leading, spacing: GardenSpacing.m) {
+            LibraryContinueStrip(course: course, summary: summary, root: URL(fileURLWithPath: "/"), open: {}, resume: {})
+                .frame(width: 900)
             LibraryTile(course: course, summary: CourseSummary(course: course, progress: [:]),
                         root: URL(fileURLWithPath: "/"), open: {})
                 .frame(width: 270)
