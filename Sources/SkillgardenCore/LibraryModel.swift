@@ -127,6 +127,36 @@ public final class LibraryModel {
         return SteppingStone.states(lectureIDs: lectures.map(\.id)) { isComplete($0) }
     }
 
+    // MARK: Library home
+
+    /// The tile progress of any course in the library. It does not need a selected course.
+    public func summary(of course: Course) -> CourseSummary {
+        CourseSummary(course: course, progress: progress[course.id] ?? [:])
+    }
+
+    /// The hero of the Library: the first course in library order that is in progress.
+    /// The store has no "last opened" time, so library order decides.
+    public var heroCourse: Course? {
+        courses.first { summary(of: $0).status == .inProgress }
+    }
+
+    /// The Library header meta line, for example "6 courses · 3 in progress".
+    public var libraryMeta: String {
+        LibraryBento.meta(courses: courses.count, inProgress: courses.filter { summary(of: $0).status == .inProgress }.count)
+    }
+
+    /// The accent of a course theme, or nil for the system accent.
+    public func accent(ofCourse courseID: String) -> ThemeColor? {
+        landings[courseID]?.theme.accent
+    }
+
+    /// Opens a course at its first incomplete lecture, or at the course landing if every lecture is done.
+    public func openNextLecture(ofCourse courseID: String) {
+        selectCourse(courseID)
+        guard let course = selectedCourse, course.id == courseID else { return }
+        selectDestination(summary(of: course).nextDestination ?? .overview)
+    }
+
     /// Marks the selected lecture complete or incomplete. If the write fails, the state goes back.
     public func toggleSelectedLectureComplete() async {
         guard let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return }
@@ -249,6 +279,7 @@ public final class LibraryModel {
         return task
     }
 
+    /// Nil goes back to the Library home.
     public func selectCourse(_ id: String?) {
         guard id != selectedCourseID else { return }
         selectedCourseID = courses.first { $0.id == id }?.id

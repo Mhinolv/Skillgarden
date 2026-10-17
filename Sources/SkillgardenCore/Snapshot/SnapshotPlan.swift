@@ -5,6 +5,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case libraryEmpty = "library-empty"
     /// The empty library in a data folder that is not the default. The "Library: <path>" line shows.
     case libraryEmptyCustomFolder = "library-empty-custom-folder"
+    /// The Library home with no selected course: the fixture course in progress as the hero, then a new course tile.
     case library
     case section
     case lecture
@@ -27,6 +28,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// True when the harness opens the player of the video lecture before the capture.
     public var opensVideoPlayer: Bool { self == .videoPlayer }
+
+    /// True when the harness selects the seeded course. The Library screens show the Library home, so they select none.
+    public var selectsCourse: Bool { self != .library && self != .libraryEmpty && self != .libraryEmptyCustomFolder }
 
     /// The fixed library path that the harness shows. The real temporary root changes on each run.
     public var customRootPath: String? { self == .libraryEmptyCustomFolder ? "/Users/agent/skillgarden-library" : nil }
@@ -76,6 +80,8 @@ public enum SnapshotPlan {
             // Mixed completion: one of the two learner lectures is complete.
             if screen == .library || screen == .lectureComplete { try store.setCompleted(true, courseID: id, lectureID: "welcome") }
             if screen == .courseLanding { try store.saveLastOpenedLecture(courseID: id, lectureID: "read") }
+            // A second course with no progress shows a "New" tile next to the hero.
+            if screen == .library { _ = try publishCopy(of: fixture, root: root, replacing: libraryTileCourse) }
             return id
         case .courseLandingDarkTheme:
             return try publishCopy(of: fixture, root: root, replacing: [
@@ -96,6 +102,13 @@ public enum SnapshotPlan {
             ])
         }
     }
+
+    /// The replacements for the second course of the `library` screen: a new id, title and accent.
+    static let libraryTileCourse = [
+        ("\nid: sample-course\n", "\nid: garden-tools\n"),
+        ("title: Local Course Basics", "title: Garden Tools for Agents"),
+        ("accent_color: '#286644'", "accent_color: '#2F6FED'"),
+    ]
 
     /// Publishes a temporary copy of the fixture with text replacements in `skillgarden.yaml`.
     private static func publishCopy(of fixture: URL, root: URL, replacing replacements: [(String, String)]) throws -> String {
@@ -121,9 +134,14 @@ public enum SnapshotPlan {
         }
     }
 
-    /// The image loads to wait for before the capture: the Library row image, then the question image.
+    /// The image loads to wait for before the capture.
+    /// Library: the hero and the tile images. Course screens: the outline course image, then the question image.
     public static func imageLoads(for screen: SnapshotScreen) -> Int {
-        screen == .quizQuestion || screen == .quizWrongAnswer ? 2 : 1
+        switch screen {
+        case .libraryEmpty, .libraryEmptyCustomFolder: 0
+        case .library, .quizQuestion, .quizWrongAnswer: 2
+        default: 1
+        }
     }
 
     /// The page to open after the course is selected. The fixture lecture has a `recommended_next` target.
