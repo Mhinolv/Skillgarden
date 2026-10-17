@@ -72,6 +72,44 @@ private let course = Course(id: "c", title: "Course", state: .published, section
     #expect(SectionProgress(section: learner, progress: ["draft": done]).completed == 0)
 }
 
+@Test func steppingStonesMarkTheFirstIncompleteLectureAsNext() {
+    let states = { (done: Set<String>) in SteppingStone.states(lectureIDs: ["a", "b", "c", "d"]) { done.contains($0) } }
+    #expect(states([]) == [.next, .todo, .todo, .todo])
+    #expect(states(["a"]) == [.done, .next, .todo, .todo])
+    // A lecture after a gap can be done. Only the first incomplete lecture is next.
+    #expect(states(["a", "c"]) == [.done, .next, .done, .todo])
+    #expect(states(["b", "c", "d"]) == [.next, .done, .done, .done])
+    #expect(states(["a", "b", "c", "d"]) == [.done, .done, .done, .done])
+    #expect(SteppingStone.states(lectureIDs: []) { _ in false }.isEmpty)
+}
+
+@Test func steppingStonesLabelCountsDoneLectures() {
+    #expect(SteppingStone.accessibilityLabel(Array(repeating: .done, count: 7) + [.next] + Array(repeating: .todo, count: 8))
+            == "7 of 16 lectures complete")
+    #expect(SteppingStone.accessibilityLabel([.next]) == "0 of 1 lecture complete")
+    #expect(SteppingStone.accessibilityLabel([.done, .missed]) == "1 of 2 lectures complete")
+    #expect(SteppingStone.accessibilityLabel([]) == "0 of 0 lectures complete")
+}
+
+@MainActor @Test func libraryStonesUseLearnerLecturesOfTheSelectedCourse() async throws {
+    try await withRoot { root in
+        try CourseStore(root: root).saveCourse(course)
+        let library = LibraryModel(root: root)
+        await library.reload()
+        #expect(library.steppingStones().isEmpty)
+        library.selectCourse("c")
+        // The draft lecture has no stone.
+        #expect(library.steppingStones() == [.next, .todo, .todo, .todo, .todo])
+        library.selectDestination(.lecture(sectionID: "s1", lectureID: "video"))
+        await library.toggleSelectedLectureComplete()
+        #expect(library.steppingStones() == [.done, .next, .todo, .todo, .todo])
+        let section = try #require(library.selectedCourse?.learnerSections.first)
+        #expect(library.steppingStones(in: section) == library.steppingStones())
+        let empty = try #require(library.selectedCourse?.learnerSections.last)
+        #expect(library.steppingStones(in: empty).isEmpty)
+    }
+}
+
 @Test func resumeStartIgnoresTheFirstAndLastFiveSeconds() {
     #expect(PlaybackResume.startSeconds(saved: 0, duration: 120) == 0)
     #expect(PlaybackResume.startSeconds(saved: 4.9, duration: 120) == 0)
