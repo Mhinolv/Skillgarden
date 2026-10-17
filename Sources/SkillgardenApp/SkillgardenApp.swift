@@ -63,15 +63,25 @@ extension FocusedValues {
 struct ContentView: View {
     @State private var library: LibraryModel
     private let reloadsOnAppear: Bool
+    /// The library folder to show under "No courses yet". It is nil for the default folder.
+    private let customRootPath: String?
 
-    init(root: URL = Skillgarden.defaultDataDirectory) {
-        self.init(library: LibraryModel(root: root))
+    /// Uses the data folder that `SKILLGARDEN_DATA_DIR` or the saved `DataDirectory` setting names.
+    init() {
+        let library: LibraryModel
+        do {
+            library = LibraryModel(root: try Skillgarden.dataDirectory())
+        } catch {
+            library = LibraryModel(rootError: error.localizedDescription)
+        }
+        self.init(library: library, customRootPath: Skillgarden.customDataDirectoryPath(library.root))
     }
 
     /// The snapshot harness passes a loaded library and sets `reloadsOnAppear` to false.
-    init(library: LibraryModel, reloadsOnAppear: Bool = true) {
+    init(library: LibraryModel, reloadsOnAppear: Bool = true, customRootPath: String? = nil) {
         _library = State(initialValue: library)
         self.reloadsOnAppear = reloadsOnAppear
+        self.customRootPath = customRootPath
     }
 
     var body: some View {
@@ -120,8 +130,17 @@ struct ContentView: View {
         } else if library.isLoading && library.courses.isEmpty {
             ProgressView("Load Library")
         } else if library.courses.isEmpty {
-            ContentUnavailableView("No courses yet", systemImage: "books.vertical",
-                                   description: Text("Publish a course with the skillgarden CLI."))
+            ContentUnavailableView {
+                Label("No courses yet", systemImage: "books.vertical")
+            } description: {
+                Text("Publish a course with the skillgarden CLI.")
+                if let customRootPath {
+                    Text("Library: \(customRootPath)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
         } else {
             List(selection: Binding(get: { library.selectedCourseID }, set: { library.selectCourse($0) })) {
                 ForEach(library.courses) { course in
