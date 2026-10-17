@@ -31,6 +31,12 @@ private func temporaryFolder() throws -> URL {
     #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer, .videoTranscript])
     #expect(SnapshotScreen.allCases.filter { $0.videoStartSeconds != nil } == [.videoTranscript])
     #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [.videoTranscript])
+    #expect(SnapshotScreen.allCases.filter(\.checksTitlebarForVideo) == [.videoPlayer, .videoTranscript])
+    #expect(SnapshotPlan.outputs(outDirectory: out, screens: [.videoTranscript, .library]).map(\.url.lastPathComponent) == [
+        "library-light.png", "library-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
+    ])
+    #expect(SnapshotPlan.outputs(outDirectory: out, screens: []).isEmpty)
+    #expect(SnapshotPlan.outputs(outDirectory: out, screens: nil) == outputs)
     #expect(SnapshotScreen.allCases.filter { !$0.selectsCourse } == [.libraryEmpty, .libraryEmptyCustomFolder, .library])
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
