@@ -7,9 +7,9 @@ A Mac-native, local course platform for agent-created content.
 
 ## Build and run
 ```sh
-swift build
-swift test
-scripts/bundle_app.sh && open build/Skillgarden.app
+./scripts/build.sh
+./scripts/build.sh test
+./scripts/build.sh app && open build/Skillgarden.app
 swift run skillgarden --version
 ```
 

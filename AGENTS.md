@@ -18,7 +18,7 @@ Skillgarden is a Mac-native, local course platform, like Udemy, for content that
 | App bundle for manual runs | `scripts/bundle_app.sh` → `build/Skillgarden.app` |
 
 ## Engineering rules
-- Build: `swift build`. Full suite: `swift test`. Both must pass before a PR.
+- Build: `./scripts/build.sh` (app bundle: `./scripts/build.sh app`). Full suite: `./scripts/build.sh test`. Filtered: `./scripts/build.sh test --filter <name>`. Both must pass before a PR. Do not call `swift build` directly: it fails in the agent sandbox.
 - Put logic in `SkillgardenCore` so tests can reach it. Keep the CLI and the app thin.
 - Data lives in `~/Library/Application Support/Skillgarden` (`Skillgarden.defaultDataDirectory`). Tests use a temporary directory, never the real one.
 - Use only Apple frameworks (Foundation, SwiftUI, AVKit, PDFKit, ImageIO, SQLite3) unless an issue names a dependency.
