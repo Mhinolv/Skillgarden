@@ -87,6 +87,7 @@ struct ManifestValidator {
         checkQuickChecks(value)
         checkRubrics(value)
         checkSources(value)
+        checkOrders(value)
         for (id, path) in recommendations where !lectureIDs.contains(id) {
             add(path, "must refer to a lecture id in this course")
         }
@@ -169,6 +170,10 @@ struct ManifestValidator {
                 }
             }
         case (.array(let values), .array(let childRule)):
+            // The app needs content in these lists. Other lists have their own rules below.
+            let required = ["learning_outcomes", "requirements", "credits", "sections"].contains(path)
+                || path.range(of: #"^sections\[\d+\]\.lectures$"#, options: .regularExpression) != nil
+            if required, values.isEmpty { add(path, "must have at least one item") }
             for (index, child) in values.enumerated() {
                 check(child, rule: childRule, path: "\(path)[\(index)]")
             }
@@ -183,9 +188,11 @@ struct ManifestValidator {
             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 add(path, "must not be empty")
             } else if key == "path" || key == "bundle_path" {
-                checkPath(text, path: path)
+                guard checkPath(text, path: path) else { break }
                 if path.hasSuffix(".video.path"), !text.lowercased().hasSuffix(".mp4") { add(path, "must be an .mp4 file") }
                 if path.hasSuffix(".video.captions.path"), !text.lowercased().hasSuffix(".vtt") { add(path, "must be a .vtt file") }
+            } else if path == "theme.accent_color", ThemeColor(hex: text) == nil {
+                add(path, "must be a hex color such as \"#286644\"")
             }
             // Question, choice and rubric ids are unique inside their quiz, question, quick check or rubric only.
             // `checkQuizzes`, `checkQuickChecks` and `checkRubrics` check them.
@@ -320,22 +327,55 @@ struct ManifestValidator {
         }
     }
 
-    private mutating func checkPath(_ text: String, path: String) {
+    /// Sections, and the lectures of each section, have unique `order` values. Siblings only.
+    private mutating func checkOrders(_ root: ManifestValue) {
+        func checkSiblings(_ values: [ManifestValue], path: String) {
+            var first: [Int: String] = [:]
+            for (index, value) in values.enumerated() {
+                guard case .object(let object) = value, case .integer(let order)? = object["order"] else { continue }
+                let orderPath = "\(path)[\(index)].order"
+                if let firstPath = first[order] { add(orderPath, "duplicate order \(order) (first used at \(firstPath))") }
+                else { first[order] = orderPath }
+            }
+        }
+        guard case .object(let course) = root, case .array(let sections)? = course["sections"] else { return }
+        checkSiblings(sections, path: "sections")
+        for (sectionIndex, section) in sections.enumerated() {
+            guard case .object(let section) = section, case .array(let lectures)? = section["lectures"] else { continue }
+            checkSiblings(lectures, path: "sections[\(sectionIndex)].lectures")
+        }
+    }
+
+    /// Returns false for a path that is not normalized. Then the caller skips the file type checks.
+    private mutating func checkPath(_ text: String, path: String) -> Bool {
         // Treat both separators as boundaries so a manifest is safe across platforms.
         let normalized = text.replacingOccurrences(of: "\\", with: "/")
         let escapes = normalized.hasPrefix("/") || normalized.split(separator: "/").contains("..")
             || normalized.range(of: "^[A-Za-z]:", options: .regularExpression) != nil
             || URL(string: normalized)?.scheme != nil
-        // Publish keeps internal/ out of the learner snapshot, so each path belongs to one side only.
-        let inside = normalized.hasPrefix("internal/") && normalized.count > "internal/".count
-        if path.hasPrefix("internal.") {
-            if escapes || !inside { add(path, "path must stay inside internal/") }
-        } else if escapes {
-            add(path, "path must stay inside the course folder")
-        } else if let first = normalized.split(separator: "/").first(where: { $0 != "." }),
-                  LectureArticle.isInternalFolder(first) {
-            add(path, "path must not be inside internal/")
+        if escapes {
+            add(path, path.hasPrefix("internal.") ? "path must stay inside internal/" : "path must stay inside the course folder")
+            return true
         }
+        let parts = normalized.split(separator: "/", omittingEmptySubsequences: false)
+        let clean = parts.filter { !$0.isEmpty && $0 != "." }
+        // Publish keeps internal/ out of the learner snapshot, so each path belongs to one side only.
+        if path.hasPrefix("internal.") {
+            if !(clean.first == "internal" && clean.count > 1) {
+                add(path, "path must stay inside internal/")
+                return true
+            }
+        } else if let first = clean.first, LectureArticle.isInternalFolder(first) {
+            add(path, "path must not be inside internal/")
+            return true
+        }
+        // Publish compares paths as text. So `./`, `//`, a `.` part or a trailing `/` gets this error, not `file does not exist`.
+        // A path to the course folder itself, such as ".", keeps the error of its field.
+        if !clean.isEmpty, clean.count != parts.count {
+            add(path, "path must be normalized: use \"\(clean.joined(separator: "/"))\"")
+            return false
+        }
+        return true
     }
 
     private mutating func checkExtensionPaths(_ value: ManifestValue, path: String, key: String) {

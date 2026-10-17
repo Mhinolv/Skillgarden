@@ -144,6 +144,10 @@ public enum CoursePublisher {
                         problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: field + ".interactive.bundle_path",
                                                            message: "folder must contain \(InteractiveModule.entryFile)"))
                     }
+                    if let path {
+                        problems += bundleProblems(path, field: field + ".interactive.bundle_path", files: files, source: source,
+                                                   folder: courseFolder)
+                    }
                 }
                 if let article = lecture.article {
                     problems += articleProblems(article, field: field + ".article", files: files, source: source, folder: courseFolder)
@@ -302,6 +306,13 @@ public enum CoursePublisher {
         var problems: [ManifestDiagnostic] = []
         if !files.contains(video.path) { problems.append(problem("path", "file does not exist")) }
         else if !LectureVideo.isMP4(source.appending(path: video.path)) { problems.append(problem("path", "file is not an MP4 video")) }
+        else if let length = LectureVideo.length(of: source.appending(path: video.path)) {
+            if length != video.durationSeconds {
+                problems.append(problem("duration_seconds", "must match the video length (\(length) \(length == 1 ? "second" : "seconds"))"))
+            }
+        } else {
+            problems.append(problem("path", "cannot read the video length"))
+        }
         if let captions = video.captions {
             if !files.contains(captions.path) { problems.append(problem("captions.path", "file does not exist")) }
             else {
@@ -318,6 +329,22 @@ public enum CoursePublisher {
             }
         }
         return problems
+    }
+
+    /// The app blocks every URL that leaves the bundle. Each blocked reference in an HTML, CSS or JS file is one problem.
+    private static func bundleProblems(_ bundle: String, field: String, files: [String], source: URL,
+                                       folder: URL) -> [ManifestDiagnostic] {
+        let bundleURL = source.appending(path: bundle, directoryHint: .isDirectory)
+        return files.filter {
+            $0.hasPrefix(bundle + "/") && InteractiveNavigationPolicy.scannedExtensions.contains(($0 as NSString).pathExtension.lowercased())
+        }.flatMap { file -> [ManifestDiagnostic] in
+            let url = source.appending(path: file)
+            guard let data = try? Data(contentsOf: url) else { return [] }
+            let name = file.dropFirst(bundle.count + 1)
+            return InteractiveNavigationPolicy.blockedReferences(in: String(decoding: data, as: UTF8.self), file: url, bundle: bundleURL)
+                .map { ManifestDiagnostic(file: folder.path, fieldPath: field,
+                                          message: "\(name) line \($0.line): URL \"\($0.url)\" is blocked in the app") }
+        }
     }
 
     private static func sourceFiles(in folder: URL) throws -> [String] {
@@ -356,6 +383,10 @@ public enum CoursePublisher {
             let encoder = JSONEncoder()
             encoder.outputFormatting = .sortedKeys
             var result: [String: Data] = [:]
+            // Course-level fields, such as the title, `state`, theme and lists, are one row.
+            var course = manifest
+            course.sections = []
+            result["course:" + manifest.id] = try? encoder.encode(course)
             for var section in manifest.sections {
                 for lecture in section.lectures { result["lecture:" + lecture.id] = try? encoder.encode(lecture) }
                 section.lectures = []

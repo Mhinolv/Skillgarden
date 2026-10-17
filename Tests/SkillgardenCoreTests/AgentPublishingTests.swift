@@ -72,7 +72,7 @@ private func contents(of folder: URL) throws -> [String: Data] {
         let root = { try Skillgarden.dataDirectory(environment: ["SKILLGARDEN_DATA_DIR": library.path], savedSetting: nil) }
         let result = SkillgardenCommand.run(arguments: ["publish", folder.path], root: try root())
         #expect(result == CommandResult(exitCode: 0, stdout: """
-            Published "Local Course Basics" (sample-course, published): created 6, updated 0, unchanged 0, removed 0
+            Published "Local Course Basics" (sample-course, published): created 7, updated 0, unchanged 0, removed 0
             Library: \(library.path)
 
             """, stderr: ""))
