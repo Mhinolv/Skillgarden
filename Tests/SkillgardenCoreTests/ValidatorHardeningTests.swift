@@ -131,12 +131,15 @@ private func write(_ text: String, to url: URL) throws {
     }
 }
 
-@Test func validateFailsWhenTheDurationDoesNotMatchTheVideo() throws {
+/// The sample video is 4 seconds long. A difference of 2 seconds or less passes, a bigger difference fails.
+@Test(arguments: [(4, true), (5, true), (3, true), (6, true), (2, true), (7, false), (1, false), (40, false)])
+func validateAllowsTwoSecondsOfDifferenceFromTheVideoLength(durationSeconds: Int, passes: Bool) throws {
     try withCourse { folder, _ in
-        try edit(folder, "duration_seconds: 4", "duration_seconds: 5")
-        #expect(problems(folder) == ["sections[0].lectures[0].video.duration_seconds: must match the video length (4 seconds)"])
+        try edit(folder, "duration_seconds: 4", "duration_seconds: \(durationSeconds)")
+        #expect(problems(folder) == (passes ? [] : [
+            "sections[0].lectures[0].video.duration_seconds: must match the video length (4 seconds)",
+        ]))
     }
-    try withCourse { folder, _ in #expect(problems(folder) == []) }
 }
 
 /// Builds an MP4 file in memory: `ftyp`, an optional large `mdat`, then `moov` with `mvhd`.

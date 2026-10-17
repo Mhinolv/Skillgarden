@@ -143,7 +143,7 @@ See `Tests/Fixtures/sample-course/skillgarden.yaml` for a full example.
 
 | Type | Field | Notes |
 |---|---|---|
-| `video` | `video.path`, `video.duration_seconds` | An `.mp4` file. `duration_seconds` is the video length, rounded to the nearest second. Optional: `captions.path` (`.vtt`), `poster` (`path`, `alt`), `free_preview`. |
+| `video` | `video.path`, `video.duration_seconds` | An `.mp4` file. `duration_seconds` is the video length in seconds. Validate accepts a value within 2 seconds of the real length. Optional: `captions.path` (`.vtt`), `poster` (`path`, `alt`), `free_preview`. |
 | `article` | `article.path` | A UTF-8 Markdown file. Each Markdown image needs an entry in `article.images` with `alt`. |
 | `quiz` | `quiz.questions` | Each question has `id`, `prompt`, `objective_tag`, `choices` (`id`, `text`), `correct_choice_id`, `explanation`. Optional: `image`. |
 | `assignment` | `assignment.brief.path`, `assignment.rubric` | The brief is a UTF-8 Markdown file with the article rules (optional `brief.images`). The rubric has one or more rows with `id`, `criterion`, `guidance`. |
@@ -178,6 +178,6 @@ For a draft course, `validate` and `publish` also print `Draft: learners do not 
 | Exit code | Meaning | Output |
 |---|---|---|
 | 0 | Success | Results on stdout |
-| 1 | Manifest or file errors | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem |
+| 1 | Manifest or file errors | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem. List indexes in `<fieldPath>` start at 0: `sections[0]` is the first section. |
 | 2 | Usage error or bad data folder setting | `error: ...` on stderr. A usage error also prints the usage text. |
 | 3 | I/O or library error. For `validate`, also a missing course folder. | `error: <description>` on stderr |

@@ -297,7 +297,11 @@ public enum CoursePublisher {
         return problems
     }
 
+    /// The largest difference in seconds between `duration_seconds` and the video length that validate accepts.
+    static let durationTolerance = 2
+
     /// The video must be an MP4 file, the captions a WebVTT file and the poster a readable image file.
+    /// `duration_seconds` must be within `durationTolerance` seconds of the video length.
     private static func videoProblems(_ video: ManifestVideo, field: String, files: [String], source: URL,
                                       folder: URL) -> [ManifestDiagnostic] {
         func problem(_ path: String, _ message: String) -> ManifestDiagnostic {
@@ -307,7 +311,7 @@ public enum CoursePublisher {
         if !files.contains(video.path) { problems.append(problem("path", "file does not exist")) }
         else if !LectureVideo.isMP4(source.appending(path: video.path)) { problems.append(problem("path", "file is not an MP4 video")) }
         else if let length = LectureVideo.length(of: source.appending(path: video.path)) {
-            if length != video.durationSeconds {
+            if abs(length - video.durationSeconds) > durationTolerance {
                 problems.append(problem("duration_seconds", "must match the video length (\(length) \(length == 1 ? "second" : "seconds"))"))
             }
         } else {
