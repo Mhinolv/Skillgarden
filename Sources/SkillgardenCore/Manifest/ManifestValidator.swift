@@ -36,12 +36,13 @@ struct ManifestValidator {
             ("choices", .array(.object([("id", .string), ("text", .string)]))),
             ("correct_choice_id", .string), ("explanation", .string),
         ])
+        let article = FieldRule.object([("path", .string), ("images", .optional(.array(image)))])
         let lecture = FieldRule.object([
             ("id", .string), ("title", .string),
             ("type", .choices(["video", "article", "quiz", "assignment", "interactive"])),
             ("objective", .string), ("state", state), ("order", .integer),
             ("recommended_next", .optional(.string)),
-            ("article", .optional(.object([("path", .string), ("images", .optional(.array(image)))]))),
+            ("article", .optional(article)),
             ("video", .optional(.object([
                 ("path", .string), ("duration_seconds", .integer),
                 ("captions", .optional(.object([("path", .string)]))),
@@ -49,6 +50,10 @@ struct ManifestValidator {
             ]))),
             ("quiz", .optional(.object([("questions", .array(question))]))),
             ("interactive", .optional(.object([("bundle_path", .string)]))),
+            ("assignment", .optional(.object([
+                ("brief", article),
+                ("rubric", .array(.object([("id", .string), ("criterion", .string), ("guidance", .string)]))),
+            ]))),
         ])
         let section = FieldRule.object([
             ("id", .string), ("title", .string), ("objective", .string),
@@ -68,6 +73,7 @@ struct ManifestValidator {
         ])
         check(value, rule: root, path: "$")
         checkQuizzes(value)
+        checkRubrics(value)
         for (id, path) in recommendations where !lectureIDs.contains(id) {
             add(path, "must refer to a lecture id in this course")
         }
@@ -141,9 +147,9 @@ struct ManifestValidator {
                     checkExtensionPaths(child, path: childPath, key: key)
                 }
             }
-            // Only lectures have `article`, `video` and `interactive` rules. Each field must match the lecture type.
+            // Only lectures have `article`, `video`, `interactive` and `assignment` rules. Each field must match the lecture type.
             if rules["article"] != nil, case .string(let type)? = object["type"] {
-                for field in ["article", "video", "interactive"] {
+                for field in ["article", "video", "interactive", "assignment"] {
                     let present: Bool = if case .null? = object[field] { false } else { object[field] != nil }
                     if type == field, !present { add("\(path).\(field)", "required field is missing") }
                     if type != field, present { add("\(path).\(field)", "allowed only when type is \(field)") }
@@ -168,8 +174,9 @@ struct ManifestValidator {
                 if path.hasSuffix(".video.path"), !text.lowercased().hasSuffix(".mp4") { add(path, "must be an .mp4 file") }
                 if path.hasSuffix(".video.captions.path"), !text.lowercased().hasSuffix(".vtt") { add(path, "must be a .vtt file") }
             }
-            // Question and choice ids are unique inside their quiz or question only. `checkQuizzes` checks them.
-            if key == "id", !path.contains(".quiz.") {
+            // Question, choice and rubric ids are unique inside their quiz, question or rubric only.
+            // `checkQuizzes` and `checkRubrics` check them.
+            if key == "id", !path.contains(".quiz."), !path.contains(".assignment.") {
                 if let first = ids[text] { add(path, "duplicate id \"\(text)\" (first used at \(first))") }
                 else { ids[text] = path }
                 if path.contains(".lectures[") { lectureIDs.insert(text) }
@@ -224,6 +231,27 @@ struct ManifestValidator {
                     if let correct = string(question["correct_choice_id"]), choiceIDs[correct] == nil {
                         add(questionPath + ".correct_choice_id", "must refer to a choice id in this question")
                     }
+                }
+            }
+        }
+    }
+
+    /// Each assignment rubric has at least one row, and its row ids are unique inside the rubric.
+    private mutating func checkRubrics(_ root: ManifestValue) {
+        guard case .object(let course) = root, case .array(let sections)? = course["sections"] else { return }
+        for (sectionIndex, section) in sections.enumerated() {
+            guard case .object(let section) = section, case .array(let lectures)? = section["lectures"] else { continue }
+            for (lectureIndex, lecture) in lectures.enumerated() {
+                guard case .object(let lecture) = lecture, case .object(let assignment)? = lecture["assignment"],
+                      case .array(let rows)? = assignment["rubric"] else { continue }
+                let path = "sections[\(sectionIndex)].lectures[\(lectureIndex)].assignment.rubric"
+                if rows.isEmpty { add(path, "must have at least one row") }
+                var rowIDs: [String: String] = [:]
+                for (rowIndex, row) in rows.enumerated() {
+                    guard case .object(let row) = row, case .string(let id)? = row["id"] else { continue }
+                    let rowPath = "\(path)[\(rowIndex)].id"
+                    if let first = rowIDs[id] { add(rowPath, "duplicate id \"\(id)\" (first used at \(first))") }
+                    else { rowIDs[id] = rowPath }
                 }
             }
         }

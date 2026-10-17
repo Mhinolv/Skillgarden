@@ -74,8 +74,10 @@ public struct ManifestLecture: Codable, Equatable, Sendable {
     public var quiz: ManifestQuiz?
     /// Required when `type` is `interactive`, and not allowed for other types.
     public var interactive: ManifestInteractive?
+    /// Required when `type` is `assignment`, and not allowed for other types.
+    public var assignment: ManifestAssignment?
     enum CodingKeys: String, CodingKey {
-        case id, title, type, objective, state, order, article, video, quiz, interactive
+        case id, title, type, objective, state, order, article, video, quiz, interactive, assignment
         case recommendedNext = "recommended_next"
     }
 }
@@ -102,6 +104,22 @@ public struct ManifestQuizQuestion: Codable, Equatable, Sendable {
 
 public struct ManifestQuiz: Codable, Equatable, Sendable {
     public var questions: [ManifestQuizQuestion]
+}
+
+/// One self-check row of an assignment rubric. `id` is unique inside its rubric.
+public struct ManifestRubricItem: Codable, Equatable, Sendable {
+    public var id: String
+    public var criterion: String
+    /// Shown under the criterion.
+    public var guidance: String
+}
+
+/// The written brief and the self-check rubric of an assignment lecture.
+/// The brief is a Markdown file with the same rules as an article file, so `images` gives the alt text of its images.
+public struct ManifestAssignment: Codable, Equatable, Sendable {
+    public var brief: ManifestArticle
+    /// At least one row, in display order.
+    public var rubric: [ManifestRubricItem]
 }
 
 public struct ManifestSection: Codable, Equatable, Sendable {

@@ -148,9 +148,10 @@ func readingMinutesRoundUpWithMinimumOne(markdown: String, minutes: Int) {
         #expect(try publishErrors(folder, root) == ["\(article): required field is missing"])
     }
     try withCourse { folder, root in
-        // Quiz and video lectures also need their own field, so use an assignment to test only the article rule.
+        // Every other type needs its own field. An assignment adds only its own "required" error.
         try edit(folder, "        type: article\n", "        type: assignment\n")
-        #expect(try publishErrors(folder, root) == ["\(article): allowed only when type is article"])
+        #expect(try publishErrors(folder, root) == ["\(article): allowed only when type is article",
+                                                    "sections[0].lectures[1].assignment: required field is missing"])
     }
     try withCourse { folder, root in
         try edit(folder, "        article:\n          path: content/plan.md\n          images:\n            - path: media/section.svg\n              alt: The two sections of the course plan\n",

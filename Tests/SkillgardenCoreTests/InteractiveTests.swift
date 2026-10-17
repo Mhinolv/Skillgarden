@@ -60,9 +60,10 @@ private func publishDiagnostics(_ folder: URL, root: URL) throws -> [ManifestDia
         ])
     }
     try withCourse { folder, root in
-        // Video and quiz lectures need their own field, so use an assignment to test only the interactive rule.
+        // Every other type needs its own field. An assignment adds only its own "required" error.
         try edit(folder, "type: interactive", "type: assignment")
-        #expect(try publishDiagnostics(folder, root: root).map(\.message) == ["allowed only when type is interactive"])
+        #expect(try publishDiagnostics(folder, root: root).map(\.message) == ["allowed only when type is interactive",
+                                                                              "required field is missing"])
     }
     for (path, message) in [("../outside", "path must stay inside the course folder"),
                             ("internal/module", "path must not be inside internal/"),

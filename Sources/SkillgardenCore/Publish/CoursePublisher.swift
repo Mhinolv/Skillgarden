@@ -140,6 +140,10 @@ public enum CoursePublisher {
                 if let article = lecture.article {
                     problems += articleProblems(article, field: field + ".article", files: files, source: source, folder: courseFolder)
                 }
+                // The brief is Markdown with the same image rules as an article.
+                if let brief = lecture.assignment?.brief {
+                    problems += articleProblems(brief, field: field + ".assignment.brief", files: files, source: source, folder: courseFolder)
+                }
                 if let video = lecture.video {
                     problems += videoProblems(video, field: field + ".video", files: files, source: source, folder: courseFolder)
                 }

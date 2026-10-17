@@ -64,6 +64,7 @@ enum SnapshotRenderer {
             library.selectCourse(courseID)
             library.selectDestination(SnapshotPlan.destination(for: output.screen))
             for action in SnapshotPlan.quizActions(for: output.screen) { library.performQuizAction(action) }
+            for id in SnapshotPlan.rubricChecks(for: output.screen) { library.toggleRubricCriterion(id) }
             for item in SnapshotPlan.reviewAnswers(for: output.screen) { library.answerReview(questionID: item.questionID, choiceID: item.choiceID) }
         }
 
