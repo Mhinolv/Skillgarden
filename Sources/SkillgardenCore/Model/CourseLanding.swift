@@ -32,16 +32,25 @@ public struct ThemeColor: Equatable, Sendable {
         let (a, b) = (relativeLuminance, other.relativeLuminance)
         return (max(a, b) + 0.05) / (min(a, b) + 0.05)
     }
+
+    public static let white = ThemeColor(red: 1, green: 1, blue: 1)
+    /// The Garden ink `#211F1A`.
+    public static let ink = ThemeColor(red: 0x21 / 255, green: 0x1F / 255, blue: 0x1A / 255)
+
+    /// The text color on a fill of this color: white if it has 3:1 contrast or more, else ink.
+    public var onAccent: ThemeColor {
+        contrastRatio(with: .white) >= CourseTheme.minimumAccentContrast ? .white : .ink
+    }
 }
 
 public enum CourseAppearance: String, Equatable, Sendable {
     case light, dark
 
-    /// The detail column background for this appearance (the macOS window background).
+    /// The Garden page base for this appearance, before the accent tint. The accent contrast check uses it.
     public var background: ThemeColor {
         switch self {
-        case .light: ThemeColor(red: 236 / 255, green: 236 / 255, blue: 236 / 255)
-        case .dark: ThemeColor(red: 50 / 255, green: 50 / 255, blue: 50 / 255)
+        case .light: ThemeColor(red: 0xFB / 255, green: 0xFA / 255, blue: 0xF7 / 255)
+        case .dark: ThemeColor(red: 0x0F / 255, green: 0x0D / 255, blue: 0x16 / 255)
         }
     }
 }

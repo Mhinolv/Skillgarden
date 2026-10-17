@@ -77,6 +77,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             libraryList
+                .gardenColumn()
                 .navigationTitle("Library")
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 300)
         } content: {
@@ -84,15 +85,17 @@ struct ContentView: View {
                 CourseOutlineView(course: course, library: library, selection: Binding(
                     get: { library.destination }, set: { library.selectDestination($0) }
                 ))
-                .tint(library.selectedLanding?.theme.accent?.color)
+                .gardenColumn()
                 .navigationTitle(course.title)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
             } else {
                 ContentUnavailableView("Select a course", systemImage: "books.vertical")
             }
         } detail: {
-            detail.courseTheme(library.selectedLanding?.theme)
+            detail.gardenColumn()
         }
+        // The course theme colors the whole window: sidebar, toolbar and content.
+        .gardenTheme(library.selectedLanding?.theme)
         .frame(minWidth: 900, minHeight: 600)
         .focusedSceneValue(\.library, library)
         .task { if reloadsOnAppear { await library.reload() } }

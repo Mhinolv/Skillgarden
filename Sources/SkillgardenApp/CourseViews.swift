@@ -176,28 +176,6 @@ struct LectureRow: View {
     }
 }
 
-extension ThemeColor {
-    var color: Color { Color(.sRGB, red: red, green: green, blue: blue) }
-}
-
-extension CourseAppearance {
-    var colorScheme: ColorScheme { self == .dark ? .dark : .light }
-}
-
-extension View {
-    /// Applies the course appearance and accent to the detail column. Without a theme the column follows the system.
-    @ViewBuilder func courseTheme(_ theme: CourseTheme?) -> some View {
-        if let theme {
-            self.tint(theme.accent?.color)
-                .environment(\.colorScheme, theme.appearance.colorScheme)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(theme.appearance.background.color)
-        } else {
-            self
-        }
-    }
-}
-
 /// The landing button after the learner opened a lecture. The lecture title shows below it.
 struct ResumeButton: View {
     let lecture: Lecture
