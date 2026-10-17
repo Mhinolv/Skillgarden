@@ -59,29 +59,29 @@ private func done(_ ids: String...) -> [String: LectureProgress] {
     #expect(oneDone.meta == "1 lecture · all done")
 }
 
-@Test func bentoColumnsDependOnTheWindowWidth() {
-    #expect(LibraryBento.columns(forWidth: 0) == 3)
-    #expect(LibraryBento.columns(forWidth: 1179.9) == 3)
-    #expect(LibraryBento.columns(forWidth: 1180) == 4)
-    #expect(LibraryBento.columns(forWidth: 4000) == 4)
+@Test func gridColumnsDependOnTheWindowWidth() {
+    #expect(LibraryGrid.columns(forWidth: 0) == 3)
+    #expect(LibraryGrid.columns(forWidth: 1179.9) == 3)
+    #expect(LibraryGrid.columns(forWidth: 1180) == 4)
+    #expect(LibraryGrid.columns(forWidth: 4000) == 4)
 }
 
-@Test func bentoTilesFillTheCellsBesideTheHeroFirst() {
-    let cell = { (row: Int, column: Int) in BentoCell(row: row, column: column) }
-    #expect(LibraryBento.tileCells(count: 0, columns: 4, hasHero: true) == [])
-    #expect(LibraryBento.tileCells(count: 6, columns: 4, hasHero: true) == [
-        cell(0, 2), cell(0, 3), cell(1, 2), cell(1, 3), cell(2, 0), cell(2, 1),
+/// #69: no 2×2 hero. Every course gets one cell of the same size, row by row.
+@Test func gridTilesFillTheRowsInReadingOrder() {
+    let cell = { (row: Int, column: Int) in GridCell(row: row, column: column) }
+    #expect(LibraryGrid.tileCells(count: 0, columns: 4) == [])
+    #expect(LibraryGrid.tileCells(count: 1, columns: 3) == [cell(0, 0)])
+    #expect(LibraryGrid.tileCells(count: 3, columns: 3) == [cell(0, 0), cell(0, 1), cell(0, 2)])
+    #expect(LibraryGrid.tileCells(count: 4, columns: 3) == [cell(0, 0), cell(0, 1), cell(0, 2), cell(1, 0)])
+    #expect(LibraryGrid.tileCells(count: 6, columns: 4) == [
+        cell(0, 0), cell(0, 1), cell(0, 2), cell(0, 3), cell(1, 0), cell(1, 1),
     ])
-    #expect(LibraryBento.tileCells(count: 4, columns: 3, hasHero: true) == [cell(0, 2), cell(1, 2), cell(2, 0), cell(2, 1)])
-    #expect(LibraryBento.tileCells(count: 5, columns: 4, hasHero: false) == [
-        cell(0, 0), cell(0, 1), cell(0, 2), cell(0, 3), cell(1, 0),
-    ])
-    #expect(LibraryBento.tileCells(count: 1, columns: 3, hasHero: false) == [cell(0, 0)])
-    #expect(LibraryBento.meta(courses: 1, inProgress: 0) == "1 course · 0 in progress")
-    #expect(LibraryBento.meta(courses: 6, inProgress: 3) == "6 courses · 3 in progress")
+    #expect(LibraryGrid.tileCells(count: 8, columns: 4).last == cell(1, 3))
+    #expect(LibraryGrid.meta(courses: 1, inProgress: 0) == "1 course · 0 in progress")
+    #expect(LibraryGrid.meta(courses: 6, inProgress: 3) == "6 courses · 3 in progress")
 }
 
-@MainActor @Test func libraryHomePicksTheHeroAndOpensCourses() async throws {
+@MainActor @Test func libraryHomePicksTheContinueCourseAndOpensCourses() async throws {
     let root = FileManager.default.temporaryDirectory.appending(path: "LibraryHomeTests-\(UUID())")
     defer { try? FileManager.default.removeItem(at: root) }
     let store = try CourseStore(root: root)
@@ -96,7 +96,8 @@ private func done(_ ids: String...) -> [String: LectureProgress] {
     await library.reload()
     #expect(library.courses.map(\.id) == ["done", "empty", "first", "new", "second"])
     #expect(library.libraryMeta == "5 courses · 2 in progress")
-    #expect(library.heroCourse?.id == "first")
+    // The strip uses the first course in progress in library order. Second is also in progress.
+    #expect(library.continueCourse?.id == "first")
     #expect(library.courses.map { library.summary(of: $0).status } == [.done, .noLectures, .inProgress, .new, .inProgress])
     // The summary does not need a selected course.
     #expect(library.selectedCourse == nil)
@@ -113,10 +114,10 @@ private func done(_ ids: String...) -> [String: LectureProgress] {
     library.openNextLecture(ofCourse: "missing")
     #expect(library.selectedCourse == nil && library.destination == nil)
 
-    // With no course in progress, there is no hero.
+    // With no course in progress, there is no "Continue" strip.
     try store.setCompleted(false, courseID: "first", lectureID: "a")
     try store.setCompleted(false, courseID: "second", lectureID: "b")
     await library.reload()
-    #expect(library.heroCourse == nil)
+    #expect(library.continueCourse == nil)
     #expect(library.libraryMeta == "5 courses · 0 in progress")
 }

@@ -5,7 +5,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case libraryEmpty = "library-empty"
     /// The empty library in a data folder that is not the default. The "Library: <path>" line shows.
     case libraryEmptyCustomFolder = "library-empty-custom-folder"
-    /// The Library home with no selected course: the fixture course in progress as the hero, then a new course tile.
+    /// The Library home with no selected course: the fixture course in progress in the "Continue" strip, then the tiles.
     case library
     case section
     case lecture
@@ -143,7 +143,7 @@ public enum SnapshotPlan {
             // Mixed completion: one of the two learner lectures is complete.
             if screen == .library || screen == .lectureComplete { try store.setCompleted(true, courseID: id, lectureID: "welcome") }
             if screen == .courseLanding { try store.saveLastOpenedLecture(courseID: id, lectureID: "read") }
-            // A second course with no progress shows a "New" tile next to the hero.
+            // A second course with no progress shows a "New" tile next to the fixture course tile.
             if screen == .library { _ = try publishCopy(of: fixture, root: root, replacing: libraryTileCourse) }
             return id
         case .courseLandingDarkTheme:
@@ -306,12 +306,13 @@ public enum SnapshotPlan {
     }
 
     /// The image loads to wait for before the capture.
-    /// Library: the hero and the tile images. Course screens: the outline course image, then the question image
-    /// or the assignment brief or the PDF thumbnail.
+    /// Library: the "Continue" strip image and one tile image per course. Course screens: the outline course image,
+    /// then the question image or the assignment brief or the PDF thumbnail.
     public static func imageLoads(for screen: SnapshotScreen) -> Int {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder: 0
-        case .library, .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads, .pdfPreview: 2
+        case .library: 3
+        case .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads, .pdfPreview: 2
         default: 1
         }
     }

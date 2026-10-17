@@ -56,8 +56,8 @@ public struct CourseSummary: Equatable, Sendable {
     }
 }
 
-/// One cell of the Library bento grid.
-public struct BentoCell: Equatable, Sendable {
+/// One cell of the Library grid.
+public struct GridCell: Equatable, Sendable {
     public let row: Int
     public let column: Int
 
@@ -67,8 +67,8 @@ public struct BentoCell: Equatable, Sendable {
     }
 }
 
-/// The Library bento grid: an optional 2×2 hero at the top leading corner, then 1×1 tiles in reading order.
-public enum LibraryBento {
+/// The Library grid: one tile of the same size per course, in reading order.
+public enum LibraryGrid {
     /// The grid has 4 columns at this width or wider, else 3.
     public static let wideWidth: Double = 1180
 
@@ -76,18 +76,10 @@ public enum LibraryBento {
         width >= wideWidth ? 4 : 3
     }
 
-    /// The cells of `count` tiles. With a hero, the tiles fill the columns to the right of it first.
-    public static func tileCells(count: Int, columns: Int, hasHero: Bool) -> [BentoCell] {
-        precondition(columns > 2, "The hero needs 2 columns and the tiles need at least 1 more.")
-        var cells: [BentoCell] = []
-        var row = 0
-        while cells.count < count {
-            for column in 0..<columns where cells.count < count && !(hasHero && row < 2 && column < 2) {
-                cells.append(BentoCell(row: row, column: column))
-            }
-            row += 1
-        }
-        return cells
+    /// The cells of `count` tiles, row by row from the leading edge.
+    public static func tileCells(count: Int, columns: Int) -> [GridCell] {
+        precondition(columns > 0, "The grid needs at least 1 column.")
+        return (0..<max(count, 0)).map { GridCell(row: $0 / columns, column: $0 % columns) }
     }
 
     /// The Library header meta line, for example "6 courses · 3 in progress".

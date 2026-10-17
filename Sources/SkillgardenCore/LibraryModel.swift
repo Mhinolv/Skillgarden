@@ -168,15 +168,15 @@ public final class LibraryModel {
         CourseSummary(course: course, progress: progress[course.id] ?? [:])
     }
 
-    /// The hero of the Library: the first course in library order that is in progress.
+    /// The course of the Library "Continue" strip: the first course in library order that is in progress.
     /// The store has no "last opened" time, so library order decides.
-    public var heroCourse: Course? {
+    public var continueCourse: Course? {
         courses.first { summary(of: $0).status == .inProgress }
     }
 
     /// The Library header meta line, for example "6 courses · 3 in progress".
     public var libraryMeta: String {
-        LibraryBento.meta(courses: courses.count, inProgress: courses.filter { summary(of: $0).status == .inProgress }.count)
+        LibraryGrid.meta(courses: courses.count, inProgress: courses.filter { summary(of: $0).status == .inProgress }.count)
     }
 
     /// The accent of a course theme, or nil for the system accent.
