@@ -55,6 +55,8 @@ struct SectionPageView: View {
     let section: CourseSection
     let number: Int
     let headerImage: SectionHeaderImage?
+    let progress: SectionProgress
+    let isComplete: (String) -> Bool
     let openLecture: (Lecture) -> Void
 
     var body: some View {
@@ -66,12 +68,19 @@ struct SectionPageView: View {
                     Text("Section \(number) · \(section.lectures.count) \(section.lectures.count == 1 ? "lecture" : "lectures")")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                    if progress.total > 0 {
+                        ProgressView(value: progress.fraction) {
+                            Text("\(progress.completed) of \(progress.total) lectures complete")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 ObjectiveCallout(objective: section.objective)
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(section.lectures) { lecture in
                         Button { openLecture(lecture) } label: {
-                            LectureRow(lecture: lecture)
+                            LectureRow(lecture: lecture, completed: isComplete(lecture.id))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, CourseStyle.spacing)
                                 .contentShape(.rect)
@@ -94,6 +103,8 @@ struct LectureFrameView<Content: View>: View {
     let number: Int
     let lecture: Lecture
     let nudge: LectureNudge?
+    let completed: Bool
+    let toggleComplete: () -> Void
     let previous: (() -> Void)?
     let next: (() -> Void)?
     let openNudge: () -> Void
@@ -109,6 +120,7 @@ struct LectureFrameView<Content: View>: View {
                 ObjectiveCallout(objective: lecture.objective)
                 content
                 Divider()
+                MarkCompleteButton(completed: completed, toggle: toggleComplete)
                 if let nudge { NudgeCard(nudge: nudge, open: openNudge) }
                 HStack {
                     Button("Previous", systemImage: "chevron.left") { previous?() }
@@ -137,6 +149,23 @@ struct LectureContentPlaceholder: View {
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: 120)
             .background(.quaternary, in: .rect(cornerRadius: CourseStyle.cornerRadius))
+    }
+}
+
+/// A toggle for the complete state of a lecture. A second click is the undo.
+struct MarkCompleteButton: View {
+    let completed: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        if completed {
+            Button("Completed", systemImage: "checkmark.circle.fill", action: toggle)
+                .buttonStyle(.borderedProminent)
+                .help("Mark as Incomplete")
+        } else {
+            Button("Mark as Complete", systemImage: "checkmark.circle", action: toggle)
+                .buttonStyle(.bordered)
+        }
     }
 }
 

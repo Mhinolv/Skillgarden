@@ -18,7 +18,7 @@ private func temporaryFolder() throws -> URL {
     #expect(outputs.map(\.url.lastPathComponent) == [
         "library-empty-light.png", "library-empty-dark.png", "library-light.png", "library-dark.png",
         "section-light.png", "section-dark.png", "lecture-light.png", "lecture-dark.png",
-        "course-landing-light.png", "course-landing-dark.png",
+        "lecture-complete-light.png", "lecture-complete-dark.png", "course-landing-light.png", "course-landing-dark.png",
         "course-landing-dark-theme-light.png", "course-landing-dark-theme-dark.png",
     ])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
@@ -47,6 +47,8 @@ private func temporaryFolder() throws -> URL {
             #expect(library.selectedCourse?.sections.map(\.id) == ["plan"])
             #expect(library.selectedCourse?.sections.first?.lectures.map(\.id) == ["welcome", "read"])
             #expect(library.destination == nil)
+            let section = try #require(library.selectedCourse?.learnerSections.first)
+            #expect(library.sectionProgress(section).percent == 50)
         case .section:
             #expect(courseID == "sample-course")
             library.selectCourse(courseID)
@@ -61,6 +63,12 @@ private func temporaryFolder() throws -> URL {
             #expect(library.selectedLecture?.id == "welcome")
             #expect(library.nudge?.kind == .recommended)
             #expect(library.nudge?.lecture.id == "read")
+            #expect(!library.isSelectedLectureComplete)
+        case .lectureComplete:
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.selectedLecture?.id == "welcome")
+            #expect(library.isSelectedLectureComplete)
         case .courseLanding, .courseLandingDarkTheme:
             #expect(courseID == "sample-course")
             library.selectCourse(courseID)
@@ -71,9 +79,11 @@ private func temporaryFolder() throws -> URL {
             if screen == .courseLanding {
                 #expect(theme.appearance == .light)
                 #expect(theme.accent == ThemeColor(hex: "#286644"))
+                #expect(library.resumeLecture?.title == "Read the plan")
             } else {
                 #expect(theme.appearance == .dark)
                 #expect(theme.accent == ThemeColor(hex: SnapshotPlan.darkThemeAccent))
+                #expect(library.resumeLecture == nil)
             }
         }
     }

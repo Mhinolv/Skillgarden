@@ -98,6 +98,7 @@ struct LibraryRow: View {
 
 struct CourseOutlineView: View {
     let course: Course
+    let library: LibraryModel
     @Binding var selection: CourseDestination?
 
     private var sections: [CourseSection] { course.learnerSections }
@@ -109,12 +110,10 @@ struct CourseOutlineView: View {
             ForEach(sections) { section in
                 Section {
                     // The section header is a row, so a click selects it and opens the section page.
-                    Text(section.title)
-                        .font(.headline)
-                        .accessibilityAddTraits(.isHeader)
+                    SectionHeaderRow(section: section, progress: library.sectionProgress(section))
                         .tag(CourseDestination.section(sectionID: section.id))
                     ForEach(section.lectures) { lecture in
-                        LectureRow(lecture: lecture)
+                        LectureRow(lecture: lecture, completed: library.isComplete(lecture.id))
                             .tag(CourseDestination.lecture(sectionID: section.id, lectureID: lecture.id))
                     }
                 }
@@ -126,17 +125,43 @@ struct CourseOutlineView: View {
     }
 }
 
+/// The section title with the percent of complete lectures. The percent is hidden if the section has no lectures.
+struct SectionHeaderRow: View {
+    let section: CourseSection
+    let progress: SectionProgress
+
+    var body: some View {
+        HStack(spacing: CourseStyle.spacing) {
+            Text(section.title)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 0)
+            if let percent = progress.percent {
+                Text("\(percent)%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Section \(percent) percent complete")
+            }
+        }
+    }
+}
+
 struct LectureRow: View {
     let lecture: Lecture
+    let completed: Bool
 
     var body: some View {
         HStack(spacing: CourseStyle.spacing) {
             Image(systemName: lecture.type.symbolName)
                 .foregroundStyle(.secondary)
             Text(lecture.title).font(.body).lineLimit(2)
+            if completed {
+                Spacer(minLength: 0)
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint)
+            }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(lecture.title), \(lecture.type.rawValue)")
+        .accessibilityLabel("\(lecture.title), \(lecture.type.rawValue)\(completed ? ", Completed" : "")")
     }
 }
 
@@ -162,11 +187,31 @@ extension View {
     }
 }
 
-/// The course landing page: image, title, meta line, "Start Course", then the manifest page fields.
+/// The landing button after the learner opened a lecture. The lecture title shows below it.
+struct ResumeButton: View {
+    let lecture: Lecture
+    let resume: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button("Resume", systemImage: "play.fill", action: resume)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityHint(lecture.title)
+            Text(lecture.title).font(.callout).foregroundStyle(.secondary).accessibilityHidden(true)
+        }
+    }
+}
+
+/// The course landing page: image, title, meta line, "Start Course" or "Resume", then the manifest page fields.
 struct CourseLandingView: View {
     let course: Course
     let landing: CourseLanding?
     let root: URL
+    /// The last opened lecture. If it is set, "Resume" replaces "Start Course".
+    let resumeLecture: Lecture?
+    let resume: () -> Void
     let start: (() -> Void)?
 
     private static let blockSpacing: CGFloat = 24
@@ -200,11 +245,15 @@ struct CourseLandingView: View {
                     Text(metaLine).font(.callout).foregroundStyle(.secondary)
                 }
                 .fixedSize(horizontal: false, vertical: true)
-                Button("Start Course") { start?() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(start == nil)
+                if let resumeLecture {
+                    ResumeButton(lecture: resumeLecture, resume: resume)
+                } else {
+                    Button("Start Course") { start?() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(start == nil)
+                }
                 if let landing {
                     blocks(landing)
                 }

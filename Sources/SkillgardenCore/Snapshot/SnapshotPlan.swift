@@ -6,9 +6,10 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case library
     case section
     case lecture
-    /// The fixture course, which has a light theme.
+    case lectureComplete = "lecture-complete"
+    /// The fixture course, which has a light theme. The learner opened a lecture, so "Resume" shows.
     case courseLanding = "course-landing"
-    /// The fixture course with `theme.appearance: dark` and a light accent.
+    /// The fixture course with `theme.appearance: dark` and a light accent. No lecture is opened, so "Start Course" shows.
     case courseLandingDarkTheme = "course-landing-dark-theme"
 }
 
@@ -49,9 +50,14 @@ public enum SnapshotPlan {
         case .libraryEmpty:
             _ = try CourseStore(root: root)
             return nil
-        case .library, .section, .lecture, .courseLanding:
+        case .library, .section, .lecture, .lectureComplete, .courseLanding:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
-            return try CoursePublisher.publish(courseFolder: fixture, root: root).id
+            let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
+            let store = try CourseStore(root: root)
+            // Mixed completion: one of the two learner lectures is complete.
+            if screen == .library || screen == .lectureComplete { try store.setCompleted(true, courseID: id, lectureID: "welcome") }
+            if screen == .courseLanding { try store.saveLastOpenedLecture(courseID: id, lectureID: "read") }
+            return id
         case .courseLandingDarkTheme:
             let copy = FileManager.default.temporaryDirectory.appending(path: "SkillgardenDarkFixture-\(UUID())")
             defer { try? FileManager.default.removeItem(at: copy) }
@@ -70,7 +76,7 @@ public enum SnapshotPlan {
         switch screen {
         case .libraryEmpty, .library: nil
         case .section: .section(sectionID: "plan")
-        case .lecture: .lecture(sectionID: "plan", lectureID: "welcome")
+        case .lecture, .lectureComplete: .lecture(sectionID: "plan", lectureID: "welcome")
         case .courseLanding, .courseLandingDarkTheme: .overview
         }
     }

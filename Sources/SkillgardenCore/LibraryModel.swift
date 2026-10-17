@@ -19,7 +19,14 @@ public final class LibraryModel {
     public private(set) var headerImages: [String: [String: SectionHeaderImage]] = [:]
     /// Course page fields and theme by course id. Courses without an installed snapshot have none.
     public private(set) var landings: [String: CourseLanding] = [:]
+    /// Learner progress by course id, then lecture id.
+    public private(set) var progress: [String: [String: LectureProgress]] = [:]
+    /// The last opened lecture id by course id. The lecture can be absent from the current outline.
+    public private(set) var lastOpenedLectures: [String: String] = [:]
     public let root: URL
+    /// The store of the last reload. Progress writes use it off the main actor, one at a time.
+    private var store: CourseStore?
+    private var pendingWrite: Task<Bool, Never>?
 
     public init(root: URL = Skillgarden.defaultDataDirectory) {
         self.root = root
@@ -64,9 +71,87 @@ public final class LibraryModel {
         selectedCourseID.flatMap { headerImages[$0]?[sectionID] }
     }
 
-    public func goToPreviousLecture() { if let previousLecture { destination = previousLecture } }
-    public func goToNextLecture() { if let nextLecture { destination = nextLecture } }
-    public func goToNudge() { if let nudge { destination = nudge.destination } }
+    public func goToPreviousLecture() { if let previousLecture { open(previousLecture) } }
+    public func goToNextLecture() { if let nextLecture { open(nextLecture) } }
+    public func goToNudge() { if let nudge { open(nudge.destination) } }
+
+    // MARK: Progress
+
+    public func isComplete(_ lectureID: String) -> Bool {
+        selectedCourseID.flatMap { progress[$0]?[lectureID]?.completed } ?? false
+    }
+
+    public var isSelectedLectureComplete: Bool {
+        selectedLecture.map { isComplete($0.id) } ?? false
+    }
+
+    public func sectionProgress(_ section: CourseSection) -> SectionProgress {
+        SectionProgress(section: section, progress: selectedCourseID.flatMap { progress[$0] } ?? [:])
+    }
+
+    /// Marks the selected lecture complete or incomplete. If the write fails, the state goes back.
+    public func toggleSelectedLectureComplete() async {
+        guard let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return }
+        let completed = !isComplete(lectureID)
+        progress[courseID, default: [:]][lectureID, default: LectureProgress()].completed = completed
+        let saved = await enqueueWrite { try $0.setCompleted(completed, courseID: courseID, lectureID: lectureID) }.value
+        if !saved, progress[courseID]?[lectureID]?.completed == completed {
+            progress[courseID]?[lectureID]?.completed = !completed
+        }
+    }
+
+    /// The time to seek to when the video of a lecture in the selected course opens.
+    public func startSeconds(forLecture lectureID: String, duration: Double?) -> Double {
+        let saved = selectedCourseID.flatMap { progress[$0]?[lectureID]?.resumeSeconds } ?? 0
+        return PlaybackResume.startSeconds(saved: saved, duration: duration)
+    }
+
+    /// The video player calls this every `PlaybackResume.saveInterval` seconds, on pause and when the learner leaves.
+    public func saveResumePosition(_ seconds: Double, lectureID: String) {
+        guard let courseID = selectedCourseID, seconds.isFinite,
+              progress[courseID]?[lectureID]?.resumeSeconds != seconds else { return }
+        progress[courseID, default: [:]][lectureID, default: LectureProgress()].resumeSeconds = seconds
+        enqueueWrite { try $0.saveResumePosition(seconds, courseID: courseID, lectureID: lectureID) }
+    }
+
+    /// The last opened lecture of the selected course, if the learner can still see it.
+    public var resumeDestination: CourseDestination? {
+        guard let course = selectedCourse, let lectureID = lastOpenedLectures[course.id],
+              let target = course.learnerLectures.first(where: { $0.lecture.id == lectureID }) else { return nil }
+        return .lecture(sectionID: target.sectionID, lectureID: lectureID)
+    }
+
+    public var resumeLecture: Lecture? {
+        guard case let .lecture(_, lectureID) = resumeDestination else { return nil }
+        return selectedCourse?.learnerLectures.first { $0.lecture.id == lectureID }?.lecture
+    }
+
+    public func resume() { if let resumeDestination { open(resumeDestination) } }
+
+    /// Waits until all queued progress writes finish.
+    func waitForWrites() async { _ = await pendingWrite?.value }
+
+    private func open(_ value: CourseDestination) {
+        destination = value
+        guard let courseID = selectedCourseID, case let .lecture(_, lectureID) = value,
+              lastOpenedLectures[courseID] != lectureID else { return }
+        lastOpenedLectures[courseID] = lectureID
+        enqueueWrite { try $0.saveLastOpenedLecture(courseID: courseID, lectureID: lectureID) }
+    }
+
+    /// Runs store writes off the main actor in the order of the calls.
+    @discardableResult
+    private func enqueueWrite(_ body: @escaping @Sendable (CourseStore) throws -> Void) -> Task<Bool, Never> {
+        let previous = pendingWrite
+        let store = store
+        let task = Task.detached {
+            _ = await previous?.value
+            guard let store else { return false }
+            do { try body(store); return true } catch { return false }
+        }
+        pendingWrite = task
+        return task
+    }
 
     public func selectCourse(_ id: String?) {
         guard id != selectedCourseID else { return }
@@ -77,7 +162,7 @@ public final class LibraryModel {
     public func selectDestination(_ value: CourseDestination?) {
         guard let course = selectedCourse else { destination = nil; return }
         guard Self.isValid(value, in: course) else { return }
-        destination = value
+        if let value { open(value) } else { destination = nil }
     }
 
     public func reload() async {
@@ -85,14 +170,20 @@ public final class LibraryModel {
         isLoading = true
         defer { isLoading = false }
         let root = root
+        // Queued writes finish first, so the reload reads them.
+        await waitForWrites()
         do {
-            let (loaded, installed) = try await Task.detached {
+            let (store, loaded, installed, progress, lastOpened) = try await Task.detached {
                 let store = try CourseStore(root: root)
-                return (try store.listCourses(), try Self.installedData(store: store, root: root))
+                return (store, try store.listCourses(), try Self.installedData(store: store, root: root),
+                        try store.allProgress(), try store.lastOpenedLectures())
             }.value
+            self.store = store
             courses = loaded
             headerImages = installed.headerImages
             landings = installed.landings
+            self.progress = progress
+            lastOpenedLectures = lastOpened
             errorMessage = nil
             if let course = selectedCourse {
                 if !Self.isValid(destination, in: course) { destination = .overview }
@@ -101,9 +192,12 @@ public final class LibraryModel {
                 destination = nil
             }
         } catch {
+            store = nil
             courses = []
             headerImages = [:]
             landings = [:]
+            progress = [:]
+            lastOpenedLectures = [:]
             selectedCourseID = nil
             destination = nil
             errorMessage = error.localizedDescription
