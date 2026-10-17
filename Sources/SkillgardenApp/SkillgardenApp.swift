@@ -26,6 +26,17 @@ struct SkillgardenApp: App {
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(focusedLibrary == nil || focusedLibrary?.isLoading == true)
             }
+            CommandMenu("Go") {
+                Button("Previous Lecture") { focusedLibrary?.goToPreviousLecture() }
+                    .keyboardShortcut(.leftArrow, modifiers: [.option, .command])
+                    .disabled(focusedLibrary?.previousLecture == nil)
+                Button("Next Lecture") { focusedLibrary?.goToNextLecture() }
+                    .keyboardShortcut(.rightArrow, modifiers: [.option, .command])
+                    .disabled(focusedLibrary?.nextLecture == nil)
+                Button("Recommended Next") { focusedLibrary?.goToNudge() }
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(focusedLibrary?.nudge == nil)
+            }
         }
     }
 
@@ -116,8 +127,23 @@ struct ContentView: View {
 
     @ViewBuilder private var detail: some View {
         if let course = library.selectedCourse {
-            if let lecture = library.selectedLecture {
-                CourseDetailPlaceholder(title: lecture.title, symbol: lecture.type.symbolName, titleFont: .title2)
+            if let lecture = library.selectedLecture, let section = library.selectedSection {
+                LectureFrameView(
+                    sectionTitle: section.title, number: course.lectureNumber(of: lecture.id) ?? 1, lecture: lecture,
+                    nudge: library.nudge,
+                    previous: library.previousLecture == nil ? nil : { library.goToPreviousLecture() },
+                    next: library.nextLecture == nil ? nil : { library.goToNextLecture() },
+                    openNudge: { library.goToNudge() }
+                ) {
+                    LectureContentPlaceholder(lecture: lecture)
+                }
+                .id(lecture.id)
+            } else if let section = library.selectedSection {
+                SectionPageView(section: section, number: course.sectionNumber(of: section.id) ?? 1,
+                                headerImage: library.headerImage(forSection: section.id)) { lecture in
+                    library.selectDestination(.lecture(sectionID: section.id, lectureID: lecture.id))
+                }
+                .id(section.id)
             } else if library.destination == .overview {
                 CourseDetailPlaceholder(title: course.title, symbol: "info.circle", titleFont: .largeTitle.bold())
             } else {

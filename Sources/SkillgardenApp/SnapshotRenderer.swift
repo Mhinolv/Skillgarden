@@ -53,7 +53,7 @@ enum SnapshotRenderer {
         if let message = library.errorMessage { throw SnapshotError.load(message) }
         if let courseID {
             library.selectCourse(courseID)
-            library.selectDestination(nil)
+            library.selectDestination(SnapshotPlan.destination(for: output.screen))
         }
 
         let appearance = NSAppearance(named: output.appearance == .dark ? .darkAqua : .aqua)!
