@@ -95,6 +95,9 @@ enum SnapshotRenderer {
         window.animationBehavior = .none
         window.appearance = appearance
         window.title = "Skillgarden"
+        // The same style as `.windowToolbarStyle(.unifiedCompact(showsTitle: false))` on the app window.
+        window.toolbarStyle = .unifiedCompact
+        window.titleVisibility = .hidden
         window.contentView = NSHostingView(rootView: content)
         window.setFrame(NSRect(origin: .zero, size: size), display: false)
         defer { window.close() }
@@ -138,14 +141,18 @@ enum SnapshotRenderer {
 
         let png = try image(of: frameView, appearance: appearance)
         try png.write(to: output.url, options: .atomic)
+        // The title bar and the toolbar are the part of the window above the content layout rect.
+        let titlebar = window.frame.height - window.contentLayoutRect.maxY
+        if titlebar > maxToolbarHeight { throw SnapshotError.tallToolbar(output.url.lastPathComponent, titlebar) }
         if output.screen.checksTitlebarForVideo {
-            // The title bar and the toolbar are the part of the window above the content layout rect.
-            let titlebar = window.frame.height - window.contentLayoutRect.maxY
             let rows = Int(titlebar.rounded(.down)) * SnapshotPlan.scale
             let black = SnapshotCheck.blackPixels(png: png, topRows: rows) ?? 0
             if black > 0 { throw SnapshotError.videoOverTitlebar(output.url.lastPathComponent, black) }
         }
     }
+
+    /// The compact toolbar row is about 38 pt. The default style makes a 52 pt row below the window buttons.
+    private static let maxToolbarHeight: CGFloat = 40
 
     /// Runs the main run loop in short steps until `done` is true or the time limit passes.
     private static func pump(limit: TimeInterval = 10, until done: () -> Bool) {
@@ -238,6 +245,7 @@ enum SnapshotError: Error, CustomStringConvertible {
     case courseImage
     case videoOverTitlebar(String, Int)
     case pdfView(String)
+    case tallToolbar(String, CGFloat)
 
     var description: String {
         switch self {
@@ -246,6 +254,7 @@ enum SnapshotError: Error, CustomStringConvertible {
         case .courseImage: "course image did not load"
         case let .videoOverTitlebar(name, count): "\(name): the video draws \(count) black pixels over the title bar"
         case let .pdfView(name): "\(name): the PDF preview sheet has no PDFKit view with a drawn page"
+        case let .tallToolbar(name, height): "\(name): the toolbar row is \(Int(height)) pt high, not the compact row"
         }
     }
 }

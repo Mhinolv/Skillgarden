@@ -17,6 +17,8 @@ struct SkillgardenApp: App {
         WindowGroup("Skillgarden") {
             ContentView()
         }
+        // The toolbar shares the row of the window buttons and shows no title. The snapshot window copies this style.
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .commands {
             SidebarCommands()
             CommandGroup(after: .sidebar) {
