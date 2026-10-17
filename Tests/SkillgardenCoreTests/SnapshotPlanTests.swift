@@ -23,7 +23,9 @@ private func temporaryFolder() throws -> URL {
         "course-landing-dark-theme-light.png", "course-landing-dark-theme-dark.png",
         "quiz-question-light.png", "quiz-question-dark.png", "quiz-wrong-answer-light.png", "quiz-wrong-answer-dark.png",
         "quiz-results-light.png", "quiz-results-dark.png", "interactive-result-light.png", "interactive-result-dark.png",
+        "video-player-light.png", "video-player-dark.png",
     ])
+    #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
     #expect(Set(outputs.map(\.url)).count == SnapshotScreen.allCases.count * SnapshotAppearance.allCases.count)
@@ -120,6 +122,14 @@ private func temporaryFolder() throws -> URL {
                 #expect(attempt.result.weakSkills == ["Read a course outline", "Order course sections"])
                 await library.waitForWrites()
             }
+        case .videoPlayer:
+            #expect(courseID == "sample-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.selectedLecture?.type == .video)
+            let video = try #require(library.video(forLecture: "welcome"))
+            #expect(FileManager.default.fileExists(atPath: video.url.path))
+            #expect(video.captionsURL != nil)
         case .interactiveResult:
             #expect(courseID == "interactive-course")
             library.selectCourse(courseID)
@@ -141,6 +151,16 @@ private func temporaryFolder() throws -> URL {
     #expect(image.alt == "A green garden with two plants")
     #expect(image.mimeType == "image/svg+xml")
     #expect(FileManager.default.fileExists(atPath: root.appending(path: image.path(forPixelWidth: 128, height: 72)).path))
+}
+
+/// #42: SwiftUI `VideoPlayer` crashes on macOS 15 when the app is built with the macOS 26 SDK.
+@Test func noSourceUsesSwiftUIVideoPlayer() throws {
+    let sources = repo.appending(path: "Sources")
+    let files = try #require(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+        .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
+    #expect(!files.isEmpty)
+    let users = try files.filter { try String(contentsOf: $0, encoding: .utf8).contains("VideoPlayer(") }
+    #expect(users.map(\.lastPathComponent) == [])
 }
 
 @Test func snapshotScriptExitsNonZeroWhenTheBuildFails() throws {

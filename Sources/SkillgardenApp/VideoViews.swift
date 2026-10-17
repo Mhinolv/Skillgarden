@@ -35,7 +35,8 @@ final class VideoPlayback {
     @ObservationIgnored private let save: @MainActor (Double) -> Void
 
     /// `save` gets the position every `PlaybackResume.saveInterval` seconds, on pause and on `stop()`.
-    init(url: URL, start: Double, captions: WebVTT?, save: @escaping @MainActor (Double) -> Void) {
+    /// If `plays` is false, the player opens paused (the snapshot harness).
+    init(url: URL, start: Double, captions: WebVTT?, plays: Bool = true, save: @escaping @MainActor (Double) -> Void) {
         player = AVPlayer(url: url)
         self.save = save
         lastSaved = start
@@ -59,7 +60,7 @@ final class VideoPlayback {
                 }
             }
         }
-        player.play()
+        if plays { player.play() }
     }
 
     /// Pauses the player, saves the position and removes the observers.
@@ -88,6 +89,7 @@ struct VideoLectureView: View {
     let startSeconds: @MainActor () -> Double
     let saveResumePosition: @MainActor @Sendable (Double) -> Void
     @Environment(\.imageLoads) private var imageLoads
+    @Environment(\.opensVideoPlayer) private var opensVideoPlayer
     @State private var poster: NSImage?
     @State private var available: Bool?
     @State private var captions: WebVTT?
@@ -131,9 +133,10 @@ struct VideoLectureView: View {
             .aspectRatio(16 / 9, contentMode: .fit)
             .overlay {
                 if let playback {
-                    VideoPlayer(player: playback.player) {
-                        if showsCaptions, let text = playback.captionText { CaptionOverlay(text: text) }
-                    }
+                    PlayerView(player: playback.player)
+                        .overlay {
+                            if showsCaptions, let text = playback.captionText { CaptionOverlay(text: text) }
+                        }
                 } else {
                     posterView
                 }
@@ -170,7 +173,8 @@ struct VideoLectureView: View {
 
     private func play() {
         guard let video, playback == nil else { return }
-        playback = VideoPlayback(url: video.url, start: startSeconds(), captions: captions, save: saveResumePosition)
+        playback = VideoPlayback(url: video.url, start: startSeconds(), captions: captions,
+                                 plays: !opensVideoPlayer, save: saveResumePosition)
     }
 
     /// Checks the video file and reads the poster and the captions off the main actor.
@@ -190,7 +194,42 @@ struct VideoLectureView: View {
         poster = posterData.flatMap(NSImage.init(data:))
         captions = cues
         available = exists
+        if exists && opensVideoPlayer { play() }
         imageLoads?.finish(loaded: exists)
+    }
+}
+
+private struct OpensVideoPlayerKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// The snapshot harness sets this, so a video lecture opens its player, paused, after the load. The app sets none.
+    var opensVideoPlayer: Bool {
+        get { self[OpensVideoPlayerKey.self] }
+        set { self[OpensVideoPlayerKey.self] = newValue }
+    }
+}
+
+/// The AVKit player view with inline controls.
+/// SwiftUI `VideoPlayer` crashes on macOS 15 when the app is built with the macOS 26 SDK (#42), so do not use it.
+struct PlayerView: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.controlsStyle = .inline
+        view.videoGravity = .resizeAspect
+        view.player = player
+        return view
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        if view.player !== player { view.player = player }
+    }
+
+    static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
+        view.player = nil
     }
 }
 

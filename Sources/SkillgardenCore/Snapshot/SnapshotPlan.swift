@@ -20,6 +20,11 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case quizResults = "quiz-results"
     /// The interactive fixture course (`Tests/Fixtures/interactive-course`) with a saved weak score of 75.
     case interactiveResult = "interactive-result"
+    /// The video lecture after the learner started it, so the real AVKit player view shows. Playback stays paused.
+    case videoPlayer = "video-player"
+
+    /// True when the harness opens the player of the video lecture before the capture.
+    public var opensVideoPlayer: Bool { self == .videoPlayer }
 }
 
 public enum SnapshotAppearance: String, CaseIterable, Sendable {
@@ -59,7 +64,7 @@ public enum SnapshotPlan {
         case .libraryEmpty:
             _ = try CourseStore(root: root)
             return nil
-        case .library, .section, .lecture, .lectureComplete, .article, .courseLanding:
+        case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -121,7 +126,7 @@ public enum SnapshotPlan {
         switch screen {
         case .libraryEmpty, .library: nil
         case .section: .section(sectionID: "plan")
-        case .lecture, .lectureComplete: .lecture(sectionID: "plan", lectureID: "welcome")
+        case .lecture, .lectureComplete, .videoPlayer: .lecture(sectionID: "plan", lectureID: "welcome")
         case .article: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme: .overview
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")
