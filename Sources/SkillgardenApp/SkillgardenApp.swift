@@ -215,7 +215,10 @@ struct ContentView: View {
                                   start: course.firstLecture.map { first in { library.selectDestination(first) } },
                                   openLecture: { section, lecture in
                                       library.selectDestination(.lecture(sectionID: section.id, lectureID: lecture.id))
-                                  })
+                                  },
+                                  openCredits: library.selectedCredits.isEmpty ? nil : { library.selectDestination(.credits) })
+            } else if library.destination == .credits {
+                CourseCreditsView(credits: library.selectedCredits)
             } else {
                 ContentUnavailableView("Select a lecture", systemImage: "list.bullet")
             }

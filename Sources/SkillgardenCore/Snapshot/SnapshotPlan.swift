@@ -30,6 +30,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The spaced review sheet of the "plan" section, after the quiz section moved first.
     /// Two questions: one unanswered, one answered correctly.
     case sectionReview = "section-review"
+    /// The credits page of the fixture course with a second credit. One row has a role and a URL, one row has neither.
+    case courseCredits = "course-credits"
 
     /// True when the harness opens the player of the video lecture before the capture.
     public var opensVideoPlayer: Bool { self == .videoPlayer || self == .videoTranscript }
@@ -116,6 +118,8 @@ public enum SnapshotPlan {
             ])
         case .sectionReview:
             return try publishCopy(of: fixture, root: root, replacing: reviewCourse)
+        case .courseCredits:
+            return try publishCopy(of: fixture, root: root, replacing: creditsCourse)
         }
     }
 
@@ -138,6 +142,11 @@ public enum SnapshotPlan {
                       explanation: An objective names the skill that the learner gets from the lecture.
 
         """, ""),
+    ]
+
+    /// The replacement for the `course-credits` course: a second credit with no role and no URL.
+    static let creditsCourse = [
+        ("    url: https://example.com/credits\n", "    url: https://example.com/credits\n  - name: Garden Photo Library\n"),
     ]
 
     /// The seed of the review question order in the snapshot harness.
@@ -197,6 +206,7 @@ public enum SnapshotPlan {
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript: .lecture(sectionID: "plan", lectureID: "welcome")
         case .article: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme: .overview
+        case .courseCredits: .credits
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")
         case .interactiveResult: .lecture(sectionID: "practice", lectureID: "order-steps")
         }

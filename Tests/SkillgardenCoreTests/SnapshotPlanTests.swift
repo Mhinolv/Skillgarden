@@ -25,7 +25,7 @@ private func temporaryFolder() throws -> URL {
         "quiz-question-light.png", "quiz-question-dark.png", "quiz-wrong-answer-light.png", "quiz-wrong-answer-dark.png",
         "quiz-results-light.png", "quiz-results-dark.png", "interactive-result-light.png", "interactive-result-dark.png",
         "video-player-light.png", "video-player-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
-        "section-review-light.png", "section-review-dark.png",
+        "section-review-light.png", "section-review-dark.png", "course-credits-light.png", "course-credits-dark.png",
     ])
     #expect(SnapshotScreen.allCases.filter(\.showsReviewInline) == [.sectionReview])
     #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer, .videoTranscript])
@@ -178,6 +178,16 @@ private func temporaryFolder() throws -> URL {
             #expect(review.isCorrect("check/order") == true)
             #expect(review.isCorrect("check/outline") == nil)
             #expect(review.questions.first { $0.id == "check/outline" }?.question.image != nil)
+        case .courseCredits:
+            #expect(courseID == "sample-course")
+            #expect(SnapshotPlan.imageLoads(for: screen) == 1)
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.destination == .credits)
+            // One row with a role and a URL, one row with neither.
+            #expect(library.selectedCredits.map(\.name) == ["Skillgarden Team", "Garden Photo Library"])
+            #expect(library.selectedCredits.map { $0.role != nil } == [true, false])
+            #expect(library.selectedCredits.map { $0.url != nil } == [true, false])
         }
         if screen != .sectionReview {
             // Other screens open the first section or a section without earlier quizzes, so no review sheet shows.
