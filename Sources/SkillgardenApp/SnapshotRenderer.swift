@@ -1,0 +1,128 @@
+import AppKit
+import SwiftUI
+import SkillgardenCore
+
+/// Offscreen snapshot harness: `SkillgardenApp --snapshot <out-dir> --fixture <course-folder>`.
+/// Renders each `SnapshotScreen` in light and dark mode to `<out-dir>/<screen>-<light|dark>.png`.
+@MainActor
+enum SnapshotRenderer {
+    static func run(arguments: [String]) -> Int32 {
+        guard let outPath = arguments.first, !outPath.hasPrefix("--"),
+              let fixtureIndex = arguments.firstIndex(of: "--fixture"), fixtureIndex + 1 < arguments.count else {
+            FileHandle.standardError.write(Data("usage: SkillgardenApp --snapshot <out-dir> --fixture <course-folder>\n".utf8))
+            return 2
+        }
+        let outDirectory = URL(fileURLWithPath: outPath).standardizedFileURL
+        let fixture = URL(fileURLWithPath: arguments[fixtureIndex + 1])
+        do {
+            try FileManager.default.createDirectory(at: outDirectory, withIntermediateDirectories: true)
+            configureEnvironment()
+            let outputs = SnapshotPlan.outputs(outDirectory: outDirectory)
+            for output in outputs {
+                try render(output, fixture: fixture)
+                print(output.url.path)
+            }
+            print("Wrote \(outputs.count) snapshots to \(outDirectory.path)")
+            return 0
+        } catch {
+            FileHandle.standardError.write(Data("snapshot: \(error)\n".utf8))
+            return 1
+        }
+    }
+
+    private static func configureEnvironment() {
+        NSTimeZone.default = TimeZone(identifier: SnapshotPlan.timeZoneIdentifier)!
+        let defaults = UserDefaults.standard
+        defaults.set(false, forKey: "NSAutomaticWindowAnimationsEnabled")
+        defaults.set(false, forKey: "NSScrollAnimationEnabled")
+        defaults.set(Double.greatestFiniteMagnitude, forKey: "NSTextInsertionPointBlinkPeriodOn")
+        defaults.set(0, forKey: "NSTextInsertionPointBlinkPeriodOff")
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        NSAnimationContext.current.duration = 0
+    }
+
+    private static func render(_ output: SnapshotPlan.Output, fixture: URL) throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "SkillgardenSnapshot-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let courseID = try SnapshotPlan.seedStore(for: output.screen, root: root, fixture: fixture)
+
+        let library = LibraryModel(root: root)
+        var loaded = false
+        Task { await library.reload(); loaded = true }
+        pump { loaded }
+        if let message = library.errorMessage { throw SnapshotError.load(message) }
+        if let courseID {
+            library.selectCourse(courseID)
+            library.selectDestination(nil)
+        }
+
+        let appearance = NSAppearance(named: output.appearance == .dark ? .darkAqua : .aqua)!
+        let content = ContentView(library: library, reloadsOnAppear: false)
+            .environment(\.locale, Locale(identifier: SnapshotPlan.localeIdentifier))
+            .environment(\.timeZone, TimeZone(identifier: SnapshotPlan.timeZoneIdentifier)!)
+            .transaction { $0.disablesAnimations = true; $0.animation = nil }
+        let size = NSSize(width: SnapshotPlan.width, height: SnapshotPlan.height)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.animationBehavior = .none
+        window.appearance = appearance
+        window.title = "Skillgarden"
+        window.contentView = NSHostingView(rootView: content)
+        window.setFrame(NSRect(origin: .zero, size: size), display: false)
+        defer { window.close() }
+
+        let frameView = window.contentView!.superview ?? window.contentView!
+        var ticks = 0
+        pump { frameView.layoutSubtreeIfNeeded(); ticks += 1; return ticks >= 20 }
+
+        let png = try image(of: frameView, appearance: appearance)
+        try png.write(to: output.url, options: .atomic)
+    }
+
+    /// Runs the main run loop in short steps until `done` is true or the time limit passes.
+    private static func pump(limit: TimeInterval = 10, until done: () -> Bool) {
+        let end = Date(timeIntervalSinceNow: limit)
+        while !done(), Date() < end {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+        }
+    }
+
+    private static func image(of view: NSView, appearance: NSAppearance) throws -> Data {
+        let scale = SnapshotPlan.scale
+        guard let capture = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: SnapshotPlan.width * scale, pixelsHigh: SnapshotPlan.height * scale,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let result = capture.copy() as? NSBitmapImageRep else { throw SnapshotError.image }
+        capture.size = view.bounds.size
+        view.cacheDisplay(in: view.bounds, to: capture)
+
+        // Put the capture on the window background so translucent sidebar areas are opaque.
+        result.size = view.bounds.size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: result)
+        appearance.performAsCurrentDrawingAppearance {
+            NSColor.windowBackgroundColor.setFill()
+            NSRect(origin: .zero, size: view.bounds.size).fill()
+        }
+        capture.draw(in: NSRect(origin: .zero, size: view.bounds.size), from: .zero, operation: .sourceOver,
+                     fraction: 1, respectFlipped: false, hints: nil)
+        NSGraphicsContext.restoreGraphicsState()
+        guard let data = result.representation(using: .png, properties: [:]) else { throw SnapshotError.image }
+        return data
+    }
+}
+
+enum SnapshotError: Error, CustomStringConvertible {
+    case load(String)
+    case image
+
+    var description: String {
+        switch self {
+        case let .load(message): "cannot load the snapshot library: \(message)"
+        case .image: "cannot create the PNG image"
+        }
+    }
+}
