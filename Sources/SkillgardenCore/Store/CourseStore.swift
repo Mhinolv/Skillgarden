@@ -164,6 +164,16 @@ public final class CourseStore: @unchecked Sendable {
         }
     }
 
+    /// All installed publications by course id, read in one query.
+    func publications() throws -> [String: (manifest: Data, directory: String)] {
+        try lock.withLock {
+            let rows = try database.query("SELECT course_id, manifest, directory FROM course_publications") {
+                (SQLiteDatabase.text($0, 0), Data(SQLiteDatabase.text($0, 1).utf8), SQLiteDatabase.text($0, 2))
+            }
+            return Dictionary(rows.map { ($0.0, (manifest: $0.1, directory: $0.2)) }, uniquingKeysWith: { first, _ in first })
+        }
+    }
+
     func savePublication(_ course: Course, manifest: Data, directory: String) throws {
         try lock.withLock {
             try database.transaction {

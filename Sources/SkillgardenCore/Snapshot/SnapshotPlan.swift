@@ -4,6 +4,8 @@ import Foundation
 public enum SnapshotScreen: String, CaseIterable, Sendable {
     case libraryEmpty = "library-empty"
     case library
+    case section
+    case lecture
 }
 
 public enum SnapshotAppearance: String, CaseIterable, Sendable {
@@ -44,6 +46,18 @@ public enum SnapshotPlan {
             let course = course(from: try ManifestLoader.load(courseFolder: fixture))
             try store.saveCourse(course)
             return course.id
+        case .section, .lecture:
+            // A real publish installs the media snapshot, so the section header image loads.
+            return try CoursePublisher.publish(courseFolder: fixture, root: root).id
+        }
+    }
+
+    /// The page to open after the course is selected. The fixture lecture has a `recommended_next` target.
+    public static func destination(for screen: SnapshotScreen) -> CourseDestination? {
+        switch screen {
+        case .libraryEmpty, .library: nil
+        case .section: .section(sectionID: "plan")
+        case .lecture: .lecture(sectionID: "plan", lectureID: "welcome")
         }
     }
 

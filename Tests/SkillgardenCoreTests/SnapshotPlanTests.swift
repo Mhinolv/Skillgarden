@@ -17,6 +17,7 @@ private func temporaryFolder() throws -> URL {
     let outputs = SnapshotPlan.outputs(outDirectory: out)
     #expect(outputs.map(\.url.lastPathComponent) == [
         "library-empty-light.png", "library-empty-dark.png", "library-light.png", "library-dark.png",
+        "section-light.png", "section-dark.png", "lecture-light.png", "lecture-dark.png",
     ])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
@@ -44,6 +45,20 @@ private func temporaryFolder() throws -> URL {
             #expect(library.selectedCourse?.sections.map(\.id) == ["plan"])
             #expect(library.selectedCourse?.sections.first?.lectures.map(\.id) == ["welcome", "read"])
             #expect(library.destination == nil)
+        case .section:
+            #expect(courseID == "sample-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.destination == .section(sectionID: "plan"))
+            #expect(library.selectedSection?.objective == "Identify the course structure")
+            #expect(library.headerImage(forSection: "plan")?.alt == "Two course sections")
+        case .lecture:
+            #expect(courseID == "sample-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.selectedLecture?.id == "welcome")
+            #expect(library.nudge?.kind == .recommended)
+            #expect(library.nudge?.lecture.id == "read")
         }
     }
 }
