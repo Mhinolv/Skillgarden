@@ -148,7 +148,8 @@ func readingMinutesRoundUpWithMinimumOne(markdown: String, minutes: Int) {
         #expect(try publishErrors(folder, root) == ["\(article): required field is missing"])
     }
     try withCourse { folder, root in
-        try edit(folder, "        type: article\n", "        type: quiz\n")
+        // A quiz lecture also needs a `quiz` field, so use a video lecture to test only the article rule.
+        try edit(folder, "        type: article\n", "        type: video\n")
         #expect(try publishErrors(folder, root) == ["\(article): allowed only when type is article"])
     }
     try withCourse { folder, root in

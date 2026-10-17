@@ -21,6 +21,8 @@ private func temporaryFolder() throws -> URL {
         "lecture-complete-light.png", "lecture-complete-dark.png", "article-light.png", "article-dark.png",
         "course-landing-light.png", "course-landing-dark.png",
         "course-landing-dark-theme-light.png", "course-landing-dark-theme-dark.png",
+        "quiz-question-light.png", "quiz-question-dark.png", "quiz-wrong-answer-light.png", "quiz-wrong-answer-dark.png",
+        "quiz-results-light.png", "quiz-results-dark.png",
     ])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
@@ -90,6 +92,29 @@ private func temporaryFolder() throws -> URL {
                 #expect(theme.appearance == .dark)
                 #expect(theme.accent == ThemeColor(hex: SnapshotPlan.darkThemeAccent))
                 #expect(library.resumeLecture == nil)
+            }
+        case .quizQuestion, .quizWrongAnswer, .quizResults:
+            #expect(courseID == "sample-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.selectedLecture?.id == "check")
+            for action in SnapshotPlan.quizActions(for: screen) { library.performQuizAction(action) }
+            let attempt = try #require(library.selectedQuizAttempt)
+            switch screen {
+            case .quizQuestion:
+                // The sample quiz renders an image question from the fixture.
+                let image = try #require(attempt.question?.image)
+                #expect(image.alt == "Two course sections")
+                #expect(FileManager.default.fileExists(atPath: image.url.path))
+                #expect(attempt.selection == nil)
+                #expect(SnapshotPlan.imageLoads(for: screen) == 2)
+            case .quizWrongAnswer:
+                #expect(attempt.question?.id == "outline")
+                #expect(attempt.isAnswerCorrect == false)
+            default:
+                #expect(attempt.showsResults)
+                #expect(attempt.result.weakSkills == ["Read a course outline", "Order course sections"])
+                await library.waitForWrites()
             }
         }
     }

@@ -3,7 +3,7 @@ import SQLite3
 
 /// A synchronous local store. The lock protects the connection and each complete operation.
 public final class CourseStore: @unchecked Sendable {
-    public static let currentSchemaVersion = 5
+    public static let currentSchemaVersion = 6
     public let databaseURL: URL
     private let database: SQLiteDatabase
     private let lock = NSLock()
@@ -260,6 +260,33 @@ public final class CourseStore: @unchecked Sendable {
         }
     }
 
+    /// Keeps the latest result of each quiz. Learner data, so a republish keeps it.
+    public func saveQuizResult(_ result: QuizResult, courseID: String, lectureID: String) throws {
+        let skills = String(decoding: try JSONEncoder().encode(result.weakSkills), as: UTF8.self)
+        try lock.withLock {
+            try database.execute("""
+                INSERT INTO quiz_results (course_id, lecture_id, correct, total, weak_skills) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(course_id, lecture_id) DO UPDATE SET correct=excluded.correct, total=excluded.total,
+                    weak_skills=excluded.weak_skills
+                """, [courseID, lectureID, String(result.correct), String(result.total), skills])
+        }
+    }
+
+    /// The latest quiz results by course id, then lecture id. Stores saved before schema version 6 have none.
+    public func allQuizResults() throws -> [String: [String: QuizResult]] {
+        try lock.withLock {
+            var results: [String: [String: QuizResult]] = [:]
+            try database.query("SELECT course_id, lecture_id, correct, total, weak_skills FROM quiz_results") {
+                guard let skills = try? JSONDecoder().decode([String].self, from: Data(SQLiteDatabase.text($0, 4).utf8)) else {
+                    throw CourseStoreError.invalidData
+                }
+                results[SQLiteDatabase.text($0, 0), default: [:]][SQLiteDatabase.text($0, 1)] = QuizResult(
+                    correct: Int(sqlite3_column_int64($0, 2)), total: Int(sqlite3_column_int64($0, 3)), weakSkills: skills)
+            }
+            return results
+        }
+    }
+
     static let migrations: [[String]] = [[
         """
         CREATE TABLE courses (
@@ -311,5 +338,14 @@ public final class CourseStore: @unchecked Sendable {
     ], [
         // Learner data has no foreign key to outline rows, so a republish keeps it.
         "CREATE TABLE course_resume (course_id TEXT PRIMARY KEY NOT NULL, lecture_id TEXT NOT NULL)",
+    ], [
+        // The latest result of each quiz. No foreign key to `lectures`, so a republish keeps it.
+        // `weak_skills` is a JSON array of objective tags.
+        """
+        CREATE TABLE quiz_results (
+            course_id TEXT NOT NULL, lecture_id TEXT NOT NULL, correct INTEGER NOT NULL, total INTEGER NOT NULL,
+            weak_skills TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(course_id, lecture_id)
+        )
+        """,
     ]]
 }

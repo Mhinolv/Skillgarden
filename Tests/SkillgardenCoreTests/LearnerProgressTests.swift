@@ -174,7 +174,7 @@ private let course = Course(id: "c", title: "Course", state: .published, section
 
     let upgraded = try CourseStore(root: root)
     #expect(try upgraded.schemaVersion == CourseStore.currentSchemaVersion)
-    #expect(CourseStore.currentSchemaVersion == 5)
+    #expect(CourseStore.currentSchemaVersion == 6)
     #expect(try upgraded.loadCourse(id: "c", includeDrafts: true) == course)
     #expect(try upgraded.allProgress() == ["c": ["a": LectureProgress(completed: true, resumeSeconds: 12)]])
     #expect(try upgraded.lastOpenedLectures().isEmpty)

@@ -49,6 +49,15 @@ public enum CoursePublisher {
             do throws(ImagePipelineError) { _ = try ImagePipeline.format(of: source.appending(path: item.image.path)) }
             catch { problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: item.field + ".path", message: error.message)) }
         }
+        // Question images stay in the snapshot as they are. The app reads them from there.
+        for (field, image) in questionImages(manifest) {
+            guard files.contains(image.path) else {
+                problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: field + ".path", message: "file does not exist"))
+                continue
+            }
+            do throws(ImagePipelineError) { _ = try ImagePipeline.format(of: source.appending(path: image.path)) }
+            catch { problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: field + ".path", message: error.message)) }
+        }
         for (index, file) in (manifest.internalMaterial?.files ?? []).enumerated() where !files.contains(file.path) {
             problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: "internal.files[\(index)].path", message: "file does not exist"))
         }
@@ -126,6 +135,18 @@ public enum CoursePublisher {
             let target = directory.appending(path: path)
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: source.appending(path: path), to: target)
+        }
+    }
+
+    private static func questionImages(_ manifest: CourseManifest) -> [(field: String, image: ManifestImage)] {
+        manifest.sections.enumerated().flatMap { sectionIndex, section in
+            section.lectures.enumerated().flatMap { lectureIndex, lecture in
+                (lecture.quiz?.questions ?? []).enumerated().compactMap { questionIndex, question in
+                    question.image.map {
+                        ("sections[\(sectionIndex)].lectures[\(lectureIndex)].quiz.questions[\(questionIndex)].image", $0)
+                    }
+                }
+            }
         }
     }
 

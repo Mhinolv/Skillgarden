@@ -85,7 +85,49 @@
           "type": "quiz",
           "objective": "Select the correct plan",
           "state": "published",
-          "order": 0
+          "order": 0,
+          "quiz": {
+            "questions": [
+              {
+                "id": "outline",
+                "prompt": "What does this course outline show?",
+                "image": {
+                  "path": "media/section.svg",
+                  "alt": "Two course sections"
+                },
+                "objective_tag": "Read a course outline",
+                "choices": [
+                  { "id": "sections", "text": "Two sections" },
+                  { "id": "lectures", "text": "Two lectures" },
+                  { "id": "quizzes", "text": "Two quizzes" }
+                ],
+                "correct_choice_id": "sections",
+                "explanation": "Each column is one section. A course outline shows its sections in order."
+              },
+              {
+                "id": "order",
+                "prompt": "Which section comes first in the outline?",
+                "objective_tag": "Order course sections",
+                "choices": [
+                  { "id": "lowest", "text": "The section with the lowest order value" },
+                  { "id": "newest", "text": "The section that you added last" }
+                ],
+                "correct_choice_id": "lowest",
+                "explanation": "The outline sorts sections by their order value, from low to high."
+              },
+              {
+                "id": "goal",
+                "prompt": "What does a lecture objective tell the learner?",
+                "objective_tag": "Check a lecture objective",
+                "choices": [
+                  { "id": "skill", "text": "The skill that the lecture teaches" },
+                  { "id": "length", "text": "The length of the lecture" }
+                ],
+                "correct_choice_id": "skill",
+                "explanation": "An objective names the skill that the learner gets from the lecture."
+              }
+            ]
+          }
         },
         {
           "id": "apply",

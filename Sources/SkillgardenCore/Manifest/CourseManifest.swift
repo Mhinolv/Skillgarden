@@ -39,10 +39,36 @@ public struct ManifestLecture: Codable, Equatable, Sendable {
     public var recommendedNext: String?
     /// Required when `type` is `article`, and not allowed for other types.
     public var article: ManifestArticle?
+    /// Required when `type` is `quiz`. Nil for every other type.
+    public var quiz: ManifestQuiz?
     enum CodingKeys: String, CodingKey {
-        case id, title, type, objective, state, order, article
+        case id, title, type, objective, state, order, article, quiz
         case recommendedNext = "recommended_next"
     }
+}
+
+public struct ManifestQuizChoice: Codable, Equatable, Sendable {
+    public var id: String
+    public var text: String
+}
+
+public struct ManifestQuizQuestion: Codable, Equatable, Sendable {
+    public var id: String
+    public var prompt: String
+    public var image: ManifestImage?
+    public var objectiveTag: String
+    public var choices: [ManifestQuizChoice]
+    public var correctChoiceID: String
+    /// Shown for every choice after Submit.
+    public var explanation: String
+    enum CodingKeys: String, CodingKey {
+        case id, prompt, image, choices, explanation
+        case objectiveTag = "objective_tag", correctChoiceID = "correct_choice_id"
+    }
+}
+
+public struct ManifestQuiz: Codable, Equatable, Sendable {
+    public var questions: [ManifestQuizQuestion]
 }
 
 public struct ManifestSection: Codable, Equatable, Sendable {
