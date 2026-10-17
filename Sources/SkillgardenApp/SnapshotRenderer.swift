@@ -56,10 +56,12 @@ enum SnapshotRenderer {
             library.selectDestination(SnapshotPlan.destination(for: output.screen))
         }
 
+        let imageLoads = ImageLoadTracker()
         let appearance = NSAppearance(named: output.appearance == .dark ? .darkAqua : .aqua)!
         let content = ContentView(library: library, reloadsOnAppear: false)
             .environment(\.locale, Locale(identifier: SnapshotPlan.localeIdentifier))
             .environment(\.timeZone, TimeZone(identifier: SnapshotPlan.timeZoneIdentifier)!)
+            .environment(\.imageLoads, imageLoads)
             .transaction { $0.disablesAnimations = true; $0.animation = nil }
         let size = NSSize(width: SnapshotPlan.width, height: SnapshotPlan.height)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
@@ -76,6 +78,13 @@ enum SnapshotRenderer {
         let frameView = window.contentView!.superview ?? window.contentView!
         var ticks = 0
         pump { frameView.layoutSubtreeIfNeeded(); ticks += 1; return ticks >= 20 }
+        if courseID != nil {
+            // Capture only after the Library row image load ends, then let SwiftUI draw the loaded image.
+            pump { frameView.layoutSubtreeIfNeeded(); return imageLoads.finished > 0 }
+            guard imageLoads.loaded > 0 else { throw SnapshotError.courseImage }
+            ticks = 0
+            pump { frameView.layoutSubtreeIfNeeded(); ticks += 1; return ticks >= 5 }
+        }
 
         let png = try image(of: frameView, appearance: appearance)
         try png.write(to: output.url, options: .atomic)
@@ -118,11 +127,13 @@ enum SnapshotRenderer {
 enum SnapshotError: Error, CustomStringConvertible {
     case load(String)
     case image
+    case courseImage
 
     var description: String {
         switch self {
         case let .load(message): "cannot load the snapshot library: \(message)"
         case .image: "cannot create the PNG image"
+        case .courseImage: "course image did not load"
         }
     }
 }

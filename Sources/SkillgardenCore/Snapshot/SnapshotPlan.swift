@@ -40,20 +40,16 @@ public enum SnapshotPlan {
 
     /// Writes the store that a screen needs into `root` and returns the course to select, if any.
     public static func seedStore(for screen: SnapshotScreen, root: URL, fixture: URL) throws -> String? {
-        let store = try CourseStore(root: root)
         switch screen {
         case .libraryEmpty:
+            _ = try CourseStore(root: root)
             return nil
-        case .library:
-            let course = course(from: try ManifestLoader.load(courseFolder: fixture))
-            try store.saveCourse(course)
-            // Mixed completion: one of the two learner lectures is complete.
-            try store.setCompleted(true, courseID: course.id, lectureID: "welcome")
-            return course.id
-        case .section, .lecture, .lectureComplete, .courseLanding:
-            // A real publish installs the media snapshot, so the section header image loads.
+        case .library, .section, .lecture, .lectureComplete, .courseLanding:
+            // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
-            if screen == .lectureComplete { try store.setCompleted(true, courseID: id, lectureID: "welcome") }
+            let store = try CourseStore(root: root)
+            // Mixed completion: one of the two learner lectures is complete.
+            if screen == .library || screen == .lectureComplete { try store.setCompleted(true, courseID: id, lectureID: "welcome") }
             if screen == .courseLanding { try store.saveLastOpenedLecture(courseID: id, lectureID: "read") }
             return id
         }
@@ -67,21 +63,5 @@ public enum SnapshotPlan {
         case .lecture, .lectureComplete: .lecture(sectionID: "plan", lectureID: "welcome")
         case .courseLanding: .overview
         }
-    }
-
-    static func course(from manifest: CourseManifest) -> Course {
-        Course(id: manifest.id, title: manifest.title, subtitle: manifest.subtitle, state: state(manifest.state),
-               sections: manifest.sections.map { section in
-                   CourseSection(id: section.id, title: section.title, objective: section.objective, order: section.order,
-                                 state: state(section.state), lectures: section.lectures.map { lecture in
-                                     Lecture(id: lecture.id, title: lecture.title, type: LectureType(rawValue: lecture.type.rawValue)!,
-                                             objective: lecture.objective, order: lecture.order, state: state(lecture.state),
-                                             recommendedNext: lecture.recommendedNext)
-                                 })
-               })
-    }
-
-    private static func state(_ value: ManifestState) -> PublicationState {
-        value == .published ? .published : .draft
     }
 }
