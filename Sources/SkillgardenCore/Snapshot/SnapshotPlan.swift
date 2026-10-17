@@ -3,6 +3,8 @@ import Foundation
 /// Screens that `scripts/snapshot.sh` renders for QA. Add new screens here with the same name rule.
 public enum SnapshotScreen: String, CaseIterable, Sendable {
     case libraryEmpty = "library-empty"
+    /// The empty library in a data folder that is not the default. The "Library: <path>" line shows.
+    case libraryEmptyCustomFolder = "library-empty-custom-folder"
     case library
     case section
     case lecture
@@ -25,6 +27,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// True when the harness opens the player of the video lecture before the capture.
     public var opensVideoPlayer: Bool { self == .videoPlayer }
+
+    /// The fixed library path that the harness shows. The real temporary root changes on each run.
+    public var customRootPath: String? { self == .libraryEmptyCustomFolder ? "/Users/agent/skillgarden-library" : nil }
 }
 
 public enum SnapshotAppearance: String, CaseIterable, Sendable {
@@ -61,7 +66,7 @@ public enum SnapshotPlan {
     /// Writes the store that a screen needs into `root` and returns the course to select, if any.
     public static func seedStore(for screen: SnapshotScreen, root: URL, fixture: URL) throws -> String? {
         switch screen {
-        case .libraryEmpty:
+        case .libraryEmpty, .libraryEmptyCustomFolder:
             _ = try CourseStore(root: root)
             return nil
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer:
@@ -124,7 +129,7 @@ public enum SnapshotPlan {
     /// The page to open after the course is selected. The fixture lecture has a `recommended_next` target.
     public static func destination(for screen: SnapshotScreen) -> CourseDestination? {
         switch screen {
-        case .libraryEmpty, .library: nil
+        case .libraryEmpty, .libraryEmptyCustomFolder, .library: nil
         case .section: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer: .lecture(sectionID: "plan", lectureID: "welcome")
         case .article: .lecture(sectionID: "plan", lectureID: "read")

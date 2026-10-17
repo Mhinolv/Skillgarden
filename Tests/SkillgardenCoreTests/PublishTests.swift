@@ -83,6 +83,7 @@ private func counts(_ result: PublishResult) -> [Int] {
         #expect(result == CommandResult(exitCode: 0, stdout: """
             Published "Local Course Basics" (sample-course, draft): created 6, updated 0, unchanged 0, removed 0
             Draft: learners do not see this course.
+            Library: \(root.path)
 
             """, stderr: ""))
         let store = try CourseStore(root: root)
@@ -168,7 +169,7 @@ private func counts(_ result: PublishResult) -> [Int] {
 
 @Test func commandUsageAndHelp() throws {
     let root = FileManager.default.temporaryDirectory.appending(path: "SkillgardenUnused-\(UUID())")
-    let usage = "usage: skillgarden publish <course-folder>\n       skillgarden internal list <course-id>\n"
+    let usage = "usage: skillgarden publish <course-folder>\n       skillgarden validate <course-folder>\n       skillgarden internal list <course-id>\n"
     for arguments in [["publish", "--help"], ["--help"]] {
         #expect(SkillgardenCommand.run(arguments: arguments, root: root) == CommandResult(exitCode: 0, stdout: usage, stderr: ""))
     }

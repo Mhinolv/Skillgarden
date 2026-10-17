@@ -14,6 +14,18 @@ public struct PublishResult: Equatable, Sendable {
     }
 }
 
+public struct ValidationResult: Equatable, Sendable {
+    public let title: String
+    public let id: String
+    public let state: ManifestState
+    public let sections: Int
+    public let lectures: Int
+
+    public var summary: String {
+        "Valid \"\(title)\" (\(id), \(state.rawValue)): \(sections) sections, \(lectures) lectures"
+    }
+}
+
 /// One team-only file of a published course, in manifest order.
 public struct InternalFile: Equatable, Sendable {
     public let title: String
@@ -24,18 +36,71 @@ public struct InternalFile: Equatable, Sendable {
 /// Publishes immutable asset snapshots before the database refers to them.
 public enum CoursePublisher {
     public static func publish(courseFolder: URL, root: URL = Skillgarden.defaultDataDirectory) throws -> PublishResult {
-        let manifest = try ManifestLoader.load(courseFolder: courseFolder)
-        let manager = FileManager.default
-        let source = courseFolder.resolvingSymlinksInPath().standardizedFileURL
         let destination = root.resolvingSymlinksInPath().standardizedFileURL
-        guard !destination.path.hasPrefix(source.path + "/"), destination != source else {
-            throw diagnostic(courseFolder, "library must be outside the course folder")
-        }
-        let files = try sourceFiles(in: source)
+        let (manifest, source, files, images) = try check(courseFolder: courseFolder, library: destination)
+        let manager = FileManager.default
         // Learner snapshots never hold internal/. Internal files go to a separate store area.
         let learnerFiles = files.filter { !$0.hasPrefix(internalPrefix) }
         let internalFiles = files.filter { $0.hasPrefix(internalPrefix) }.map { String($0.dropFirst(internalPrefix.count)) }
         let internalSource = source.appending(path: "internal")
+        let store = try CourseStore(root: root)
+        let previous = try store.publication(id: manifest.id)
+        let oldManifest = try previous.map { try JSONDecoder().decode(CourseManifest.self, from: $0.manifest) }
+        let counts = difference(old: oldManifest, new: manifest)
+        let result = PublishResult(title: manifest.title, id: manifest.id, state: manifest.state,
+                                   created: counts.0, updated: counts.1, unchanged: counts.2, removed: counts.3)
+        // Courses saved before media metadata get their images on the next publish.
+        if let previous, oldManifest == manifest, try store.loadCourse(id: manifest.id, includeDrafts: true)?.image != nil,
+           try equalFiles(learnerFiles, source: source, snapshot: destination.appending(path: previous.directory)),
+           try previous.internalDirectory.map({
+               try equalFiles(internalFiles, source: internalSource, snapshot: destination.appending(path: $0))
+           }) ?? internalFiles.isEmpty {
+            return result
+        }
+        let name = UUID().uuidString
+        let relative = "courses/\(name)"
+        let snapshot = destination.appending(path: relative)
+        let media = "derivatives/\(name)"
+        let internalRelative = internalFiles.isEmpty ? nil : "internal/\(name)"
+        do {
+            try copy(learnerFiles, from: source, to: snapshot)
+            if let internalRelative {
+                try copy(internalFiles, from: internalSource, to: destination.appending(path: internalRelative))
+            }
+            // A source edit during the copy must not install a different manifest.
+            guard try ManifestLoader.load(courseFolder: snapshot) == manifest else {
+                throw diagnostic(courseFolder, "manifest changed during publish")
+            }
+            let stored = try publishImages(images, snapshot: relative, media: media, root: destination, folder: courseFolder)
+            try store.savePublication(course(from: manifest, images: stored), manifest: JSONEncoder().encode(manifest),
+                                      directory: relative, internalDirectory: internalRelative)
+        } catch {
+            try? manager.removeItem(at: snapshot)
+            try? manager.removeItem(at: destination.appending(path: media))
+            if let internalRelative { try? manager.removeItem(at: destination.appending(path: internalRelative)) }
+            if error is ManifestValidationError || error is CourseStoreError { throw error }
+            throw CourseStoreError.databaseFailure
+        }
+        // Prior snapshots remain valid for readers that already hold their paths.
+        return result
+    }
+
+    /// Runs every publish-time check and writes nothing. The library root is not used.
+    public static func validate(courseFolder: URL) throws -> ValidationResult {
+        let manifest = try check(courseFolder: courseFolder, library: nil).manifest
+        return ValidationResult(title: manifest.title, id: manifest.id, state: manifest.state, sections: manifest.sections.count,
+                                lectures: manifest.sections.reduce(0) { $0 + $1.lectures.count })
+    }
+
+    /// Loads the manifest and checks every file it names. `library` must be outside the course folder.
+    private static func check(courseFolder: URL, library: URL?) throws
+        -> (manifest: CourseManifest, source: URL, files: [String], images: [ImageField]) {
+        let manifest = try ManifestLoader.load(courseFolder: courseFolder)
+        let source = courseFolder.resolvingSymlinksInPath().standardizedFileURL
+        if let library, library.path.hasPrefix(source.path + "/") || library == source {
+            throw diagnostic(courseFolder, "library must be outside the course folder")
+        }
+        let files = try sourceFiles(in: source)
         let images = [ImageField(field: "course_image", image: manifest.courseImage, role: .course)]
             + manifest.sections.enumerated().map {
                 ImageField(field: "sections[\($0.offset)].header_image", image: $0.element.headerImage, role: .sectionHeader)
@@ -81,46 +146,7 @@ public enum CoursePublisher {
             }
         }
         guard problems.isEmpty else { throw ManifestValidationError(diagnostics: problems) }
-        let store = try CourseStore(root: root)
-        let previous = try store.publication(id: manifest.id)
-        let oldManifest = try previous.map { try JSONDecoder().decode(CourseManifest.self, from: $0.manifest) }
-        let counts = difference(old: oldManifest, new: manifest)
-        let result = PublishResult(title: manifest.title, id: manifest.id, state: manifest.state,
-                                   created: counts.0, updated: counts.1, unchanged: counts.2, removed: counts.3)
-        // Courses saved before media metadata get their images on the next publish.
-        if let previous, oldManifest == manifest, try store.loadCourse(id: manifest.id, includeDrafts: true)?.image != nil,
-           try equalFiles(learnerFiles, source: source, snapshot: destination.appending(path: previous.directory)),
-           try previous.internalDirectory.map({
-               try equalFiles(internalFiles, source: internalSource, snapshot: destination.appending(path: $0))
-           }) ?? internalFiles.isEmpty {
-            return result
-        }
-        let name = UUID().uuidString
-        let relative = "courses/\(name)"
-        let snapshot = destination.appending(path: relative)
-        let media = "derivatives/\(name)"
-        let internalRelative = internalFiles.isEmpty ? nil : "internal/\(name)"
-        do {
-            try copy(learnerFiles, from: source, to: snapshot)
-            if let internalRelative {
-                try copy(internalFiles, from: internalSource, to: destination.appending(path: internalRelative))
-            }
-            // A source edit during the copy must not install a different manifest.
-            guard try ManifestLoader.load(courseFolder: snapshot) == manifest else {
-                throw diagnostic(courseFolder, "manifest changed during publish")
-            }
-            let stored = try publishImages(images, snapshot: relative, media: media, root: destination, folder: courseFolder)
-            try store.savePublication(course(from: manifest, images: stored), manifest: JSONEncoder().encode(manifest),
-                                      directory: relative, internalDirectory: internalRelative)
-        } catch {
-            try? manager.removeItem(at: snapshot)
-            try? manager.removeItem(at: destination.appending(path: media))
-            if let internalRelative { try? manager.removeItem(at: destination.appending(path: internalRelative)) }
-            if error is ManifestValidationError || error is CourseStoreError { throw error }
-            throw CourseStoreError.databaseFailure
-        }
-        // Prior snapshots remain valid for readers that already hold their paths.
-        return result
+        return (manifest, source, files, images)
     }
 
     /// Returns the installed snapshot. Source files can be removed after publish.
