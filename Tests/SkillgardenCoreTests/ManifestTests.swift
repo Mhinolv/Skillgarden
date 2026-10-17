@@ -141,12 +141,13 @@ func manifestRejectsPaths(path: String) throws {
             var missing = fields
             missing.removeValue(forKey: key)
             // Image alt text has its own stable message for a missing or null value.
+            // A null lecture `video` is the same as a missing one.
             let required = key == "alt" ? "alt text is required" : "required field is missing"
             #expect(try diagnostics(wrap(missing)).contains { $0.fieldPath == path && $0.message == required })
             var wrong = fields
             wrong[key] = NSNull()
             #expect(try diagnostics(wrap(wrong)).contains {
-                $0.fieldPath == path && (key == "alt" ? $0.message == required : $0.message.hasPrefix("expected "))
+                $0.fieldPath == path && (["alt", "video"].contains(key) ? $0.message == required : $0.message.hasPrefix("expected "))
             })
         }
     }

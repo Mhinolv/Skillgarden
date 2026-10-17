@@ -65,6 +65,10 @@ private func temporaryFolder() throws -> URL {
             #expect(library.nudge?.kind == .recommended)
             #expect(library.nudge?.lecture.id == "read")
             #expect(!library.isSelectedLectureComplete)
+            // The video lecture shows its poster and the "Free preview" capsule in the header and the outline row.
+            #expect(library.selectedLecture?.type == .video)
+            #expect(library.isFreePreview("welcome"))
+            #expect(library.video(forLecture: "welcome")?.posterAlt == "The first frame of the welcome video")
         case .lectureComplete:
             library.selectCourse(courseID)
             library.selectDestination(SnapshotPlan.destination(for: screen))

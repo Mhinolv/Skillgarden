@@ -119,7 +119,8 @@ struct CourseOutlineView: View {
                     SectionHeaderRow(section: section, progress: library.sectionProgress(section))
                         .tag(CourseDestination.section(sectionID: section.id))
                     ForEach(section.lectures) { lecture in
-                        LectureRow(lecture: lecture, completed: library.isComplete(lecture.id))
+                        LectureRow(lecture: lecture, completed: library.isComplete(lecture.id),
+                                   freePreview: library.isFreePreview(lecture.id))
                             .tag(CourseDestination.lecture(sectionID: section.id, lectureID: lecture.id))
                     }
                 }
@@ -152,22 +153,25 @@ struct SectionHeaderRow: View {
     }
 }
 
+/// A lecture with its type, the "Free preview" capsule at the trailing edge and the complete mark.
 struct LectureRow: View {
     let lecture: Lecture
     let completed: Bool
+    var freePreview = false
 
     var body: some View {
         HStack(spacing: CourseStyle.spacing) {
             Image(systemName: lecture.type.symbolName)
                 .foregroundStyle(.secondary)
             Text(lecture.title).font(.body).lineLimit(2)
+            if completed || freePreview { Spacer(minLength: 0) }
+            if freePreview { FreePreviewBadge() }
             if completed {
-                Spacer(minLength: 0)
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint)
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(lecture.title), \(lecture.type.rawValue)\(completed ? ", Completed" : "")")
+        .accessibilityLabel("\(lecture.title), \(lecture.type.rawValue)\(freePreview ? ", Free preview" : "")\(completed ? ", Completed" : "")")
     }
 }
 

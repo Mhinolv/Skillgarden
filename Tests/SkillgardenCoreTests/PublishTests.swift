@@ -145,7 +145,8 @@ private func counts(_ result: PublishResult) -> [Int] {
         try CoursePublisher.publish(courseFolder: folder, root: root)
         let snapshot = try #require(try CoursePublisher.assetDirectory(courseID: "sample-course", root: root))
         try FileManager.default.removeItem(at: folder)
-        for path in ["skillgarden.yaml", "media/course.svg", "media/section.svg", "content/plan.md"] {
+        for path in ["skillgarden.yaml", "media/course.svg", "media/section.svg", "content/plan.md",
+                     "content/welcome.mp4", "content/welcome.vtt", "media/poster.svg"] {
             #expect(FileManager.default.fileExists(atPath: snapshot.appending(path: path).path))
         }
         #expect(try CoursePublisher.assetDirectory(courseID: "absent", root: root) == nil)

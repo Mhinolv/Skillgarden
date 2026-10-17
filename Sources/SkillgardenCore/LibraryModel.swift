@@ -19,6 +19,8 @@ public final class LibraryModel {
     public private(set) var headerImages: [String: [String: SectionHeaderImage]] = [:]
     /// Article files by course id, then lecture id. Courses without an installed snapshot have none.
     public private(set) var articles: [String: [String: LectureArticle]] = [:]
+    /// Video files by course id, then lecture id. Courses without an installed snapshot have none.
+    public private(set) var videos: [String: [String: LectureVideo]] = [:]
     /// Course page fields and theme by course id. Courses without an installed snapshot have none.
     public private(set) var landings: [String: CourseLanding] = [:]
     /// Learner progress by course id, then lecture id.
@@ -76,6 +78,16 @@ public final class LibraryModel {
     /// The article file of a lecture in the selected course, or nil if the snapshot has none.
     public func article(forLecture lectureID: String) -> LectureArticle? {
         selectedCourseID.flatMap { articles[$0]?[lectureID] }
+    }
+
+    /// The video of a lecture in the selected course, or nil if the snapshot has none.
+    public func video(forLecture lectureID: String) -> LectureVideo? {
+        selectedCourseID.flatMap { videos[$0]?[lectureID] }
+    }
+
+    /// True if the lecture is a video lecture with `free_preview: true`.
+    public func isFreePreview(_ lectureID: String) -> Bool {
+        video(forLecture: lectureID)?.isFreePreview ?? false
     }
 
     public func goToPreviousLecture() { if let previousLecture { open(previousLecture) } }
@@ -190,6 +202,7 @@ public final class LibraryModel {
             headerImages = installed.headerImages
             landings = installed.landings
             articles = installed.articles
+            videos = installed.videos
             self.progress = progress
             lastOpenedLectures = lastOpened
             errorMessage = nil
@@ -205,6 +218,7 @@ public final class LibraryModel {
             headerImages = [:]
             landings = [:]
             articles = [:]
+            videos = [:]
             progress = [:]
             lastOpenedLectures = [:]
             selectedCourseID = nil
@@ -225,7 +239,7 @@ public final class LibraryModel {
         }
     }
 
-    /// Reads header images, course page fields and article files from each installed manifest.
+    /// Reads header images, course page fields, article files and video files from each installed manifest.
     /// A path outside the snapshot folder is ignored.
     nonisolated private static func installedData(store: CourseStore, root: URL) throws -> InstalledCourseData {
         var data = InstalledCourseData()
@@ -243,6 +257,11 @@ public final class LibraryModel {
                     guard let article = lecture.article, let path = LectureArticle.normalize(article.path) else { continue }
                     data.articles[courseID, default: [:]][lecture.id] = LectureArticle(folder: folder, path: path, images: article.images ?? [])
                 }
+                // Manifests saved before video support have no `video` field.
+                for lecture in section.lectures {
+                    guard let video = lecture.video.flatMap({ LectureVideo(folder: folder, video: $0) }) else { continue }
+                    data.videos[courseID, default: [:]][lecture.id] = video
+                }
             }
         }
         return data
@@ -257,4 +276,6 @@ struct InstalledCourseData: Sendable {
     var landings: [String: CourseLanding] = [:]
     /// Article files by course id, then lecture id.
     var articles: [String: [String: LectureArticle]] = [:]
+    /// Video files by course id, then lecture id.
+    var videos: [String: [String: LectureVideo]] = [:]
 }

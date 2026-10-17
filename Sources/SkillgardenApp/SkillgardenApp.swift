@@ -146,7 +146,14 @@ struct ContentView: View {
                 ) {
                     switch lecture.type {
                     case .article: ArticleLectureView(article: library.article(forLecture: lecture.id))
-                    case .video, .quiz, .assignment: LectureContentPlaceholder(lecture: lecture)
+                    case .video:
+                        VideoLectureView(video: library.video(forLecture: lecture.id),
+                                         startSeconds: { [library] in
+                                             let duration = library.video(forLecture: lecture.id).map { Double($0.durationSeconds) }
+                                             return library.startSeconds(forLecture: lecture.id, duration: duration)
+                                         },
+                                         saveResumePosition: { [library] in library.saveResumePosition($0, lectureID: lecture.id) })
+                    case .quiz, .assignment: LectureContentPlaceholder(lecture: lecture)
                     }
                 }
                 .id(lecture.id)
@@ -154,7 +161,8 @@ struct ContentView: View {
                 SectionPageView(section: section, number: course.sectionNumber(of: section.id) ?? 1,
                                 headerImage: library.headerImage(forSection: section.id),
                                 progress: library.sectionProgress(section),
-                                isComplete: { library.isComplete($0) }) { lecture in
+                                isComplete: { library.isComplete($0) },
+                                isFreePreview: { library.isFreePreview($0) }) { lecture in
                     library.selectDestination(.lecture(sectionID: section.id, lectureID: lecture.id))
                 }
                 .id(section.id)

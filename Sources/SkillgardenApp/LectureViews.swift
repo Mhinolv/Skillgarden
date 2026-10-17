@@ -57,6 +57,7 @@ struct SectionPageView: View {
     let headerImage: SectionHeaderImage?
     let progress: SectionProgress
     let isComplete: (String) -> Bool
+    let isFreePreview: (String) -> Bool
     let openLecture: (Lecture) -> Void
 
     var body: some View {
@@ -80,7 +81,7 @@ struct SectionPageView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(section.lectures) { lecture in
                         Button { openLecture(lecture) } label: {
-                            LectureRow(lecture: lecture, completed: isComplete(lecture.id))
+                            LectureRow(lecture: lecture, completed: isComplete(lecture.id), freePreview: isFreePreview(lecture.id))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, CourseStyle.spacing)
                                 .contentShape(.rect)

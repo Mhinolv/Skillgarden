@@ -29,6 +29,29 @@ public struct ManifestArticle: Codable, Equatable, Sendable {
     public var images: [ManifestImage]?
 }
 
+public struct ManifestCaptions: Codable, Equatable, Sendable {
+    /// A WebVTT file.
+    public var path: String
+}
+
+/// The MP4 file of a video lecture with its captions, poster and free-preview flag.
+public struct ManifestVideo: Codable, Equatable, Sendable {
+    /// An MP4 file.
+    public var path: String
+    /// Greater than 0.
+    public var durationSeconds: Int
+    /// Optional. Nil when the manifest has no `captions` field.
+    public var captions: ManifestCaptions?
+    /// Optional. Nil when the manifest has no `poster` field.
+    public var poster: ManifestImage?
+    /// Optional. Nil when the manifest has no `free_preview` field.
+    public var freePreview: Bool?
+    enum CodingKeys: String, CodingKey {
+        case path, captions, poster
+        case durationSeconds = "duration_seconds", freePreview = "free_preview"
+    }
+}
+
 public struct ManifestLecture: Codable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -39,8 +62,10 @@ public struct ManifestLecture: Codable, Equatable, Sendable {
     public var recommendedNext: String?
     /// Required when `type` is `article`, and not allowed for other types.
     public var article: ManifestArticle?
+    /// Required when `type` is `video`, and not allowed for other types.
+    public var video: ManifestVideo?
     enum CodingKeys: String, CodingKey {
-        case id, title, type, objective, state, order, article
+        case id, title, type, objective, state, order, article, video
         case recommendedNext = "recommended_next"
     }
 }
