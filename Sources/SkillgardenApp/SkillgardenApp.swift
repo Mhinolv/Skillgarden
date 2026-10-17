@@ -144,7 +144,10 @@ struct ContentView: View {
                     next: library.nextLecture == nil ? nil : { library.goToNextLecture() },
                     openNudge: { library.goToNudge() }
                 ) {
-                    LectureContentPlaceholder(lecture: lecture)
+                    switch lecture.type {
+                    case .article: ArticleLectureView(article: library.article(forLecture: lecture.id))
+                    case .video, .quiz, .assignment: LectureContentPlaceholder(lecture: lecture)
+                    }
                 }
                 .id(lecture.id)
             } else if let section = library.selectedSection {

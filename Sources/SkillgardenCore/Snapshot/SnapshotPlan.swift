@@ -7,6 +7,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case section
     case lecture
     case lectureComplete = "lecture-complete"
+    case article
     /// The fixture course, which has a light theme. The learner opened a lecture, so "Resume" shows.
     case courseLanding = "course-landing"
     /// The fixture course with `theme.appearance: dark` and a light accent. No lecture is opened, so "Start Course" shows.
@@ -50,7 +51,7 @@ public enum SnapshotPlan {
         case .libraryEmpty:
             _ = try CourseStore(root: root)
             return nil
-        case .library, .section, .lecture, .lectureComplete, .courseLanding:
+        case .library, .section, .lecture, .lectureComplete, .article, .courseLanding:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -77,6 +78,7 @@ public enum SnapshotPlan {
         case .libraryEmpty, .library: nil
         case .section: .section(sectionID: "plan")
         case .lecture, .lectureComplete: .lecture(sectionID: "plan", lectureID: "welcome")
+        case .article: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme: .overview
         }
     }

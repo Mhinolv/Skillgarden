@@ -153,7 +153,8 @@ func derivativeMatchesTargetSizeWithLetterbox(source: (Int, Int), target: (Int, 
         try writeImage(folder.appending(path: "media/tall.png"), width: 300, height: 600)
         try writeImage(folder.appending(path: "media/header.jpg"), width: 800, height: 800, type: "public.jpeg")
         try edit(folder, "path: media/course.svg", "path: media/tall.png")
-        try edit(folder, "path: media/section.svg", "path: media/header.jpg")
+        // The article image also uses media/section.svg. Change only the section header images.
+        try edit(folder, "header_image:\n      path: media/section.svg", "header_image:\n      path: media/header.jpg")
         try CoursePublisher.publish(courseFolder: folder, root: root)
         let course = try #require(try CourseStore(root: root).loadCourse(id: "sample-course", includeDrafts: true))
         let image = try #require(course.image)
