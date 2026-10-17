@@ -73,6 +73,13 @@ public struct ManifestInteractive: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey { case bundlePath = "bundle_path" }
 }
 
+/// A file that the learner can save from a lecture of any type. `path` is relative to the course folder.
+public struct ManifestDownload: Codable, Equatable, Sendable {
+    public var path: String
+    public var title: String
+    public var description: String?
+}
+
 public struct ManifestLecture: Codable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -91,10 +98,12 @@ public struct ManifestLecture: Codable, Equatable, Sendable {
     public var interactive: ManifestInteractive?
     /// Required when `type` is `assignment`, and not allowed for other types.
     public var assignment: ManifestAssignment?
+    /// Optional, for any type. Nil when the manifest has no `downloads` field.
+    public var downloads: [ManifestDownload]?
     /// Optional for every type. Nil when the manifest has no `sources` field.
     public var sources: [ManifestSource]?
     enum CodingKeys: String, CodingKey {
-        case id, title, type, objective, state, order, article, video, quiz, interactive, assignment, sources
+        case id, title, type, objective, state, order, article, video, quiz, interactive, assignment, downloads, sources
         case recommendedNext = "recommended_next"
     }
 }

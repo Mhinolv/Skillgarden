@@ -82,6 +82,7 @@ struct ContentView: View {
     /// The library folder to show under "No courses yet". It is nil for the default folder.
     private let customRootPath: String?
     @Environment(\.showsReviewInline) private var showsReviewInline
+    @Environment(\.showsPDFPreviewInline) private var showsPDFPreviewInline
 
     /// Uses the data folder that `SKILLGARDEN_DATA_DIR` or the saved `DataDirectory` setting names.
     init() {
@@ -150,14 +151,29 @@ struct ContentView: View {
                 }
                 .overlay {
                     if showsReviewInline, let review = library.sectionReview {
-                        ZStack {
-                            Color.black.opacity(0.25)
-                            reviewSheet(review)
-                                .clipShape(.garden(GardenRadius.card))
-                                .shadow(radius: 12)
-                        }
+                        inlineSheet { reviewSheet(review) }
+                    } else if showsPDFPreviewInline, let pdf = inlinePDF {
+                        inlineSheet { PDFPreviewSheet(download: pdf) }
                     }
                 }
+        }
+    }
+
+    /// A sheet that the snapshot harness draws in the window. A real sheet is a separate window, so the capture misses it.
+    private func inlineSheet(@ViewBuilder _ sheet: () -> some View) -> some View {
+        ZStack {
+            Color.black.opacity(0.25)
+            sheet()
+                .background(Color(nsColor: .windowBackgroundColor))
+                .clipShape(.garden(GardenRadius.card))
+                .shadow(radius: 12)
+        }
+    }
+
+    /// The first available PDF download of the selected lecture.
+    private var inlinePDF: LectureDownload? {
+        library.selectedLecture.flatMap { lecture in
+            library.downloads(forLecture: lecture.id).first { $0.kind == .pdf && $0.isAvailable }
         }
     }
 
@@ -179,6 +195,7 @@ struct ContentView: View {
                     next: library.nextLecture == nil ? nil : { library.goToNextLecture() },
                     openNudge: { library.goToNudge() },
                     maxWidth: lecture.type == .interactive ? InteractiveStyle.maxWidth : CourseStyle.textWidth,
+                    downloads: library.downloads(forLecture: lecture.id),
                     sources: library.selectedSources
                 ) {
                     if let attempt = library.selectedQuizAttempt {

@@ -132,7 +132,7 @@ struct SectionPageView: View {
     }
 }
 
-/// Wraps every lecture type: label, title, section stones, objective, content, the source cards,
+/// Wraps every lecture type: label, title, section stones, objective, content, downloads, the source cards,
 /// then Mark as Complete, the nudge and Previous and Next.
 struct LectureFrameView<Content: View>: View {
     let sectionTitle: String
@@ -148,6 +148,8 @@ struct LectureFrameView<Content: View>: View {
     let openNudge: () -> Void
     /// Interactive modules use a wider column (960 pt).
     var maxWidth: CGFloat = CourseStyle.textWidth
+    /// The downloads of the lecture. The block hides when the list is empty.
+    var downloads: [LectureDownload] = []
     /// "Sources and further watching" cards. The block is hidden when it is empty.
     var sources: [LectureSource] = []
     @ViewBuilder let content: Content
@@ -172,6 +174,7 @@ struct LectureFrameView<Content: View>: View {
                 }
                 ObjectiveCallout(objective: lecture.objective)
                 content
+                DownloadsBlock(downloads: downloads)
                 SourcesSection(sources: sources)
                 MarkCompleteButton(completed: completed, toggle: toggleComplete)
                     .padding(.top, GardenSpacing.xs)

@@ -58,6 +58,9 @@ struct ManifestValidator {
                 ("brief", article),
                 ("rubric", .array(.object([("id", .string), ("criterion", .string), ("guidance", .string)]))),
             ]))),
+            ("downloads", .optional(.array(.object([
+                ("path", .string), ("title", .string), ("description", .optional(.string)),
+            ])))),
             ("sources", .optional(.array(.object([
                 ("title", .string), ("channel", .string), ("url", .optional(.string)),
                 ("timestamp_start", .optional(.integer)), ("timestamp_end", .optional(.integer)),

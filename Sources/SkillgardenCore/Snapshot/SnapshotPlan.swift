@@ -39,6 +39,11 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case assignment
     /// The same assignment with every rubric row checked, so the success line shows.
     case assignmentComplete = "assignment-complete"
+    /// The article lecture with three downloads, scrolled to the end: a PDF with its first-page thumbnail,
+    /// a CSV, and a text file that is missing from the store, so its row shows "File unavailable".
+    case lectureDownloads = "lecture-downloads"
+    /// The same lecture with the PDF preview sheet of the worksheet open. The real PDFKit view shows page 1.
+    case pdfPreview = "pdf-preview"
     /// The transcript search of a course with a second video lecture. The query "course" finds cues in both lectures.
     case transcriptSearch = "transcript-search"
     /// The same course with a query that no cue contains.
@@ -54,7 +59,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     public var videoStartSeconds: Double? { self == .videoTranscript ? 3 : nil }
 
     /// True when the harness scrolls the lecture page to the end.
-    public var scrollsLectureToEnd: Bool { self == .videoTranscript || self == .videoQuickCheck || self == .lectureSources }
+    public var scrollsLectureToEnd: Bool {
+        [.videoTranscript, .videoQuickCheck, .lectureSources, .lectureDownloads, .pdfPreview].contains(self)
+    }
 
     /// True when the harness opens the quick-check card of the video lecture.
     public var showsQuickChecks: Bool { self == .videoQuickCheck }
@@ -64,6 +71,10 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// True when the harness draws the review sheet in the window. A real sheet is a separate window, so the capture misses it.
     public var showsReviewInline: Bool { self == .sectionReview }
+
+    /// True when the harness draws the PDF preview sheet of the first PDF download in the window, like the review sheet.
+    /// The harness fails if the sheet has no PDFKit view with a page.
+    public var showsPDFPreviewInline: Bool { self == .pdfPreview }
 
     /// True when the harness selects the seeded course. The Library screens show the Library home, so they select none.
     public var selectsCourse: Bool { self != .library && self != .libraryEmpty && self != .libraryEmptyCustomFolder }
@@ -157,6 +168,13 @@ public enum SnapshotPlan {
             return try publishCopy(of: fixture, root: root, replacing: reviewCourse)
         case .courseCredits:
             return try publishCopy(of: fixture, root: root, replacing: creditsCourse)
+        case .lectureDownloads, .pdfPreview:
+            let id = try publishCopy(of: fixture, root: root, replacing: downloadsCourse)
+            // A store file that disappears after publish shows the unavailable row.
+            if let snapshot = try CoursePublisher.assetDirectory(courseID: id, root: root) {
+                try FileManager.default.removeItem(at: snapshot.appending(path: "content/checklist.txt"))
+            }
+            return id
         case .transcriptSearch, .transcriptSearchNoResults:
             return try publishCopy(of: fixture, root: root, replacing: searchCourse)
         }
@@ -186,6 +204,22 @@ public enum SnapshotPlan {
     /// The replacement for the `course-credits` course: a second credit with no role and no URL.
     static let creditsCourse = [
         ("    url: https://example.com/credits\n", "    url: https://example.com/credits\n  - name: Garden Photo Library\n"),
+    ]
+
+    /// The replacement for the `lecture-downloads` course: three downloads on the article lecture.
+    static let downloadsCourse = [
+        ("              alt: The two sections of the course plan\n", """
+                      alt: The two sections of the course plan
+                downloads:
+                  - path: content/worksheet.pdf
+                    title: Course plan worksheet
+                    description: Fill in one row for each section of your course.
+                  - path: content/sections.csv
+                    title: Section list
+                  - path: content/checklist.txt
+                    title: Plan checklist
+
+        """),
     ]
 
     /// The replacement for the transcript search course: a second video lecture after "read" with the welcome captions.
@@ -260,11 +294,11 @@ public enum SnapshotPlan {
 
     /// The image loads to wait for before the capture.
     /// Library: the hero and the tile images. Course screens: the outline course image, then the question image
-    /// or the assignment brief.
+    /// or the assignment brief or the PDF thumbnail.
     public static func imageLoads(for screen: SnapshotScreen) -> Int {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder: 0
-        case .library, .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete: 2
+        case .library, .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads, .pdfPreview: 2
         default: 1
         }
     }
@@ -275,7 +309,7 @@ public enum SnapshotPlan {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library: nil
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck: .lecture(sectionID: "plan", lectureID: "welcome")
-        case .article, .lectureSources: .lecture(sectionID: "plan", lectureID: "read")
+        case .article, .lectureSources, .lectureDownloads, .pdfPreview: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme, .transcriptSearch, .transcriptSearchNoResults: .overview
         case .courseCredits: .credits
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")

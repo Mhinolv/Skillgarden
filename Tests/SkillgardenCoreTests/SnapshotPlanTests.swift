@@ -28,15 +28,19 @@ private func temporaryFolder() throws -> URL {
         "video-quick-check-light.png", "video-quick-check-dark.png",
         "section-review-light.png", "section-review-dark.png", "course-credits-light.png", "course-credits-dark.png",
         "assignment-light.png", "assignment-dark.png", "assignment-complete-light.png", "assignment-complete-dark.png",
+        "lecture-downloads-light.png", "lecture-downloads-dark.png", "pdf-preview-light.png", "pdf-preview-dark.png",
         "transcript-search-light.png", "transcript-search-dark.png",
         "transcript-search-no-results-light.png", "transcript-search-no-results-dark.png",
         "lecture-sources-light.png", "lecture-sources-dark.png",
     ])
     #expect(SnapshotScreen.allCases.filter { $0.transcriptQuery != nil } == [.transcriptSearch, .transcriptSearchNoResults])
     #expect(SnapshotScreen.allCases.filter(\.showsReviewInline) == [.sectionReview])
+    #expect(SnapshotScreen.allCases.filter(\.showsPDFPreviewInline) == [.pdfPreview])
     #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer, .videoTranscript, .videoQuickCheck])
     #expect(SnapshotScreen.allCases.filter { $0.videoStartSeconds != nil } == [.videoTranscript])
-    #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [.videoTranscript, .videoQuickCheck, .lectureSources])
+    #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [
+        .videoTranscript, .videoQuickCheck, .lectureDownloads, .pdfPreview, .lectureSources,
+    ])
     #expect(SnapshotScreen.allCases.filter(\.showsQuickChecks) == [.videoQuickCheck])
     #expect(SnapshotScreen.allCases.filter(\.checksTitlebarForVideo) == [.videoPlayer, .videoTranscript, .videoQuickCheck])
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: [.videoTranscript, .library]).map(\.url.lastPathComponent) == [
@@ -236,6 +240,24 @@ private func temporaryFolder() throws -> URL {
             #expect(library.selectedCredits.map(\.name) == ["Skillgarden Team", "Garden Photo Library"])
             #expect(library.selectedCredits.map { $0.role != nil } == [true, false])
             #expect(library.selectedCredits.map { $0.url != nil } == [true, false])
+        case .lectureDownloads, .pdfPreview:
+            #expect(courseID == "sample-course")
+            #expect(SnapshotPlan.imageLoads(for: screen) == 2)
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.selectedLecture?.type == .article)
+            // A PDF with a first page, a CSV, and a text file that the seed removed from the store.
+            let downloads = library.downloads(forLecture: "read")
+            #expect(downloads.map(\.title) == ["Course plan worksheet", "Section list", "Plan checklist"])
+            #expect(downloads.map(\.kind) == [.pdf, .csv, .other("txt")])
+            #expect(downloads.map(\.isAvailable) == [true, true, false])
+            #expect(PDFPreview.firstPage(of: downloads[0].url, width: 64, height: 83) != nil)
+            // The preview sheet opens the first available PDF: the worksheet, with a page count.
+            #expect(downloads.first { $0.kind == .pdf && $0.isAvailable }?.title == "Course plan worksheet")
+            #expect(PDFPreview.pageCount(of: downloads[0].url).map { $0 > 0 } == true)
+            #expect(library.downloads(forLecture: "welcome").isEmpty)
+            // The source cards of the fixture lecture stay next to the downloads.
+            #expect(library.selectedSources.count == 3)
         case .transcriptSearch, .transcriptSearchNoResults:
             #expect(courseID == "sample-course")
             // The results replace the outline, so only the course page image loads.

@@ -153,6 +153,12 @@ public enum CoursePublisher {
                 if let video = lecture.video {
                     problems += videoProblems(video, field: field + ".video", files: files, source: source, folder: courseFolder)
                 }
+                // Download files stay in the snapshot as they are. The app saves them from there.
+                for (index, download) in (lecture.downloads ?? []).enumerated()
+                    where LectureArticle.normalize(download.path).map({ !files.contains($0) }) ?? true {
+                    problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: field + ".downloads[\(index)].path",
+                                                       message: "file does not exist"))
+                }
             }
         }
         guard problems.isEmpty else { throw ManifestValidationError(diagnostics: problems) }
