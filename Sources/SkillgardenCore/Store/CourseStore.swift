@@ -3,7 +3,7 @@ import SQLite3
 
 /// A synchronous local store. The lock protects the connection and each complete operation.
 public final class CourseStore: @unchecked Sendable {
-    public static let currentSchemaVersion = 5
+    public static let currentSchemaVersion = 7
     public let databaseURL: URL
     private let database: SQLiteDatabase
     private let lock = NSLock()
@@ -260,6 +260,59 @@ public final class CourseStore: @unchecked Sendable {
         }
     }
 
+    /// Keeps the latest result of each quiz. Learner data, so a republish keeps it.
+    public func saveQuizResult(_ result: QuizResult, courseID: String, lectureID: String) throws {
+        let skills = String(decoding: try JSONEncoder().encode(result.weakSkills), as: UTF8.self)
+        try lock.withLock {
+            try database.execute("""
+                INSERT INTO quiz_results (course_id, lecture_id, correct, total, weak_skills) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(course_id, lecture_id) DO UPDATE SET correct=excluded.correct, total=excluded.total,
+                    weak_skills=excluded.weak_skills
+                """, [courseID, lectureID, String(result.correct), String(result.total), skills])
+        }
+    }
+
+    /// The latest quiz results by course id, then lecture id. Stores saved before schema version 6 have none.
+    public func allQuizResults() throws -> [String: [String: QuizResult]] {
+        try lock.withLock {
+            var results: [String: [String: QuizResult]] = [:]
+            try database.query("SELECT course_id, lecture_id, correct, total, weak_skills FROM quiz_results") {
+                guard let skills = try? JSONDecoder().decode([String].self, from: Data(SQLiteDatabase.text($0, 4).utf8)) else {
+                    throw CourseStoreError.invalidData
+                }
+                results[SQLiteDatabase.text($0, 0), default: [:]][SQLiteDatabase.text($0, 1)] = QuizResult(
+                    correct: Int(sqlite3_column_int64($0, 2)), total: Int(sqlite3_column_int64($0, 3)), weakSkills: skills)
+            }
+            return results
+        }
+    }
+
+    /// Keeps the latest score of each interactive lecture. Learner data, so a republish keeps it.
+    public func saveInteractiveResult(_ result: InteractiveResult, courseID: String, lectureID: String) throws {
+        let skills = String(decoding: try JSONEncoder().encode(result.weakSkills), as: UTF8.self)
+        try lock.withLock {
+            try database.execute("""
+                INSERT INTO interactive_results (course_id, lecture_id, score, weak_skills) VALUES (?, ?, ?, ?)
+                ON CONFLICT(course_id, lecture_id) DO UPDATE SET score=excluded.score, weak_skills=excluded.weak_skills
+                """, [courseID, lectureID, String(result.score), skills])
+        }
+    }
+
+    /// The latest interactive scores by course id, then lecture id. Stores saved before schema version 7 have none.
+    public func allInteractiveResults() throws -> [String: [String: InteractiveResult]] {
+        try lock.withLock {
+            var results: [String: [String: InteractiveResult]] = [:]
+            try database.query("SELECT course_id, lecture_id, score, weak_skills FROM interactive_results") {
+                guard let skills = try? JSONDecoder().decode([String].self, from: Data(SQLiteDatabase.text($0, 3).utf8)) else {
+                    throw CourseStoreError.invalidData
+                }
+                results[SQLiteDatabase.text($0, 0), default: [:]][SQLiteDatabase.text($0, 1)] = InteractiveResult(
+                    score: Int(sqlite3_column_int64($0, 2)), weakSkills: skills)
+            }
+            return results
+        }
+    }
+
     static let migrations: [[String]] = [[
         """
         CREATE TABLE courses (
@@ -311,5 +364,42 @@ public final class CourseStore: @unchecked Sendable {
     ], [
         // Learner data has no foreign key to outline rows, so a republish keeps it.
         "CREATE TABLE course_resume (course_id TEXT PRIMARY KEY NOT NULL, lecture_id TEXT NOT NULL)",
+    ], [
+        // The latest result of each quiz. No foreign key to `lectures`, so a republish keeps it.
+        // `weak_skills` is a JSON array of objective tags.
+        """
+        CREATE TABLE quiz_results (
+            course_id TEXT NOT NULL, lecture_id TEXT NOT NULL, correct INTEGER NOT NULL, total INTEGER NOT NULL,
+            weak_skills TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(course_id, lecture_id)
+        )
+        """,
+    ], [
+        // SQLite cannot change a CHECK, so the lectures table is built again with the `interactive` type.
+        """
+        CREATE TABLE lectures_v7 (
+            course_id TEXT NOT NULL, section_id TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('video', 'article', 'quiz', 'assignment', 'interactive')),
+            objective TEXT NOT NULL DEFAULT '', sort_order INTEGER NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('draft', 'published')), recommended_next TEXT,
+            PRIMARY KEY(course_id, id),
+            FOREIGN KEY(course_id, section_id) REFERENCES sections(course_id, id) ON DELETE CASCADE
+        )
+        """,
+        """
+        INSERT INTO lectures_v7 (course_id, section_id, id, title, type, objective, sort_order, state, recommended_next)
+        SELECT course_id, section_id, id, title, type, objective, sort_order, state, recommended_next FROM lectures
+        """,
+        "DROP TABLE lectures",
+        "ALTER TABLE lectures_v7 RENAME TO lectures",
+        "CREATE INDEX lectures_outline ON lectures(course_id, section_id, sort_order, id)",
+        // The latest score of each interactive lecture. No foreign key to `lectures`, so a republish keeps it.
+        // `weak_skills` is a JSON array that holds the lecture objective when the score is weak.
+        """
+        CREATE TABLE interactive_results (
+            course_id TEXT NOT NULL, lecture_id TEXT NOT NULL,
+            score INTEGER NOT NULL CHECK(score BETWEEN 0 AND 100),
+            weak_skills TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(course_id, lecture_id)
+        )
+        """,
     ]]
 }

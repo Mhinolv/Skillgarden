@@ -1,0 +1,5 @@
+:root { color-scheme: light dark; }
+body { font: 15px -apple-system, sans-serif; margin: 24px; color: CanvasText; background: Canvas; }
+ol { padding-left: 20px; }
+li button { margin: 4px 0; font: inherit; }
+#status { font-weight: 600; }

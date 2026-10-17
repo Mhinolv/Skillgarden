@@ -54,6 +54,7 @@ enum SnapshotRenderer {
         if let courseID {
             library.selectCourse(courseID)
             library.selectDestination(SnapshotPlan.destination(for: output.screen))
+            for action in SnapshotPlan.quizActions(for: output.screen) { library.performQuizAction(action) }
         }
 
         let imageLoads = ImageLoadTracker()
@@ -81,8 +82,12 @@ enum SnapshotRenderer {
         if courseID != nil {
             // Capture only after all loads end, then let SwiftUI draw the loaded images.
             // An article starts its image loads after its Markdown loads, so wait two times.
+            let expected = SnapshotPlan.imageLoads(for: output.screen)
             for _ in 0..<2 {
-                pump { frameView.layoutSubtreeIfNeeded(); return imageLoads.finished > 0 && imageLoads.pending == 0 }
+                pump {
+                    frameView.layoutSubtreeIfNeeded()
+                    return imageLoads.finished >= expected && imageLoads.pending == 0
+                }
                 ticks = 0
                 pump { frameView.layoutSubtreeIfNeeded(); ticks += 1; return ticks >= 5 }
             }

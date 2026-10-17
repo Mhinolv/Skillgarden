@@ -27,6 +27,16 @@ public final class LibraryModel {
     public private(set) var progress: [String: [String: LectureProgress]] = [:]
     /// The last opened lecture id by course id. The lecture can be absent from the current outline.
     public private(set) var lastOpenedLectures: [String: String] = [:]
+    /// Quiz content by course id, then lecture id, read from each installed manifest.
+    public private(set) var quizzes: [String: [String: Quiz]] = [:]
+    /// The latest saved quiz result by course id, then lecture id.
+    public private(set) var quizResults: [String: [String: QuizResult]] = [:]
+    /// Interactive bundles by course id, then lecture id, read from each installed manifest.
+    public private(set) var interactives: [String: [String: InteractiveModule]] = [:]
+    /// The latest saved interactive score by course id, then lecture id.
+    public private(set) var interactiveResults: [String: [String: InteractiveResult]] = [:]
+    /// Quiz attempts of this session by course id, then lecture id. They are not saved.
+    private var quizAttempts: [String: [String: QuizAttempt]] = [:]
     public let root: URL
     /// The store of the last reload. Progress writes use it off the main actor, one at a time.
     private var store: CourseStore?
@@ -147,6 +157,64 @@ public final class LibraryModel {
 
     public func resume() { if let resumeDestination { open(resumeDestination) } }
 
+    // MARK: Quiz
+
+    /// The quiz of the selected lecture. Nil if the lecture is not a quiz or its course has no installed manifest.
+    public var selectedQuiz: Quiz? {
+        guard let courseID = selectedCourseID, let lecture = selectedLecture, lecture.type == .quiz else { return nil }
+        return quizzes[courseID]?[lecture.id]
+    }
+
+    /// The attempt of this session for the selected quiz. A republish that changes the quiz starts a new attempt.
+    public var selectedQuizAttempt: QuizAttempt? {
+        guard let quiz = selectedQuiz, let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return nil }
+        if let attempt = quizAttempts[courseID]?[lectureID], attempt.quiz == quiz { return attempt }
+        return QuizAttempt(quiz: quiz)
+    }
+
+    /// Applies a learner action to the selected quiz. When the results screen opens, the result is saved.
+    public func performQuizAction(_ action: QuizAction) {
+        guard var attempt = selectedQuizAttempt, let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return }
+        let wasShowingResults = attempt.showsResults
+        attempt.perform(action)
+        quizAttempts[courseID, default: [:]][lectureID] = attempt
+        guard attempt.showsResults, !wasShowingResults else { return }
+        let result = attempt.result
+        quizResults[courseID, default: [:]][lectureID] = result
+        enqueueWrite { try $0.saveQuizResult(result, courseID: courseID, lectureID: lectureID) }
+    }
+
+    // MARK: Interactive
+
+    /// The bundle of the selected lecture. Nil if the lecture is not interactive or its course has no installed manifest.
+    public var selectedInteractive: InteractiveModule? {
+        guard let courseID = selectedCourseID, let lecture = selectedLecture, lecture.type == .interactive else { return nil }
+        return interactives[courseID]?[lecture.id]
+    }
+
+    /// The latest saved score of the selected interactive lecture.
+    public var selectedInteractiveResult: InteractiveResult? {
+        guard let courseID = selectedCourseID, let lecture = selectedLecture, lecture.type == .interactive else { return nil }
+        return interactiveResults[courseID]?[lecture.id]
+    }
+
+    /// Applies a bridge message from the module of `lectureID`. Messages from a lecture that is not selected do nothing.
+    /// `complete()` marks the lecture complete. A score replaces the saved score of the lecture.
+    public func receiveInteractiveMessage(_ message: InteractiveBridgeMessage, lectureID: String) {
+        guard let courseID = selectedCourseID, let lecture = selectedLecture, lecture.id == lectureID,
+              lecture.type == .interactive else { return }
+        switch message {
+        case .complete:
+            guard !isComplete(lectureID) else { return }
+            progress[courseID, default: [:]][lectureID, default: LectureProgress()].completed = true
+            enqueueWrite { try $0.setCompleted(true, courseID: courseID, lectureID: lectureID) }
+        case let .score(score):
+            let result = InteractiveResult(score: score, objective: lecture.objective)
+            interactiveResults[courseID, default: [:]][lectureID] = result
+            enqueueWrite { try $0.saveInteractiveResult(result, courseID: courseID, lectureID: lectureID) }
+        }
+    }
+
     /// Waits until all queued progress writes finish.
     func waitForWrites() async { _ = await pendingWrite?.value }
 
@@ -192,10 +260,11 @@ public final class LibraryModel {
         // Queued writes finish first, so the reload reads them.
         await waitForWrites()
         do {
-            let (store, loaded, installed, progress, lastOpened) = try await Task.detached {
+            let (store, loaded, installed, progress, lastOpened, quizResults, interactiveResults) = try await Task.detached {
                 let store = try CourseStore(root: root)
                 return (store, try store.listCourses(), try Self.installedData(store: store, root: root),
-                        try store.allProgress(), try store.lastOpenedLectures())
+                        try store.allProgress(), try store.lastOpenedLectures(), try store.allQuizResults(),
+                        try store.allInteractiveResults())
             }.value
             self.store = store
             courses = loaded
@@ -205,6 +274,10 @@ public final class LibraryModel {
             videos = installed.videos
             self.progress = progress
             lastOpenedLectures = lastOpened
+            quizzes = installed.quizzes
+            self.quizResults = quizResults
+            interactives = installed.interactives
+            self.interactiveResults = interactiveResults
             errorMessage = nil
             if let course = selectedCourse {
                 if !Self.isValid(destination, in: course) { destination = .overview }
@@ -221,6 +294,10 @@ public final class LibraryModel {
             videos = [:]
             progress = [:]
             lastOpenedLectures = [:]
+            quizzes = [:]
+            quizResults = [:]
+            interactives = [:]
+            interactiveResults = [:]
             selectedCourseID = nil
             destination = nil
             errorMessage = error.localizedDescription
@@ -239,7 +316,8 @@ public final class LibraryModel {
         }
     }
 
-    /// Reads header images, course page fields, article files and video files from each installed manifest.
+    /// Reads header images, course page fields, article files, video files, quizzes and interactive bundles
+    /// from each installed manifest.
     /// A path outside the snapshot folder is ignored.
     nonisolated private static func installedData(store: CourseStore, root: URL) throws -> InstalledCourseData {
         var data = InstalledCourseData()
@@ -263,6 +341,12 @@ public final class LibraryModel {
                     data.videos[courseID, default: [:]][lecture.id] = video
                 }
             }
+            for lecture in manifest.sections.flatMap(\.lectures) {
+                if let quiz = lecture.quiz { data.quizzes[courseID, default: [:]][lecture.id] = Quiz(manifest: quiz, folder: folder) }
+                if let module = lecture.interactive.flatMap({ InteractiveModule(snapshot: folder, bundlePath: $0.bundlePath) }) {
+                    data.interactives[courseID, default: [:]][lecture.id] = module
+                }
+            }
         }
         return data
     }
@@ -278,4 +362,8 @@ struct InstalledCourseData: Sendable {
     var articles: [String: [String: LectureArticle]] = [:]
     /// Video files by course id, then lecture id.
     var videos: [String: [String: LectureVideo]] = [:]
+    /// Quizzes by course id, then lecture id.
+    var quizzes: [String: [String: Quiz]] = [:]
+    /// Interactive bundles by course id, then lecture id.
+    var interactives: [String: [String: InteractiveModule]] = [:]
 }

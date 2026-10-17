@@ -4,14 +4,21 @@ import SwiftUI
 import SkillgardenCore
 
 /// The "Free preview" capsule of the lecture header and the lecture rows.
+/// In a row the capsule is filled, so it stays readable on a gray or dark selected row.
+/// On an accent-colored selected row the capsule uses white.
 struct FreePreviewBadge: View {
+    var filled = false
+    @Environment(\.backgroundProminence) private var prominence
+
     var body: some View {
+        let selected = prominence == .increased
         Text("Free preview")
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.tint)
+            .foregroundStyle(selected || filled ? AnyShapeStyle(.white) : AnyShapeStyle(.tint))
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(.tint.opacity(0.15), in: .capsule)
+            .background(selected ? AnyShapeStyle(.white.opacity(0.25))
+                        : filled ? AnyShapeStyle(.tint) : AnyShapeStyle(.tint.opacity(0.15)), in: .capsule)
             .fixedSize()
             .accessibilityLabel("Free preview")
     }

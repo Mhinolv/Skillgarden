@@ -78,7 +78,8 @@ private let video = "sections[0].lectures[0].video"
         #expect(try publishErrors(folder, root) == ["\(video): required field is missing"])
     }
     try withCourse { folder, root in
-        try edit(folder, "        type: video\n", "        type: quiz\n")
+        // Quiz, article and interactive lectures need their own field, so use an assignment to test only the video rule.
+        try edit(folder, "        type: video\n", "        type: assignment\n")
         #expect(try publishErrors(folder, root) == ["\(video): allowed only when type is video"])
     }
     try withCourse { folder, root in

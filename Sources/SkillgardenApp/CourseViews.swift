@@ -16,6 +16,7 @@ extension LectureType {
         case .article: "doc.text"
         case .quiz: "checklist"
         case .assignment: "pencil.and.list.clipboard"
+        case .interactive: "hand.tap"
         }
     }
 }
@@ -165,7 +166,7 @@ struct LectureRow: View {
                 .foregroundStyle(.secondary)
             Text(lecture.title).font(.body).lineLimit(2)
             if completed || freePreview { Spacer(minLength: 0) }
-            if freePreview { FreePreviewBadge() }
+            if freePreview { FreePreviewBadge(filled: true) }
             if completed {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint)
             }

@@ -49,12 +49,29 @@ public enum CoursePublisher {
             do throws(ImagePipelineError) { _ = try ImagePipeline.format(of: source.appending(path: item.image.path)) }
             catch { problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: item.field + ".path", message: error.message)) }
         }
+        // Question images stay in the snapshot as they are. The app reads them from there.
+        for (field, image) in questionImages(manifest) {
+            guard files.contains(image.path) else {
+                problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: field + ".path", message: "file does not exist"))
+                continue
+            }
+            do throws(ImagePipelineError) { _ = try ImagePipeline.format(of: source.appending(path: image.path)) }
+            catch { problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: field + ".path", message: error.message)) }
+        }
         for (index, file) in (manifest.internalMaterial?.files ?? []).enumerated() where !files.contains(file.path) {
             problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: "internal.files[\(index)].path", message: "file does not exist"))
         }
         for (sectionIndex, section) in manifest.sections.enumerated() {
             for (lectureIndex, lecture) in section.lectures.enumerated() {
                 let field = "sections[\(sectionIndex)].lectures[\(lectureIndex)]"
+                if let interactive = lecture.interactive {
+                    // The bundle stays in the snapshot as it is. The app loads its `index.html` from there.
+                    let path = LectureArticle.normalize(interactive.bundlePath)
+                    if path.map({ !files.contains($0 + "/" + InteractiveModule.entryFile) }) ?? true {
+                        problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: field + ".interactive.bundle_path",
+                                                           message: "folder must contain \(InteractiveModule.entryFile)"))
+                    }
+                }
                 if let article = lecture.article {
                     problems += articleProblems(article, field: field + ".article", files: files, source: source, folder: courseFolder)
                 }
@@ -130,6 +147,18 @@ public enum CoursePublisher {
             let target = directory.appending(path: path)
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: source.appending(path: path), to: target)
+        }
+    }
+
+    private static func questionImages(_ manifest: CourseManifest) -> [(field: String, image: ManifestImage)] {
+        manifest.sections.enumerated().flatMap { sectionIndex, section in
+            section.lectures.enumerated().flatMap { lectureIndex, lecture in
+                (lecture.quiz?.questions ?? []).enumerated().compactMap { questionIndex, question in
+                    question.image.map {
+                        ("sections[\(sectionIndex)].lectures[\(lectureIndex)].quiz.questions[\(questionIndex)].image", $0)
+                    }
+                }
+            }
         }
     }
 

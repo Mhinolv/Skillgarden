@@ -2,7 +2,7 @@ import Foundation
 
 public enum ManifestState: String, Codable, Sendable { case draft, published }
 public enum ManifestAppearance: String, Codable, Sendable { case light, dark }
-public enum ManifestLectureType: String, Codable, Sendable { case video, article, quiz, assignment }
+public enum ManifestLectureType: String, Codable, Sendable { case video, article, quiz, assignment, interactive }
 
 public struct ManifestImage: Codable, Equatable, Sendable {
     public var path: String
@@ -52,6 +52,12 @@ public struct ManifestVideo: Codable, Equatable, Sendable {
     }
 }
 
+/// The HTML bundle of an interactive lecture. `bundle_path` is a folder under the course root with an `index.html` file.
+public struct ManifestInteractive: Codable, Equatable, Sendable {
+    public var bundlePath: String
+    enum CodingKeys: String, CodingKey { case bundlePath = "bundle_path" }
+}
+
 public struct ManifestLecture: Codable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -64,10 +70,38 @@ public struct ManifestLecture: Codable, Equatable, Sendable {
     public var article: ManifestArticle?
     /// Required when `type` is `video`, and not allowed for other types.
     public var video: ManifestVideo?
+    /// Required when `type` is `quiz`. Nil for every other type.
+    public var quiz: ManifestQuiz?
+    /// Required when `type` is `interactive`, and not allowed for other types.
+    public var interactive: ManifestInteractive?
     enum CodingKeys: String, CodingKey {
-        case id, title, type, objective, state, order, article, video
+        case id, title, type, objective, state, order, article, video, quiz, interactive
         case recommendedNext = "recommended_next"
     }
+}
+
+public struct ManifestQuizChoice: Codable, Equatable, Sendable {
+    public var id: String
+    public var text: String
+}
+
+public struct ManifestQuizQuestion: Codable, Equatable, Sendable {
+    public var id: String
+    public var prompt: String
+    public var image: ManifestImage?
+    public var objectiveTag: String
+    public var choices: [ManifestQuizChoice]
+    public var correctChoiceID: String
+    /// Shown for every choice after Submit.
+    public var explanation: String
+    enum CodingKeys: String, CodingKey {
+        case id, prompt, image, choices, explanation
+        case objectiveTag = "objective_tag", correctChoiceID = "correct_choice_id"
+    }
+}
+
+public struct ManifestQuiz: Codable, Equatable, Sendable {
+    public var questions: [ManifestQuizQuestion]
 }
 
 public struct ManifestSection: Codable, Equatable, Sendable {

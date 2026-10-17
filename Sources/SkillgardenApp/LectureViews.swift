@@ -109,6 +109,8 @@ struct LectureFrameView<Content: View>: View {
     let previous: (() -> Void)?
     let next: (() -> Void)?
     let openNudge: () -> Void
+    /// Interactive modules use a wider column (960 pt).
+    var maxWidth: CGFloat = CourseStyle.textWidth
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -134,7 +136,7 @@ struct LectureFrameView<Content: View>: View {
                 }
                 .buttonStyle(.bordered)
             }
-            .frame(maxWidth: CourseStyle.textWidth, alignment: .leading)
+            .frame(maxWidth: maxWidth, alignment: .leading)
             .padding(CourseStyle.detailPadding)
             .frame(maxWidth: .infinity)
         }
