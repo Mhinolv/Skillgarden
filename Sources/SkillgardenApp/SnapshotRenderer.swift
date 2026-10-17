@@ -1,4 +1,5 @@
 import AppKit
+import PDFKit
 import SwiftUI
 import SkillgardenCore
 
@@ -77,6 +78,7 @@ enum SnapshotRenderer {
             .environment(\.opensVideoPlayer, output.screen.opensVideoPlayer)
             .environment(\.snapshotVideoStart, output.screen.videoStartSeconds)
             .environment(\.showsReviewInline, true)
+            .environment(\.showsPDFPreviewInline, output.screen.showsPDFPreviewInline)
             .transaction { $0.disablesAnimations = true; $0.animation = nil }
         let size = NSSize(width: SnapshotPlan.width, height: SnapshotPlan.height)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
@@ -111,6 +113,20 @@ enum SnapshotRenderer {
             scrollToEnd(in: frameView)
             ticks = 0
             pump { frameView.layoutSubtreeIfNeeded(); ticks += 1; return ticks >= 5 }
+        }
+
+        if output.screen.showsPDFPreviewInline {
+            // The sheet must create the real PDFKit view with a page, so a blank sheet fails the run.
+            func pdfViews(in view: NSView) -> [PDFView] {
+                ((view as? PDFView).map { [$0] } ?? []) + view.subviews.flatMap(pdfViews(in:))
+            }
+            let pdfView = pdfViews(in: frameView).first
+            guard let pdfView, pdfView.currentPage != nil, (pdfView.document?.pageCount ?? 0) > 0 else {
+                throw SnapshotError.pdfView(output.url.lastPathComponent)
+            }
+            // PDFKit draws the page into tile layers off the main thread. Wait until a tile has contents.
+            pump { frameView.layoutSubtreeIfNeeded(); return hasLayerContents(pdfView.documentView?.layer) }
+            guard hasLayerContents(pdfView.documentView?.layer) else { throw SnapshotError.pdfView(output.url.lastPathComponent) }
         }
 
         let png = try image(of: frameView, appearance: appearance)
@@ -169,9 +185,43 @@ enum SnapshotRenderer {
         }
         capture.draw(in: NSRect(origin: .zero, size: view.bounds.size), from: .zero, operation: .sourceOver,
                      fraction: 1, respectFlipped: false, hints: nil)
+        if let context = NSGraphicsContext.current?.cgContext { drawPDFPages(in: view, of: view, to: context) }
         NSGraphicsContext.restoreGraphicsState()
         guard let data = result.representation(using: .png, properties: [:]) else { throw SnapshotError.image }
         return data
+    }
+
+    /// True when a layer in the tree has contents. The PDFKit tiles of a drawn page have contents.
+    private static func hasLayerContents(_ layer: CALayer?) -> Bool {
+        guard let layer else { return false }
+        return layer.contents != nil || (layer.sublayers ?? []).contains { hasLayerContents($0) }
+    }
+
+    /// Draws the visible pages of each PDF view at the place that the view shows them.
+    /// `cacheDisplay` reads the IOSurface tiles of PDFKit as one solid color, so the capture misses the page.
+    private static func drawPDFPages(in view: NSView, of root: NSView, to context: CGContext) {
+        if let pdfView = view as? PDFView {
+            let visible = pdfView.convert(pdfView.visibleRect, to: root)
+            for page in pdfView.visiblePages {
+                let box = page.bounds(for: pdfView.displayBox)
+                var rect = pdfView.convert(pdfView.convert(box, from: page), to: root)
+                // The capture has its origin at the bottom left.
+                var clip = visible
+                if root.isFlipped {
+                    rect.origin.y = root.bounds.height - rect.maxY
+                    clip.origin.y = root.bounds.height - clip.maxY
+                }
+                context.saveGState()
+                context.clip(to: clip)
+                context.translateBy(x: rect.minX, y: rect.minY)
+                context.scaleBy(x: rect.width / box.width, y: rect.height / box.height)
+                context.setFillColor(.white)
+                context.fill(CGRect(origin: .zero, size: box.size))
+                page.draw(with: pdfView.displayBox, to: context)
+                context.restoreGState()
+            }
+        }
+        for subview in view.subviews where !subview.isHidden { drawPDFPages(in: subview, of: root, to: context) }
     }
 }
 
@@ -180,6 +230,7 @@ enum SnapshotError: Error, CustomStringConvertible {
     case image
     case courseImage
     case videoOverTitlebar(String, Int)
+    case pdfView(String)
 
     var description: String {
         switch self {
@@ -187,6 +238,7 @@ enum SnapshotError: Error, CustomStringConvertible {
         case .image: "cannot create the PNG image"
         case .courseImage: "course image did not load"
         case let .videoOverTitlebar(name, count): "\(name): the video draws \(count) black pixels over the title bar"
+        case let .pdfView(name): "\(name): the PDF preview sheet has no PDFKit view with a drawn page"
         }
     }
 }

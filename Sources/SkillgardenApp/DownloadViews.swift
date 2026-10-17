@@ -177,6 +177,18 @@ private struct PDFKitView: NSViewRepresentable {
     }
 }
 
+private struct ShowsPDFPreviewInlineKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// The snapshot harness sets this, so the PDF preview sheet of the first PDF download draws in the window. The app sets none.
+    var showsPDFPreviewInline: Bool {
+        get { self[ShowsPDFPreviewInlineKey.self] }
+        set { self[ShowsPDFPreviewInlineKey.self] = newValue }
+    }
+}
+
 /// The save flow: a save panel with `<title>.<ext>`, then a write of the file bytes. A cancel does nothing.
 @MainActor
 enum DownloadSaver {

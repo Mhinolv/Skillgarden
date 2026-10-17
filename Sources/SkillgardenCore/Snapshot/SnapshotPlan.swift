@@ -39,6 +39,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The article lecture with three downloads, scrolled to the end: a PDF with its first-page thumbnail,
     /// a CSV, and a text file that is missing from the store, so its row shows "File unavailable".
     case lectureDownloads = "lecture-downloads"
+    /// The same lecture with the PDF preview sheet of the worksheet open. The real PDFKit view shows page 1.
+    case pdfPreview = "pdf-preview"
 
     /// True when the harness opens the player of the video lecture before the capture.
     public var opensVideoPlayer: Bool { self == .videoPlayer || self == .videoTranscript }
@@ -47,13 +49,17 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     public var videoStartSeconds: Double? { self == .videoTranscript ? 3 : nil }
 
     /// True when the harness scrolls the lecture page to the end.
-    public var scrollsLectureToEnd: Bool { self == .videoTranscript || self == .lectureDownloads }
+    public var scrollsLectureToEnd: Bool { self == .videoTranscript || self == .lectureDownloads || self == .pdfPreview }
 
     /// True when the harness fails if the capture has black video pixels in the title bar and the toolbar (#55).
     public var checksTitlebarForVideo: Bool { opensVideoPlayer }
 
     /// True when the harness draws the review sheet in the window. A real sheet is a separate window, so the capture misses it.
     public var showsReviewInline: Bool { self == .sectionReview }
+
+    /// True when the harness draws the PDF preview sheet of the first PDF download in the window, like the review sheet.
+    /// The harness fails if the sheet has no PDFKit view with a page.
+    public var showsPDFPreviewInline: Bool { self == .pdfPreview }
 
     /// True when the harness selects the seeded course. The Library screens show the Library home, so they select none.
     public var selectsCourse: Bool { self != .library && self != .libraryEmpty && self != .libraryEmptyCustomFolder }
@@ -137,7 +143,7 @@ public enum SnapshotPlan {
             return try publishCopy(of: fixture, root: root, replacing: reviewCourse)
         case .courseCredits:
             return try publishCopy(of: fixture, root: root, replacing: creditsCourse)
-        case .lectureDownloads:
+        case .lectureDownloads, .pdfPreview:
             let id = try publishCopy(of: fixture, root: root, replacing: downloadsCourse)
             // A store file that disappears after publish shows the unavailable row.
             if let snapshot = try CoursePublisher.assetDirectory(courseID: id, root: root) {
@@ -239,7 +245,7 @@ public enum SnapshotPlan {
     public static func imageLoads(for screen: SnapshotScreen) -> Int {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder: 0
-        case .library, .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads: 2
+        case .library, .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads, .pdfPreview: 2
         default: 1
         }
     }
@@ -250,7 +256,7 @@ public enum SnapshotPlan {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library: nil
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript: .lecture(sectionID: "plan", lectureID: "welcome")
-        case .article, .lectureDownloads: .lecture(sectionID: "plan", lectureID: "read")
+        case .article, .lectureDownloads, .pdfPreview: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme: .overview
         case .courseCredits: .credits
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")
