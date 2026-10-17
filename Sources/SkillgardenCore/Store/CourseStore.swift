@@ -3,7 +3,7 @@ import SQLite3
 
 /// A synchronous local store. The lock protects the connection and each complete operation.
 public final class CourseStore: @unchecked Sendable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
     public let databaseURL: URL
     private let database: SQLiteDatabase
     private let lock = NSLock()
@@ -50,22 +50,26 @@ public final class CourseStore: @unchecked Sendable {
     public func saveCourse(_ course: Course) throws {
         try lock.withLock {
             try database.transaction {
+                try saveCourseRows(course)
+            }
+        }
+    }
+
+    private func saveCourseRows(_ course: Course) throws {
+        try database.execute("""
+            INSERT INTO courses (id, title, subtitle, state) VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET title=excluded.title, subtitle=excluded.subtitle, state=excluded.state
+            """, [course.id, course.title, course.subtitle, course.state.rawValue])
+        try database.execute("DELETE FROM sections WHERE course_id = ?", [course.id])
+        for section in course.sections {
+            try database.execute("INSERT INTO sections (course_id, id, title, objective, sort_order, state) VALUES (?, ?, ?, ?, ?, ?)",
+                                 [course.id, section.id, section.title, section.objective, String(section.order), section.state.rawValue])
+            for lecture in section.lectures {
                 try database.execute("""
-                    INSERT INTO courses (id, title, subtitle, state) VALUES (?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET title=excluded.title, subtitle=excluded.subtitle, state=excluded.state
-                    """, [course.id, course.title, course.subtitle, course.state.rawValue])
-                try database.execute("DELETE FROM sections WHERE course_id = ?", [course.id])
-                for section in course.sections {
-                    try database.execute("INSERT INTO sections (course_id, id, title, objective, sort_order, state) VALUES (?, ?, ?, ?, ?, ?)",
-                                         [course.id, section.id, section.title, section.objective, String(section.order), section.state.rawValue])
-                    for lecture in section.lectures {
-                        try database.execute("""
-                            INSERT INTO lectures (course_id, section_id, id, title, type, objective, sort_order, state, recommended_next)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """, [course.id, section.id, lecture.id, lecture.title, lecture.type.rawValue, lecture.objective,
-                                  String(lecture.order), lecture.state.rawValue, lecture.recommendedNext])
-                    }
-                }
+                    INSERT INTO lectures (course_id, section_id, id, title, type, objective, sort_order, state, recommended_next)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, [course.id, section.id, lecture.id, lecture.title, lecture.type.rawValue, lecture.objective,
+                          String(lecture.order), lecture.state.rawValue, lecture.recommendedNext])
             }
         }
     }
@@ -135,6 +139,45 @@ public final class CourseStore: @unchecked Sendable {
         return state
     }
 
+    func publication(id: String) throws -> (manifest: Data, directory: String)? {
+        try lock.withLock {
+            try database.query("SELECT manifest, directory FROM course_publications WHERE course_id = ?", [id]) {
+                (Data(SQLiteDatabase.text($0, 0).utf8), SQLiteDatabase.text($0, 1))
+            }.first
+        }
+    }
+
+    func savePublication(_ course: Course, manifest: Data, directory: String) throws {
+        try lock.withLock {
+            try database.transaction {
+                try saveCourseRows(course)
+                try database.execute("""
+                    INSERT INTO course_publications (course_id, manifest, directory) VALUES (?, ?, ?)
+                    ON CONFLICT(course_id) DO UPDATE SET manifest=excluded.manifest, directory=excluded.directory
+                    """, [course.id, String(decoding: manifest, as: UTF8.self), directory])
+            }
+        }
+    }
+
+    /// Learner data has no foreign key to outline rows, so a republish keeps it.
+    public func saveProgress(_ progress: LectureProgress, courseID: String, lectureID: String) throws {
+        try lock.withLock {
+            try database.execute("""
+                INSERT INTO lecture_progress (course_id, lecture_id, completed, resume_seconds) VALUES (?, ?, ?, ?)
+                ON CONFLICT(course_id, lecture_id) DO UPDATE SET completed=excluded.completed, resume_seconds=excluded.resume_seconds
+                """, [courseID, lectureID, progress.completed ? "1" : "0", String(progress.resumeSeconds)])
+        }
+    }
+
+    public func progress(courseID: String, lectureID: String) throws -> LectureProgress? {
+        try lock.withLock {
+            try database.query("SELECT completed, resume_seconds FROM lecture_progress WHERE course_id = ? AND lecture_id = ?",
+                               [courseID, lectureID]) {
+                LectureProgress(completed: sqlite3_column_int64($0, 0) != 0, resumeSeconds: sqlite3_column_double($0, 1))
+            }.first
+        }
+    }
+
     static let migrations: [[String]] = [[
         """
         CREATE TABLE courses (
@@ -162,5 +205,19 @@ public final class CourseStore: @unchecked Sendable {
         "CREATE INDEX sections_outline ON sections(course_id, sort_order, id)",
         "CREATE INDEX lectures_outline ON lectures(course_id, section_id, sort_order, id)",
         "CREATE INDEX courses_title ON courses(title COLLATE NOCASE, title, id)",
+    ], [
+        """
+        CREATE TABLE course_publications (
+            course_id TEXT PRIMARY KEY NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+            manifest TEXT NOT NULL, directory TEXT NOT NULL
+        )
+        """,
+        """
+        CREATE TABLE lecture_progress (
+            course_id TEXT NOT NULL, lecture_id TEXT NOT NULL,
+            completed INTEGER NOT NULL DEFAULT 0 CHECK(completed IN (0, 1)),
+            resume_seconds REAL NOT NULL DEFAULT 0, PRIMARY KEY(course_id, lecture_id)
+        )
+        """,
     ]]
 }
