@@ -314,3 +314,91 @@ func durationLabelUsesMinutesOrHours(seconds: Int, label: String) {
     #expect(WebVTT.seconds("59:59.999") == 3599.999)
     #expect(WebVTT.seconds("100:00:00.000") == 360_000)
 }
+
+// MARK: Transcript
+
+/// Acceptance (#13): the parser loads the cues of the fixture file with start, end and text.
+@Test func transcriptLoadsTheFixtureCues() throws {
+    let captions = try LectureVideo.captions(at: fixture.appending(path: "content/welcome.vtt"))
+    #expect(captions.cues == [
+        CaptionCue(start: 0, end: 2, text: "Welcome to Local Course Basics."),
+        CaptionCue(start: 2, end: 4, text: "You will plan a course step by step."),
+    ])
+    let transcript = Transcript(captions: captions)
+    #expect(transcript.lines.map(\.id) == [0, 1])
+    #expect(transcript.lines.map(\.start) == [0, 2])
+    #expect(transcript.lines.map(\.end) == [2, 4])
+    #expect(transcript.lines.map(\.timeLabel) == ["0:00", "0:02"])
+    #expect(transcript.lines[1].accessibilityLabel == "0:02, You will plan a course step by step.")
+}
+
+/// Acceptance (#13): the active line changes when the playback time crosses a cue boundary.
+@Test func transcriptActiveLineFollowsCueBoundaries() throws {
+    let transcript = Transcript(captions: try WebVTT(text: """
+        WEBVTT
+
+        00:01.000 --> 00:03.000
+        First
+
+        00:03.000 --> 00:05.000
+        Second
+
+        00:08.000 --> 00:10.000
+        After a gap
+        """))
+    let expected: [(Double, Int?)] = [(0, nil), (0.999, nil), (1, 0), (2.999, 0), (3, 1), (4.999, 1),
+                                      (5, nil), (7.999, nil), (8, 2), (9.999, 2), (10, nil), (3600, nil)]
+    for (seconds, line) in expected {
+        #expect(transcript.activeLine(at: seconds) == line, "\(seconds)")
+    }
+    // A click seeks to the line start, and that line is then active.
+    for line in transcript.lines { #expect(transcript.activeLine(at: line.start) == line.id) }
+}
+
+@Test func transcriptOrdersLinesAndSkipsEmptyCues() throws {
+    let transcript = Transcript(captions: try WebVTT(text: """
+        WEBVTT
+
+        00:05.000 --> 00:06.000
+        Late
+
+        00:00.000 --> 00:10.000
+        Long
+        two lines
+
+        00:02.000 --> 00:03.000
+
+        00:05.000 --> 00:07.000
+        Same start
+
+        01:02:03.000 --> 01:02:04.000
+        One hour
+        """))
+    #expect(transcript.lines.map(\.text) == ["Long two lines", "Late", "Same start", "One hour"])
+    #expect(transcript.lines.map(\.id) == [0, 1, 2, 3])
+    #expect(transcript.lines.map(\.timeLabel) == ["0:00", "0:05", "0:05", "1:02:03"])
+    // Overlap: the line that started last is active.
+    #expect(transcript.activeLine(at: 1) == 0)
+    #expect(transcript.activeLine(at: 2.5) == 0)
+    #expect(transcript.activeLine(at: 5.5) == 2)
+    #expect(transcript.activeLine(at: 6.5) == 2)
+    #expect(transcript.activeLine(at: 7) == 0)
+    #expect(transcript.activeLine(at: 3723.5) == 3)
+    // An empty file gives an empty transcript.
+    #expect(Transcript(captions: try WebVTT(text: "WEBVTT")).lines.isEmpty)
+    #expect(Transcript(captions: try WebVTT(text: "WEBVTT\n\n00:00.000 --> 00:01.000\n")).lines.isEmpty)
+}
+
+@Test func transcriptAutoScrollPausesForFiveSecondsAfterALearnerScroll() {
+    let start = Date(timeIntervalSinceReferenceDate: 1000)
+    var autoScroll = TranscriptAutoScroll()
+    #expect(autoScroll.allowsAutoScroll(at: start))
+    autoScroll.learnerScrolled(at: start)
+    #expect(!autoScroll.allowsAutoScroll(at: start))
+    #expect(!autoScroll.allowsAutoScroll(at: start + 4.999))
+    #expect(autoScroll.allowsAutoScroll(at: start + TranscriptAutoScroll.pause))
+    // A second scroll starts the pause again.
+    autoScroll.learnerScrolled(at: start + 4)
+    #expect(!autoScroll.allowsAutoScroll(at: start + 8.9))
+    #expect(autoScroll.allowsAutoScroll(at: start + 9))
+}
