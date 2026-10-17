@@ -3,7 +3,7 @@ import SQLite3
 
 /// A synchronous local store. The lock protects the connection and each complete operation.
 public final class CourseStore: @unchecked Sendable {
-    public static let currentSchemaVersion = 7
+    public static let currentSchemaVersion = 8
     public let databaseURL: URL
     private let database: SQLiteDatabase
     private let lock = NSLock()
@@ -313,6 +313,24 @@ public final class CourseStore: @unchecked Sendable {
         }
     }
 
+    /// Records that the review sheet of a section opened. Learner data, so a republish keeps it.
+    public func saveSectionReviewed(courseID: String, sectionID: String) throws {
+        try lock.withLock {
+            try database.execute("INSERT OR IGNORE INTO section_reviews (course_id, section_id) VALUES (?, ?)", [courseID, sectionID])
+        }
+    }
+
+    /// The reviewed section ids by course id. Stores saved before schema version 8 have none.
+    public func allReviewedSections() throws -> [String: Set<String>] {
+        try lock.withLock {
+            var result: [String: Set<String>] = [:]
+            try database.query("SELECT course_id, section_id FROM section_reviews") {
+                result[SQLiteDatabase.text($0, 0), default: []].insert(SQLiteDatabase.text($0, 1))
+            }
+            return result
+        }
+    }
+
     static let migrations: [[String]] = [[
         """
         CREATE TABLE courses (
@@ -401,5 +419,8 @@ public final class CourseStore: @unchecked Sendable {
             weak_skills TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(course_id, lecture_id)
         )
         """,
+    ], [
+        // Sections whose spaced review sheet opened. No foreign key to `sections`, so a republish keeps it.
+        "CREATE TABLE section_reviews (course_id TEXT NOT NULL, section_id TEXT NOT NULL, PRIMARY KEY(course_id, section_id))",
     ]]
 }

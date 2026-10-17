@@ -25,9 +25,15 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case interactiveResult = "interactive-result"
     /// The video lecture after the learner started it, so the real AVKit player view shows. Playback stays paused.
     case videoPlayer = "video-player"
+    /// The spaced review sheet of the "plan" section, after the quiz section moved first.
+    /// Two questions: one unanswered, one answered correctly.
+    case sectionReview = "section-review"
 
     /// True when the harness opens the player of the video lecture before the capture.
     public var opensVideoPlayer: Bool { self == .videoPlayer }
+
+    /// True when the harness draws the review sheet in the window. A real sheet is a separate window, so the capture misses it.
+    public var showsReviewInline: Bool { self == .sectionReview }
 
     /// True when the harness selects the seeded course. The Library screens show the Library home, so they select none.
     public var selectsCourse: Bool { self != .library && self != .libraryEmpty && self != .libraryEmptyCustomFolder }
@@ -100,7 +106,38 @@ public enum SnapshotPlan {
             return try publishCopy(of: fixture, root: root, replacing: [
                 ("objective: Apply the course plan\n    state: draft", "objective: Apply the course plan\n    state: published"),
             ])
+        case .sectionReview:
+            return try publishCopy(of: fixture, root: root, replacing: reviewCourse)
         }
+    }
+
+    /// The replacements for the `section-review` course: the quiz section is published and comes first.
+    /// The third question is removed, so the review shows two questions.
+    static let reviewCourse = [
+        ("objective: Identify the course structure\n    state: published\n    order: 0",
+         "objective: Identify the course structure\n    state: published\n    order: 2"),
+        ("objective: Apply the course plan\n    state: draft", "objective: Apply the course plan\n    state: published"),
+        ("""
+                    - id: goal
+                      prompt: What does a lecture objective tell the learner?
+                      objective_tag: Check a lecture objective
+                      choices:
+                        - id: skill
+                          text: The skill that the lecture teaches
+                        - id: length
+                          text: The length of the lecture
+                      correct_choice_id: skill
+                      explanation: An objective names the skill that the learner gets from the lecture.
+
+        """, ""),
+    ]
+
+    /// The seed of the review question order in the snapshot harness.
+    public static let reviewSeed: UInt64 = 17
+
+    /// Review answers that the harness applies after the sheet opens: review question id, then choice id.
+    public static func reviewAnswers(for screen: SnapshotScreen) -> [(questionID: String, choiceID: String)] {
+        screen == .sectionReview ? [("check/order", "lowest")] : []
     }
 
     /// The replacements for the second course of the `library` screen: a new id, title and accent.
@@ -139,7 +176,7 @@ public enum SnapshotPlan {
     public static func imageLoads(for screen: SnapshotScreen) -> Int {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder: 0
-        case .library, .quizQuestion, .quizWrongAnswer: 2
+        case .library, .quizQuestion, .quizWrongAnswer, .sectionReview: 2
         default: 1
         }
     }
@@ -148,7 +185,7 @@ public enum SnapshotPlan {
     public static func destination(for screen: SnapshotScreen) -> CourseDestination? {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library: nil
-        case .section: .section(sectionID: "plan")
+        case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer: .lecture(sectionID: "plan", lectureID: "welcome")
         case .article: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme: .overview
