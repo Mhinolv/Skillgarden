@@ -56,7 +56,7 @@ private func files(in directory: URL) throws -> [String] {
         try CoursePublisher.publish(courseFolder: folder, root: root)
         let snapshot = try #require(try CoursePublisher.assetDirectory(courseID: "sample-course", root: root))
         #expect(try files(in: snapshot) == [
-            "content/plan.md", "content/welcome.mp4", "content/welcome.vtt",
+            "content/brief.md", "content/plan.md", "content/welcome.mp4", "content/welcome.vtt",
             "media/course.svg", "media/poster.svg", "media/section.svg", "skillgarden.yaml",
         ])
         let relative = try #require(try internalDirectory(root))

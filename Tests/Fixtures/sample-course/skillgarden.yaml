@@ -115,6 +115,22 @@ sections:
         objective: Create a course plan
         state: draft
         order: 1
+        assignment:
+          brief:
+            path: content/brief.md
+          rubric:
+            - id: goal
+              criterion: The plan states one course goal
+              guidance: Write the goal in one sentence that names the skill.
+            - id: sections
+              criterion: The plan has two sections with objectives
+              guidance: Each section objective starts with a verb, for example "Identify".
+            - id: order
+              criterion: The lectures are in a clear order
+              guidance: Each lecture builds on the lecture before it.
+            - id: length
+              criterion: The plan fits on one page
+              guidance: Cut detail that the learner does not need.
 internal:
   files:
     - path: internal/research.md
