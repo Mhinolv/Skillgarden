@@ -99,8 +99,8 @@ private final class TestBundleMarker {}
     #expect(errorText.isEmpty)
     #expect(process.terminationStatus == 0)
 
-    // The title bar of a window with a toolbar is at least 40 pt high.
-    let rows = 40 * SnapshotPlan.scale
+    // The compact toolbar row (#74) is 38 pt high.
+    let rows = 38 * SnapshotPlan.scale
     for appearance in SnapshotAppearance.allCases {
         let capture = try Data(contentsOf: out.appending(path: "video-transcript-\(appearance.rawValue).png"))
         #expect(SnapshotCheck.blackPixels(png: capture, topRows: rows) == 0, "\(appearance.rawValue)")
