@@ -183,16 +183,26 @@ func manifestRejectsInvalidVideoPayloads(old: String, new: String, expected: [St
     #expect(lecture.metadataLabel == "Video · 0:04")
     #expect(lecture.isFreePreview)
 
-    let asset = AVURLAsset(url: lecture.url)
-    #expect(try await asset.load(.isPlayable))
-    #expect(abs(try await asset.load(.duration).seconds - 4) < 0.5)
-    #expect(try await asset.loadTracks(withMediaType: .video).count == 1)
+    let media = try await mediaFacts(lecture.url)
+    #expect(media.isPlayable)
+    #expect(abs(media.seconds - 4) < 0.5)
+    #expect(media.videoTracks == 1)
 
     let captions = try #require(try lecture.loadCaptions())
     #expect(captions.cues.count == 2)
     #expect(captions.text(at: 0.5) == "Welcome to Local Course Basics.")
     #expect(captions.text(at: 3) == "You will plan a course step by step.")
     #expect(captions.text(at: 4) == nil)
+}
+
+/// Loads the asset off the main actor and returns only Sendable values.
+/// Older Swift 6.0 SDKs reject `[AVAssetTrack]` across an isolation boundary.
+private func mediaFacts(_ url: URL) async throws -> (isPlayable: Bool, seconds: Double, videoTracks: Int) {
+    let asset = AVURLAsset(url: url)
+    let isPlayable = try await asset.load(.isPlayable)
+    let seconds = try await asset.load(.duration).seconds
+    let videoTracks = try await asset.loadTracks(withMediaType: .video).count
+    return (isPlayable, seconds, videoTracks)
 }
 
 @MainActor @Test func freePreviewFlagTogglesTheBadgeData() async throws {
