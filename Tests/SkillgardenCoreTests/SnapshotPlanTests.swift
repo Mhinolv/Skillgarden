@@ -63,6 +63,17 @@ private func temporaryFolder() throws -> URL {
     }
 }
 
+@Test func snapshotLibrarySeedPublishesTheCourseImage() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let courseID = try #require(try SnapshotPlan.seedStore(for: .library, root: root, fixture: fixture))
+    let course = try #require(try CourseStore(root: root).loadCourse(id: courseID, includeDrafts: false))
+    let image = try #require(course.image)
+    #expect(image.alt == "A green garden with two plants")
+    #expect(image.mimeType == "image/svg+xml")
+    #expect(FileManager.default.fileExists(atPath: root.appending(path: image.path(forPixelWidth: 128, height: 72)).path))
+}
+
 @Test func snapshotScriptExitsNonZeroWhenTheBuildFails() throws {
     let root = try temporaryFolder()
     defer { try? FileManager.default.removeItem(at: root) }
