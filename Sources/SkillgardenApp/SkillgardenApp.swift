@@ -2,6 +2,16 @@ import SwiftUI
 import SkillgardenCore
 
 @main
+enum SkillgardenMain {
+    static func main() {
+        let arguments = CommandLine.arguments
+        if let index = arguments.firstIndex(of: "--snapshot") {
+            exit(MainActor.assumeIsolated { SnapshotRenderer.run(arguments: Array(arguments[(index + 1)...])) })
+        }
+        SkillgardenApp.main()
+    }
+}
+
 struct SkillgardenApp: App {
     var body: some Scene {
         WindowGroup("Skillgarden") {
@@ -35,9 +45,16 @@ extension FocusedValues {
 
 struct ContentView: View {
     @State private var library: LibraryModel
+    private let reloadsOnAppear: Bool
 
     init(root: URL = Skillgarden.defaultDataDirectory) {
-        _library = State(initialValue: LibraryModel(root: root))
+        self.init(library: LibraryModel(root: root))
+    }
+
+    /// The snapshot harness passes a loaded library and sets `reloadsOnAppear` to false.
+    init(library: LibraryModel, reloadsOnAppear: Bool = true) {
+        _library = State(initialValue: library)
+        self.reloadsOnAppear = reloadsOnAppear
     }
 
     var body: some View {
@@ -60,7 +77,7 @@ struct ContentView: View {
         }
         .frame(minWidth: 900, minHeight: 600)
         .focusedSceneValue(\.library, library)
-        .task { await library.reload() }
+        .task { if reloadsOnAppear { await library.reload() } }
         .toolbar {
             ToolbarItem {
                 Button("Reload Library", systemImage: "arrow.clockwise") {
