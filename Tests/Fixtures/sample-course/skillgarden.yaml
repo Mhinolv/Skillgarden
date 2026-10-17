@@ -64,3 +64,10 @@ sections:
         objective: Create a course plan
         state: draft
         order: 1
+internal:
+  files:
+    - path: internal/research.md
+      title: Research brief
+      description: Team notes for the course plan
+    - path: internal/transcript.vtt
+      title: Transcript pack
