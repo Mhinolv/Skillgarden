@@ -54,6 +54,7 @@ enum SnapshotRenderer {
         if let courseID {
             library.selectCourse(courseID)
             library.selectDestination(SnapshotPlan.destination(for: output.screen))
+            for action in SnapshotPlan.quizActions(for: output.screen) { library.performQuizAction(action) }
         }
 
         let imageLoads = ImageLoadTracker()
@@ -79,8 +80,8 @@ enum SnapshotRenderer {
         var ticks = 0
         pump { frameView.layoutSubtreeIfNeeded(); ticks += 1; return ticks >= 20 }
         if courseID != nil {
-            // Capture only after the Library row image load ends, then let SwiftUI draw the loaded image.
-            pump { frameView.layoutSubtreeIfNeeded(); return imageLoads.finished > 0 }
+            // Capture only after the Library row and question image loads end, then let SwiftUI draw the loaded images.
+            pump { frameView.layoutSubtreeIfNeeded(); return imageLoads.finished >= SnapshotPlan.imageLoads(for: output.screen) }
             guard imageLoads.loaded > 0 else { throw SnapshotError.courseImage }
             ticks = 0
             pump { frameView.layoutSubtreeIfNeeded(); ticks += 1; return ticks >= 5 }

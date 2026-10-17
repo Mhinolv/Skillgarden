@@ -30,11 +30,17 @@ struct ManifestValidator {
     mutating func validate(_ value: ManifestValue) {
         let state = FieldRule.choices(["draft", "published"])
         let image = FieldRule.object([("path", .string), ("alt", .altText)])
+        let question = FieldRule.object([
+            ("id", .string), ("prompt", .string), ("image", .optional(image)), ("objective_tag", .string),
+            ("choices", .array(.object([("id", .string), ("text", .string)]))),
+            ("correct_choice_id", .string), ("explanation", .string),
+        ])
         let lecture = FieldRule.object([
             ("id", .string), ("title", .string),
             ("type", .choices(["video", "article", "quiz", "assignment"])),
             ("objective", .string), ("state", state), ("order", .integer),
             ("recommended_next", .optional(.string)),
+            ("quiz", .optional(.object([("questions", .array(question))]))),
         ])
         let section = FieldRule.object([
             ("id", .string), ("title", .string), ("objective", .string),
@@ -53,6 +59,7 @@ struct ManifestValidator {
             ])))]))),
         ])
         check(value, rule: root, path: "$")
+        checkQuizzes(value)
         for (id, path) in recommendations where !lectureIDs.contains(id) {
             add(path, "must refer to a lecture id in this course")
         }
@@ -141,13 +148,64 @@ struct ManifestValidator {
             } else if key == "path" {
                 checkPath(text, path: path)
             }
-            if key == "id" {
+            // Question and choice ids are unique inside their quiz or question only. `checkQuizzes` checks them.
+            if key == "id", !path.contains(".quiz.") {
                 if let first = ids[text] { add(path, "duplicate id \"\(text)\" (first used at \(first))") }
                 else { ids[text] = path }
                 if path.contains(".lectures[") { lectureIDs.insert(text) }
             }
             if key == "recommended_next" { recommendations.append((text, path)) }
         default: break
+        }
+    }
+
+    /// Rules that span fields: `quiz` goes with `type: quiz`, ids are unique, and the correct choice exists.
+    private mutating func checkQuizzes(_ root: ManifestValue) {
+        func object(_ value: ManifestValue?) -> [String: ManifestValue]? {
+            if case .object(let object)? = value { return object }
+            return nil
+        }
+        func array(_ value: ManifestValue?) -> [ManifestValue] {
+            if case .array(let values)? = value { return values }
+            return []
+        }
+        func string(_ value: ManifestValue?) -> String? {
+            if case .string(let text)? = value { return text }
+            return nil
+        }
+        for (sectionIndex, section) in array(object(root)?["sections"]).enumerated() {
+            for (lectureIndex, lecture) in array(object(section)?["lectures"]).enumerated() {
+                guard let lecture = object(lecture) else { continue }
+                let path = "sections[\(sectionIndex)].lectures[\(lectureIndex)].quiz"
+                var quiz = lecture["quiz"]
+                if case .null? = quiz { quiz = nil }
+                let isQuiz = string(lecture["type"]) == "quiz"
+                if isQuiz, quiz == nil { add(path, "required when type is quiz") }
+                if !isQuiz, quiz != nil, string(lecture["type"]) != nil { add(path, "allowed only when type is quiz") }
+                guard case .array(let questions)? = object(quiz)?["questions"] else { continue }
+                if questions.isEmpty { add(path + ".questions", "must have at least one question") }
+                var questionIDs: [String: String] = [:]
+                for (questionIndex, question) in questions.enumerated() {
+                    guard let question = object(question) else { continue }
+                    let questionPath = "\(path).questions[\(questionIndex)]"
+                    if let id = string(question["id"]) {
+                        if let first = questionIDs[id] { add(questionPath + ".id", "duplicate id \"\(id)\" (first used at \(first))") }
+                        else { questionIDs[id] = questionPath + ".id" }
+                    }
+                    guard case .array(let choices)? = question["choices"] else { continue }
+                    if choices.count < 2 { add(questionPath + ".choices", "must have at least two choices") }
+                    var choiceIDs: [String: String] = [:]
+                    for (choiceIndex, choice) in choices.enumerated() {
+                        guard let id = string(object(choice)?["id"]) else { continue }
+                        let choicePath = "\(questionPath).choices[\(choiceIndex)].id"
+                        if let first = choiceIDs[id] { add(choicePath, "duplicate id \"\(id)\" (first used at \(first))") }
+                        else { choiceIDs[id] = choicePath }
+                    }
+                    if let correct = string(question["correct_choice_id"]), choiceIDs[correct] == nil {
+                        add(questionPath + ".correct_choice_id", "must refer to a choice id in this question")
+                    }
+                }
+            }
         }
     }
 

@@ -11,6 +11,12 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case courseLanding = "course-landing"
     /// The fixture course with `theme.appearance: dark` and a light accent. No lecture is opened, so "Start Course" shows.
     case courseLandingDarkTheme = "course-landing-dark-theme"
+    /// The fixture quiz with its draft section published. The first question has an image and no selection.
+    case quizQuestion = "quiz-question"
+    /// The same question after the learner submitted a wrong choice.
+    case quizWrongAnswer = "quiz-wrong-answer"
+    /// The results screen with two weak skills.
+    case quizResults = "quiz-results"
 }
 
 public enum SnapshotAppearance: String, CaseIterable, Sendable {
@@ -59,16 +65,45 @@ public enum SnapshotPlan {
             if screen == .courseLanding { try store.saveLastOpenedLecture(courseID: id, lectureID: "read") }
             return id
         case .courseLandingDarkTheme:
-            let copy = FileManager.default.temporaryDirectory.appending(path: "SkillgardenDarkFixture-\(UUID())")
-            defer { try? FileManager.default.removeItem(at: copy) }
-            try FileManager.default.copyItem(at: fixture, to: copy)
-            let manifest = copy.appending(path: "skillgarden.yaml")
-            let text = try String(contentsOf: manifest, encoding: .utf8)
-                .replacingOccurrences(of: "appearance: light", with: "appearance: dark")
-                .replacingOccurrences(of: "accent_color: '#286644'", with: "accent_color: '\(darkThemeAccent)'")
-            try text.write(to: manifest, atomically: true, encoding: .utf8)
-            return try CoursePublisher.publish(courseFolder: copy, root: root).id
+            return try publishCopy(of: fixture, root: root, replacing: [
+                ("appearance: light", "appearance: dark"),
+                ("accent_color: '#286644'", "accent_color: '\(darkThemeAccent)'"),
+            ])
+        case .quizQuestion, .quizWrongAnswer, .quizResults:
+            // The fixture quiz is in a draft section. The copy publishes that section so the learner sees the quiz.
+            return try publishCopy(of: fixture, root: root, replacing: [
+                ("objective: Apply the course plan\n    state: draft", "objective: Apply the course plan\n    state: published"),
+            ])
         }
+    }
+
+    /// Publishes a temporary copy of the fixture with text replacements in `skillgarden.yaml`.
+    private static func publishCopy(of fixture: URL, root: URL, replacing replacements: [(String, String)]) throws -> String {
+        let copy = FileManager.default.temporaryDirectory.appending(path: "SkillgardenFixtureCopy-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: copy) }
+        try FileManager.default.copyItem(at: fixture, to: copy)
+        let manifest = copy.appending(path: "skillgarden.yaml")
+        var text = try String(contentsOf: manifest, encoding: .utf8)
+        for (old, new) in replacements { text = text.replacingOccurrences(of: old, with: new) }
+        try text.write(to: manifest, atomically: true, encoding: .utf8)
+        return try CoursePublisher.publish(courseFolder: copy, root: root).id
+    }
+
+    /// Quiz actions that the harness applies after it opens the quiz lecture.
+    /// Results: the learner answers the first two questions wrong, so two skills are weak.
+    public static func quizActions(for screen: SnapshotScreen) -> [QuizAction] {
+        switch screen {
+        case .quizWrongAnswer: [.select(choiceID: "lectures"), .submit]
+        case .quizResults:
+            [.select(choiceID: "lectures"), .submit, .next, .select(choiceID: "newest"), .submit, .next,
+             .select(choiceID: "skill"), .submit, .next]
+        default: []
+        }
+    }
+
+    /// The image loads to wait for before the capture: the Library row image, then the question image.
+    public static func imageLoads(for screen: SnapshotScreen) -> Int {
+        screen == .quizQuestion || screen == .quizWrongAnswer ? 2 : 1
     }
 
     /// The page to open after the course is selected. The fixture lecture has a `recommended_next` target.
@@ -78,6 +113,7 @@ public enum SnapshotPlan {
         case .section: .section(sectionID: "plan")
         case .lecture, .lectureComplete: .lecture(sectionID: "plan", lectureID: "welcome")
         case .courseLanding, .courseLandingDarkTheme: .overview
+        case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")
         }
     }
 }

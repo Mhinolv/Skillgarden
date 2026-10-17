@@ -144,7 +144,11 @@ struct ContentView: View {
                     next: library.nextLecture == nil ? nil : { library.goToNextLecture() },
                     openNudge: { library.goToNudge() }
                 ) {
-                    LectureContentPlaceholder(lecture: lecture)
+                    if let attempt = library.selectedQuizAttempt {
+                        QuizView(attempt: attempt) { library.performQuizAction($0) }
+                    } else {
+                        LectureContentPlaceholder(lecture: lecture)
+                    }
                 }
                 .id(lecture.id)
             } else if let section = library.selectedSection {

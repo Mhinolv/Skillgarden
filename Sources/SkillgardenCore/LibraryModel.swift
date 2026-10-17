@@ -23,6 +23,12 @@ public final class LibraryModel {
     public private(set) var progress: [String: [String: LectureProgress]] = [:]
     /// The last opened lecture id by course id. The lecture can be absent from the current outline.
     public private(set) var lastOpenedLectures: [String: String] = [:]
+    /// Quiz content by course id, then lecture id, read from each installed manifest.
+    public private(set) var quizzes: [String: [String: Quiz]] = [:]
+    /// The latest saved quiz result by course id, then lecture id.
+    public private(set) var quizResults: [String: [String: QuizResult]] = [:]
+    /// Quiz attempts of this session by course id, then lecture id. They are not saved.
+    private var quizAttempts: [String: [String: QuizAttempt]] = [:]
     public let root: URL
     /// The store of the last reload. Progress writes use it off the main actor, one at a time.
     private var store: CourseStore?
@@ -128,6 +134,33 @@ public final class LibraryModel {
 
     public func resume() { if let resumeDestination { open(resumeDestination) } }
 
+    // MARK: Quiz
+
+    /// The quiz of the selected lecture. Nil if the lecture is not a quiz or its course has no installed manifest.
+    public var selectedQuiz: Quiz? {
+        guard let courseID = selectedCourseID, let lecture = selectedLecture, lecture.type == .quiz else { return nil }
+        return quizzes[courseID]?[lecture.id]
+    }
+
+    /// The attempt of this session for the selected quiz. A republish that changes the quiz starts a new attempt.
+    public var selectedQuizAttempt: QuizAttempt? {
+        guard let quiz = selectedQuiz, let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return nil }
+        if let attempt = quizAttempts[courseID]?[lectureID], attempt.quiz == quiz { return attempt }
+        return QuizAttempt(quiz: quiz)
+    }
+
+    /// Applies a learner action to the selected quiz. When the results screen opens, the result is saved.
+    public func performQuizAction(_ action: QuizAction) {
+        guard var attempt = selectedQuizAttempt, let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return }
+        let wasShowingResults = attempt.showsResults
+        attempt.perform(action)
+        quizAttempts[courseID, default: [:]][lectureID] = attempt
+        guard attempt.showsResults, !wasShowingResults else { return }
+        let result = attempt.result
+        quizResults[courseID, default: [:]][lectureID] = result
+        enqueueWrite { try $0.saveQuizResult(result, courseID: courseID, lectureID: lectureID) }
+    }
+
     /// Waits until all queued progress writes finish.
     func waitForWrites() async { _ = await pendingWrite?.value }
 
@@ -173,10 +206,10 @@ public final class LibraryModel {
         // Queued writes finish first, so the reload reads them.
         await waitForWrites()
         do {
-            let (store, loaded, installed, progress, lastOpened) = try await Task.detached {
+            let (store, loaded, installed, progress, lastOpened, quizResults) = try await Task.detached {
                 let store = try CourseStore(root: root)
                 return (store, try store.listCourses(), try Self.installedData(store: store, root: root),
-                        try store.allProgress(), try store.lastOpenedLectures())
+                        try store.allProgress(), try store.lastOpenedLectures(), try store.allQuizResults())
             }.value
             self.store = store
             courses = loaded
@@ -184,6 +217,8 @@ public final class LibraryModel {
             landings = installed.landings
             self.progress = progress
             lastOpenedLectures = lastOpened
+            quizzes = installed.quizzes
+            self.quizResults = quizResults
             errorMessage = nil
             if let course = selectedCourse {
                 if !Self.isValid(destination, in: course) { destination = .overview }
@@ -198,6 +233,8 @@ public final class LibraryModel {
             landings = [:]
             progress = [:]
             lastOpenedLectures = [:]
+            quizzes = [:]
+            quizResults = [:]
             selectedCourseID = nil
             destination = nil
             errorMessage = error.localizedDescription
@@ -216,12 +253,14 @@ public final class LibraryModel {
         }
     }
 
-    /// Reads header images and course page fields from each installed manifest.
+    /// Reads header images, course page fields and quizzes from each installed manifest.
     /// A header image path outside the snapshot folder is ignored.
     nonisolated private static func installedData(store: CourseStore, root: URL) throws
-        -> (headerImages: [String: [String: SectionHeaderImage]], landings: [String: CourseLanding]) {
+        -> (headerImages: [String: [String: SectionHeaderImage]], landings: [String: CourseLanding],
+            quizzes: [String: [String: Quiz]]) {
         var images: [String: [String: SectionHeaderImage]] = [:]
         var landings: [String: CourseLanding] = [:]
+        var quizzes: [String: [String: Quiz]] = [:]
         for (courseID, publication) in try store.publications() {
             guard let manifest = try? JSONDecoder().decode(CourseManifest.self, from: publication.manifest) else { continue }
             landings[courseID] = CourseLanding(manifest: manifest)
@@ -231,7 +270,10 @@ public final class LibraryModel {
                 guard url.path.hasPrefix(folder.path + "/") else { continue }
                 images[courseID, default: [:]][section.id] = SectionHeaderImage(url: url, alt: section.headerImage.alt)
             }
+            for lecture in manifest.sections.flatMap(\.lectures) {
+                if let quiz = lecture.quiz { quizzes[courseID, default: [:]][lecture.id] = Quiz(manifest: quiz, folder: folder) }
+            }
         }
-        return (images, landings)
+        return (images, landings, quizzes)
     }
 }
