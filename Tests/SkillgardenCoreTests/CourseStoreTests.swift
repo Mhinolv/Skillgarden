@@ -153,14 +153,15 @@ private func sampleCourse(id: String = "course", state: PublicationState = .publ
         let before = try store.loadCourse(id: "course", includeDrafts: true)
         let migration = ["ALTER TABLE courses ADD COLUMN future_value TEXT NOT NULL DEFAULT 'default'"]
         let upgraded = try CourseStore(root: root, migrations: CourseStore.migrations + [migration])
-        #expect(try upgraded.schemaVersion == 3)
+        #expect(try upgraded.schemaVersion == CourseStore.currentSchemaVersion + 1)
         #expect(try upgraded.loadCourse(id: "course", includeDrafts: true) == before)
         let reopened = try CourseStore(root: root, migrations: CourseStore.migrations + [migration])
-        #expect(try reopened.schemaVersion == 3)
+        #expect(try reopened.schemaVersion == CourseStore.currentSchemaVersion + 1)
         #expect(try reopened.loadCourse(id: "course", includeDrafts: true) == before)
         let db = try SQLiteDatabase(url: store.databaseURL)
         #expect(try db.query("SELECT future_value FROM courses") { SQLiteDatabase.text($0, 0) } == ["default"])
-        #expect(throws: CourseStoreError.unsupportedSchema(found: 3, supported: 2)) { try CourseStore(root: root) }
+        #expect(throws: CourseStoreError.unsupportedSchema(
+            found: CourseStore.currentSchemaVersion + 1, supported: CourseStore.currentSchemaVersion)) { try CourseStore(root: root) }
     }
 }
 
@@ -173,7 +174,7 @@ private func sampleCourse(id: String = "course", state: PublicationState = .publ
             try CourseStore(root: root, migrations: CourseStore.migrations + [migration])
         }
         let reopened = try CourseStore(root: root)
-        #expect(try reopened.schemaVersion == 2)
+        #expect(try reopened.schemaVersion == CourseStore.currentSchemaVersion)
         #expect(try reopened.loadCourse(id: "course", includeDrafts: true) == before)
         let db = try SQLiteDatabase(url: store.databaseURL)
         let columns = try db.query("PRAGMA table_info(courses)") { SQLiteDatabase.text($0, 1) }

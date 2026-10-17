@@ -14,7 +14,7 @@ public final class LibraryModel {
     public private(set) var errorMessage: String?
     public private(set) var selectedCourseID: String?
     public private(set) var destination: CourseDestination? = nil
-    private let root: URL
+    public let root: URL
 
     public init(root: URL = Skillgarden.defaultDataDirectory) {
         self.root = root

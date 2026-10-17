@@ -107,7 +107,7 @@ struct ContentView: View {
         } else {
             List(selection: Binding(get: { library.selectedCourseID }, set: { library.selectCourse($0) })) {
                 ForEach(library.courses) { course in
-                    LibraryRow(course: course).tag(course.id)
+                    LibraryRow(course: course, root: library.root).tag(course.id)
                 }
             }
             .listStyle(.sidebar)

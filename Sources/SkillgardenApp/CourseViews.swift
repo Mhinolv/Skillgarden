@@ -20,16 +20,48 @@ extension LectureType {
     }
 }
 
+/// Draws a published image at a fixed size without crop. Raster images use the smallest derivative that covers the size.
+struct CourseImageView: View {
+    let image: CourseImage?
+    let root: URL
+    let width: CGFloat
+    let height: CGFloat
+    @Environment(\.displayScale) private var displayScale
+    @State private var loaded: NSImage?
+
+    private var url: URL? {
+        image.map { root.appending(path: $0.path(forPixelWidth: width * displayScale, height: height * displayScale)) }
+    }
+
+    var body: some View {
+        Group {
+            if let loaded {
+                Image(nsImage: loaded).resizable().aspectRatio(contentMode: .fit)
+            } else {
+                Image(systemName: "photo").foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: width, height: height)
+        .background(.quaternary, in: .rect(cornerRadius: CourseStyle.cornerRadius))
+        .clipShape(.rect(cornerRadius: CourseStyle.cornerRadius))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(image?.alt ?? "")
+        .task(id: url) {
+            guard let url else { loaded = nil; return }
+            // Read the file off the main actor. NSImage keeps SVG as a vector, so it draws sharp at any size.
+            let data = await Task.detached { try? Data(contentsOf: url) }.value
+            loaded = data.flatMap(NSImage.init(data:))
+        }
+    }
+}
+
 struct LibraryRow: View {
     let course: Course
+    let root: URL
 
     var body: some View {
         HStack(spacing: CourseStyle.spacing) {
-            Image(systemName: "photo")
-                .foregroundStyle(.secondary)
-                .frame(width: 64, height: 36)
-                .background(.quaternary, in: .rect(cornerRadius: CourseStyle.cornerRadius))
-                .accessibilityHidden(true)
+            CourseImageView(image: course.image, root: root, width: 64, height: 36)
             VStack(alignment: .leading, spacing: CourseStyle.spacing) {
                 Text(course.title).font(.headline).lineLimit(1)
                 Text(course.subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)

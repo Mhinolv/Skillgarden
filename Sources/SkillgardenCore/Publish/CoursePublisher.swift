@@ -25,25 +25,35 @@ public enum CoursePublisher {
             throw diagnostic(courseFolder, "library must be outside the course folder")
         }
         let files = try sourceFiles(in: source)
-        for (field, path) in [("course_image.path", manifest.courseImage.path)] + manifest.sections.enumerated().map({
-            ("sections[\($0.offset)].header_image.path", $0.element.headerImage.path)
-        }) {
-            guard files.contains(path) else {
-                throw ManifestValidationError(diagnostics: [ManifestDiagnostic(file: courseFolder.path, fieldPath: field, message: "file does not exist")])
+        let images = [ImageField(field: "course_image", image: manifest.courseImage, role: .course)]
+            + manifest.sections.enumerated().map {
+                ImageField(field: "sections[\($0.offset)].header_image", image: $0.element.headerImage, role: .sectionHeader)
             }
+        var problems: [ManifestDiagnostic] = []
+        for item in images {
+            guard files.contains(item.image.path) else {
+                problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: item.field + ".path", message: "file does not exist"))
+                continue
+            }
+            do throws(ImagePipelineError) { _ = try ImagePipeline.format(of: source.appending(path: item.image.path)) }
+            catch { problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: item.field + ".path", message: error.message)) }
         }
+        guard problems.isEmpty else { throw ManifestValidationError(diagnostics: problems) }
         let store = try CourseStore(root: root)
         let previous = try store.publication(id: manifest.id)
         let oldManifest = try previous.map { try JSONDecoder().decode(CourseManifest.self, from: $0.manifest) }
         let counts = difference(old: oldManifest, new: manifest)
         let result = PublishResult(title: manifest.title, id: manifest.id, state: manifest.state,
                                    created: counts.0, updated: counts.1, unchanged: counts.2, removed: counts.3)
-        if let previous, oldManifest == manifest,
+        // Courses saved before media metadata get their images on the next publish.
+        if let previous, oldManifest == manifest, try store.loadCourse(id: manifest.id, includeDrafts: true)?.image != nil,
            try equalFiles(files, source: source, snapshot: destination.appending(path: previous.directory)) {
             return result
         }
-        let relative = "courses/\(UUID().uuidString)"
+        let name = UUID().uuidString
+        let relative = "courses/\(name)"
         let snapshot = destination.appending(path: relative)
+        let media = "derivatives/\(name)"
         do {
             try manager.createDirectory(at: snapshot, withIntermediateDirectories: true)
             for path in files {
@@ -55,9 +65,11 @@ public enum CoursePublisher {
             guard try ManifestLoader.load(courseFolder: snapshot) == manifest else {
                 throw diagnostic(courseFolder, "manifest changed during publish")
             }
-            try store.savePublication(course(from: manifest), manifest: JSONEncoder().encode(manifest), directory: relative)
+            let stored = try publishImages(images, snapshot: relative, media: media, root: destination, folder: courseFolder)
+            try store.savePublication(course(from: manifest, images: stored), manifest: JSONEncoder().encode(manifest), directory: relative)
         } catch {
             try? manager.removeItem(at: snapshot)
+            try? manager.removeItem(at: destination.appending(path: media))
             if error is ManifestValidationError || error is CourseStoreError { throw error }
             throw CourseStoreError.databaseFailure
         }
@@ -68,6 +80,46 @@ public enum CoursePublisher {
     /// Returns the installed snapshot. Source files can be removed after publish.
     public static func assetDirectory(courseID: String, root: URL = Skillgarden.defaultDataDirectory) throws -> URL? {
         try CourseStore(root: root).publication(id: courseID).map { root.appending(path: $0.directory) }
+    }
+
+    private struct ImageField {
+        let field: String
+        let image: ManifestImage
+        let role: ImageRole
+    }
+
+    /// Reads images from the snapshot and writes raster derivatives. SVG stays vector and has no derivatives.
+    private static func publishImages(_ images: [ImageField], snapshot: String, media: String, root: URL,
+                                      folder: URL) throws -> [CourseImage] {
+        try FileManager.default.createDirectory(at: root.appending(path: media), withIntermediateDirectories: true)
+        var rendered: [String: [ImageDerivative]] = [:]
+        return try images.enumerated().map { index, item in
+            let url = root.appending(path: snapshot).appending(path: item.image.path)
+            do throws(ImagePipelineError) {
+                let format = try ImagePipeline.format(of: url)
+                var derivatives: [ImageDerivative] = []
+                // Sections often share one header file. Render each file once for each role.
+                let key = "\(item.role)|\(item.image.path)"
+                if format != .svg {
+                    if let cached = rendered[key] { derivatives = cached }
+                    else {
+                        for size in item.role.sizes {
+                            let path = "\(media)/\(index)-\(size.width)x\(size.height).png"
+                            try ImagePipeline.renderDerivative(from: url, width: size.width, height: size.height,
+                                                               to: root.appending(path: path))
+                            derivatives.append(ImageDerivative(path: path, width: size.width, height: size.height))
+                        }
+                        rendered[key] = derivatives
+                    }
+                }
+                return CourseImage(path: "\(snapshot)/\(item.image.path)", alt: item.image.alt,
+                                   mimeType: format.rawValue, derivatives: derivatives)
+            } catch {
+                throw ManifestValidationError(diagnostics: [
+                    ManifestDiagnostic(file: folder.path, fieldPath: item.field + ".path", message: error.message),
+                ])
+            }
+        }
     }
 
     private static func sourceFiles(in folder: URL) throws -> [String] {
@@ -120,15 +172,16 @@ public enum CoursePublisher {
         return (created, updated, unchanged, removed)
     }
 
-    private static func course(from manifest: CourseManifest) -> Course {
+    /// `images` holds the course image first, then one header image for each section in manifest order.
+    private static func course(from manifest: CourseManifest, images: [CourseImage]) -> Course {
         Course(id: manifest.id, title: manifest.title, subtitle: manifest.subtitle,
-               state: manifest.state == .draft ? .draft : .published, sections: manifest.sections.map { section in
+               state: manifest.state == .draft ? .draft : .published, sections: manifest.sections.enumerated().map { index, section in
             CourseSection(id: section.id, title: section.title, objective: section.objective, order: section.order,
                           state: section.state == .draft ? .draft : .published, lectures: section.lectures.map { lecture in
                 Lecture(id: lecture.id, title: lecture.title, type: LectureType(rawValue: lecture.type.rawValue)!,
                         objective: lecture.objective, order: lecture.order, state: lecture.state == .draft ? .draft : .published,
                         recommendedNext: lecture.recommendedNext)
-            })
-        })
+            }, headerImage: images[index + 1])
+        }, image: images[0])
     }
 }

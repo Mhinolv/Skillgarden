@@ -1,11 +1,11 @@
 import Foundation
 
 private indirect enum FieldRule {
-    case string, integer, choices([String]), object([(String, FieldRule)]), array(FieldRule), optional(FieldRule)
+    case string, altText, integer, choices([String]), object([(String, FieldRule)]), array(FieldRule), optional(FieldRule)
 
     var type: String {
         switch self {
-        case .string, .choices: "string"
+        case .string, .altText, .choices: "string"
         case .integer: "integer"
         case .object: "object"
         case .array: "array"
@@ -29,7 +29,7 @@ struct ManifestValidator {
 
     mutating func validate(_ value: ManifestValue) {
         let state = FieldRule.choices(["draft", "published"])
-        let image = FieldRule.object([("path", .string), ("alt", .string)])
+        let image = FieldRule.object([("path", .string), ("alt", .altText)])
         let lecture = FieldRule.object([
             ("id", .string), ("title", .string),
             ("type", .choices(["video", "article", "quiz", "assignment"])),
@@ -93,6 +93,16 @@ struct ManifestValidator {
         if case .optional(let inner) = rule {
             if let value, case .null = value { return }
             if let value { check(value, rule: inner, path: path) }
+            return
+        }
+        if case .altText = rule {
+            // A missing, null or blank alt gets one stable message.
+            switch value {
+            case nil, .null?: add(path, "alt text is required")
+            case .string(let text)?:
+                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { add(path, "alt text is required") }
+            case let value?: add(path, "expected string, found \(value.type)")
+            }
             return
         }
         guard let value else { add(path, "required field is missing"); return }

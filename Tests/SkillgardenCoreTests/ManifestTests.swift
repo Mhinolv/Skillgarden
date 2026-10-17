@@ -140,10 +140,14 @@ func manifestRejectsPaths(path: String) throws {
             let path = prefix.isEmpty ? key : "\(prefix).\(key)"
             var missing = fields
             missing.removeValue(forKey: key)
-            #expect(try diagnostics(wrap(missing)).contains { $0.fieldPath == path && $0.message == "required field is missing" })
+            // Image alt text has its own stable message for a missing or null value.
+            let required = key == "alt" ? "alt text is required" : "required field is missing"
+            #expect(try diagnostics(wrap(missing)).contains { $0.fieldPath == path && $0.message == required })
             var wrong = fields
             wrong[key] = NSNull()
-            #expect(try diagnostics(wrap(wrong)).contains { $0.fieldPath == path && $0.message.hasPrefix("expected ") })
+            #expect(try diagnostics(wrap(wrong)).contains {
+                $0.fieldPath == path && (key == "alt" ? $0.message == required : $0.message.hasPrefix("expected "))
+            })
         }
     }
     try checkFields(object, prefix: "", wrap: { $0 })
