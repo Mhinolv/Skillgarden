@@ -8,4 +8,47 @@ public enum Skillgarden {
     public static var defaultDataDirectory: URL {
         URL.applicationSupportDirectory.appending(path: "Skillgarden", directoryHint: .isDirectory)
     }
+
+    /// The environment variable that names the data folder. It has priority over the saved setting.
+    public static let dataDirectoryVariable = "SKILLGARDEN_DATA_DIR"
+    /// The defaults domain and key of the saved setting: `defaults write dev.skillgarden.app DataDirectory <path>`.
+    public static let defaultsDomain = "dev.skillgarden.app"
+    public static let dataDirectoryKey = "DataDirectory"
+
+    /// Data folder for the CLI and the app: `SKILLGARDEN_DATA_DIR`, then the saved setting, then Application Support.
+    /// An empty value is skipped. A leading `~` expands to `home`. A relative path is an error.
+    public static func dataDirectory(environment: [String: String], savedSetting: String?,
+                                     home: URL = FileManager.default.homeDirectoryForCurrentUser) throws(DataDirectoryError) -> URL {
+        for (name, value) in [(dataDirectoryVariable, environment[dataDirectoryVariable]), (dataDirectoryKey, savedSetting)] {
+            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { continue }
+            var path = value
+            if path == "~" { path = home.path }
+            else if path.hasPrefix("~/") { path = home.path + path.dropFirst() }
+            guard path.hasPrefix("/") else { throw DataDirectoryError(source: name) }
+            return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+        }
+        return defaultDataDirectory
+    }
+
+    /// The path to show in the app when `root` is not the default data folder, else nil.
+    public static func customDataDirectoryPath(_ root: URL) -> String? {
+        let path = root.standardizedFileURL.path(percentEncoded: false)
+        let defaultPath = defaultDataDirectory.standardizedFileURL.path(percentEncoded: false)
+        func trimmed(_ text: String) -> String { text.count > 1 && text.hasSuffix("/") ? String(text.dropLast()) : text }
+        return trimmed(path) == trimmed(defaultPath) ? nil : trimmed(path)
+    }
+
+    /// Reads the real environment and the saved setting of the `dev.skillgarden.app` domain.
+    public static func dataDirectory() throws(DataDirectoryError) -> URL {
+        let saved = CFPreferencesCopyAppValue(dataDirectoryKey as CFString, defaultsDomain as CFString) as? String
+        return try dataDirectory(environment: ProcessInfo.processInfo.environment, savedSetting: saved)
+    }
+}
+
+/// The data folder setting is not an absolute path.
+public struct DataDirectoryError: Error, Equatable, Sendable, LocalizedError {
+    /// `SKILLGARDEN_DATA_DIR` or `DataDirectory`.
+    public let source: String
+
+    public var errorDescription: String? { "\(source) must be an absolute path" }
 }

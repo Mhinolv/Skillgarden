@@ -170,7 +170,7 @@ private func files(in directory: URL) throws -> [String] {
 
 @Test func commandInternalUsageErrors() throws {
     let root = FileManager.default.temporaryDirectory.appending(path: "SkillgardenUnused-\(UUID())")
-    let usage = "usage: skillgarden publish <course-folder>\n       skillgarden internal list <course-id>\n"
+    let usage = "usage: skillgarden publish <course-folder>\n       skillgarden validate <course-folder>\n       skillgarden internal list <course-id>\n"
     for arguments in [["internal"], ["internal", "list"], ["internal", "show", "a"], ["internal", "list", "a", "b"], ["internal", "list", "--json"]] {
         #expect(SkillgardenCommand.run(arguments: arguments, root: root) == CommandResult(
             exitCode: 2, stdout: "", stderr: "error: expected internal list <course-id>\n" + usage))

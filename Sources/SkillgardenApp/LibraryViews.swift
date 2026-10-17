@@ -4,6 +4,8 @@ import SkillgardenCore
 /// The Library home: the full window while no course is open. A bento grid with the hero and one tile per course.
 struct LibraryHomeView: View {
     let library: LibraryModel
+    /// The library folder to show under "No courses yet". It is nil for the default folder.
+    var customRootPath: String? = nil
     @Environment(\.gardenPalette) private var palette
     @State private var width = LibraryBento.wideWidth
 
@@ -19,7 +21,14 @@ struct LibraryHomeView: View {
                 ProgressView("Load Library")
             } else if library.courses.isEmpty {
                 LibraryStateCard(symbol: "books.vertical", title: "No courses yet",
-                                 message: "Publish a course with the skillgarden CLI.") { EmptyView() }
+                                 message: "Publish a course with the skillgarden CLI.") {
+                    if let customRootPath {
+                        Text("Library: \(customRootPath)")
+                            .gardenText(.meta)
+                            .multilineTextAlignment(.center)
+                            .textSelection(.enabled)
+                    }
+                }
             } else {
                 home
             }

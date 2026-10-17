@@ -63,15 +63,25 @@ extension FocusedValues {
 struct ContentView: View {
     @State private var library: LibraryModel
     private let reloadsOnAppear: Bool
+    /// The library folder to show under "No courses yet". It is nil for the default folder.
+    private let customRootPath: String?
 
-    init(root: URL = Skillgarden.defaultDataDirectory) {
-        self.init(library: LibraryModel(root: root))
+    /// Uses the data folder that `SKILLGARDEN_DATA_DIR` or the saved `DataDirectory` setting names.
+    init() {
+        let library: LibraryModel
+        do {
+            library = LibraryModel(root: try Skillgarden.dataDirectory())
+        } catch {
+            library = LibraryModel(rootError: error.localizedDescription)
+        }
+        self.init(library: library, customRootPath: Skillgarden.customDataDirectoryPath(library.root))
     }
 
     /// The snapshot harness passes a loaded library and sets `reloadsOnAppear` to false.
-    init(library: LibraryModel, reloadsOnAppear: Bool = true) {
+    init(library: LibraryModel, reloadsOnAppear: Bool = true, customRootPath: String? = nil) {
         _library = State(initialValue: library)
         self.reloadsOnAppear = reloadsOnAppear
+        self.customRootPath = customRootPath
     }
 
     var body: some View {
@@ -79,7 +89,7 @@ struct ContentView: View {
             if let course = library.selectedCourse {
                 workspace(course)
             } else {
-                LibraryHomeView(library: library)
+                LibraryHomeView(library: library, customRootPath: customRootPath)
             }
         }
         // The toolbar is inside the theme, so its buttons get the Garden palette.

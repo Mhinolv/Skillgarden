@@ -41,9 +41,12 @@ public final class LibraryModel {
     /// The store of the last reload. Progress writes use it off the main actor, one at a time.
     private var store: CourseStore?
     private var pendingWrite: Task<Bool, Never>?
+    /// A bad data folder setting. Each reload shows it and does not open the store.
+    private let rootError: String?
 
-    public init(root: URL = Skillgarden.defaultDataDirectory) {
+    public init(root: URL = Skillgarden.defaultDataDirectory, rootError: String? = nil) {
         self.root = root
+        self.rootError = rootError
     }
 
     public var selectedCourse: Course? {
@@ -293,6 +296,10 @@ public final class LibraryModel {
         guard !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
+        if let rootError {
+            errorMessage = rootError
+            return
+        }
         let root = root
         // Queued writes finish first, so the reload reads them.
         await waitForWrites()

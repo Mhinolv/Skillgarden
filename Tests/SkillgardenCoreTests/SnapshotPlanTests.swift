@@ -16,7 +16,8 @@ private func temporaryFolder() throws -> URL {
     let out = URL(fileURLWithPath: "/tmp/snapshots")
     let outputs = SnapshotPlan.outputs(outDirectory: out)
     #expect(outputs.map(\.url.lastPathComponent) == [
-        "library-empty-light.png", "library-empty-dark.png", "library-light.png", "library-dark.png",
+        "library-empty-light.png", "library-empty-dark.png",
+        "library-empty-custom-folder-light.png", "library-empty-custom-folder-dark.png", "library-light.png", "library-dark.png",
         "section-light.png", "section-dark.png", "lecture-light.png", "lecture-dark.png",
         "lecture-complete-light.png", "lecture-complete-dark.png", "article-light.png", "article-dark.png",
         "course-landing-light.png", "course-landing-dark.png",
@@ -26,7 +27,8 @@ private func temporaryFolder() throws -> URL {
         "video-player-light.png", "video-player-dark.png",
     ])
     #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer])
-    #expect(SnapshotScreen.allCases.filter { !$0.selectsCourse } == [.libraryEmpty, .library])
+    #expect(SnapshotScreen.allCases.filter { !$0.selectsCourse } == [.libraryEmpty, .libraryEmptyCustomFolder, .library])
+    #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
     #expect(Set(outputs.map(\.url)).count == SnapshotScreen.allCases.count * SnapshotAppearance.allCases.count)
@@ -42,7 +44,7 @@ private func temporaryFolder() throws -> URL {
         await library.reload()
         #expect(library.errorMessage == nil)
         switch screen {
-        case .libraryEmpty:
+        case .libraryEmpty, .libraryEmptyCustomFolder:
             #expect(courseID == nil)
             #expect(!screen.selectsCourse)
             #expect(SnapshotPlan.imageLoads(for: screen) == 0)

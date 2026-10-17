@@ -3,6 +3,8 @@ import Foundation
 /// Screens that `scripts/snapshot.sh` renders for QA. Add new screens here with the same name rule.
 public enum SnapshotScreen: String, CaseIterable, Sendable {
     case libraryEmpty = "library-empty"
+    /// The empty library in a data folder that is not the default. The "Library: <path>" line shows.
+    case libraryEmptyCustomFolder = "library-empty-custom-folder"
     /// The Library home with no selected course: the fixture course in progress as the hero, then a new course tile.
     case library
     case section
@@ -28,7 +30,10 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     public var opensVideoPlayer: Bool { self == .videoPlayer }
 
     /// True when the harness selects the seeded course. The Library screens show the Library home, so they select none.
-    public var selectsCourse: Bool { self != .library && self != .libraryEmpty }
+    public var selectsCourse: Bool { self != .library && self != .libraryEmpty && self != .libraryEmptyCustomFolder }
+
+    /// The fixed library path that the harness shows. The real temporary root changes on each run.
+    public var customRootPath: String? { self == .libraryEmptyCustomFolder ? "/Users/agent/skillgarden-library" : nil }
 }
 
 public enum SnapshotAppearance: String, CaseIterable, Sendable {
@@ -65,7 +70,7 @@ public enum SnapshotPlan {
     /// Writes the store that a screen needs into `root` and returns the course to select, if any.
     public static func seedStore(for screen: SnapshotScreen, root: URL, fixture: URL) throws -> String? {
         switch screen {
-        case .libraryEmpty:
+        case .libraryEmpty, .libraryEmptyCustomFolder:
             _ = try CourseStore(root: root)
             return nil
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer:
@@ -133,7 +138,7 @@ public enum SnapshotPlan {
     /// Library: the hero and the tile images. Course screens: the outline course image, then the question image.
     public static func imageLoads(for screen: SnapshotScreen) -> Int {
         switch screen {
-        case .libraryEmpty: 0
+        case .libraryEmpty, .libraryEmptyCustomFolder: 0
         case .library, .quizQuestion, .quizWrongAnswer: 2
         default: 1
         }
@@ -142,7 +147,7 @@ public enum SnapshotPlan {
     /// The page to open after the course is selected. The fixture lecture has a `recommended_next` target.
     public static func destination(for screen: SnapshotScreen) -> CourseDestination? {
         switch screen {
-        case .libraryEmpty, .library: nil
+        case .libraryEmpty, .libraryEmptyCustomFolder, .library: nil
         case .section: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer: .lecture(sectionID: "plan", lectureID: "welcome")
         case .article: .lecture(sectionID: "plan", lectureID: "read")

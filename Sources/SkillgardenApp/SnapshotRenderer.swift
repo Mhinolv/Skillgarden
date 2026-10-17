@@ -59,7 +59,7 @@ enum SnapshotRenderer {
 
         let imageLoads = ImageLoadTracker()
         let appearance = NSAppearance(named: output.appearance == .dark ? .darkAqua : .aqua)!
-        let content = ContentView(library: library, reloadsOnAppear: false)
+        let content = ContentView(library: library, reloadsOnAppear: false, customRootPath: output.screen.customRootPath)
             .environment(\.locale, Locale(identifier: SnapshotPlan.localeIdentifier))
             .environment(\.timeZone, TimeZone(identifier: SnapshotPlan.timeZoneIdentifier)!)
             .environment(\.imageLoads, imageLoads)
