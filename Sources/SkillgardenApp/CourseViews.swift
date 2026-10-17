@@ -27,6 +27,7 @@ struct CourseImageView: View {
     let width: CGFloat
     let height: CGFloat
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.imageLoads) private var imageLoads
     @State private var loaded: NSImage?
 
     private var url: URL? {
@@ -51,7 +52,31 @@ struct CourseImageView: View {
             // Read the file off the main actor. NSImage keeps SVG as a vector, so it draws sharp at any size.
             let data = await Task.detached { try? Data(contentsOf: url) }.value
             loaded = data.flatMap(NSImage.init(data:))
+            imageLoads?.finish(loaded: loaded != nil)
         }
+    }
+}
+
+/// Counts finished course image loads so the snapshot harness can capture after the load ends. The app sets none.
+@MainActor
+final class ImageLoadTracker {
+    private(set) var finished = 0
+    private(set) var loaded = 0
+
+    func finish(loaded success: Bool) {
+        finished += 1
+        if success { loaded += 1 }
+    }
+}
+
+private struct ImageLoadsKey: EnvironmentKey {
+    static let defaultValue: ImageLoadTracker? = nil
+}
+
+extension EnvironmentValues {
+    var imageLoads: ImageLoadTracker? {
+        get { self[ImageLoadsKey.self] }
+        set { self[ImageLoadsKey.self] = newValue }
     }
 }
 
