@@ -57,4 +57,56 @@ public struct LectureVideo: Equatable, Sendable {
         guard let header = try? handle.read(upToCount: 8), header.count == 8 else { return false }
         return Data(header.dropFirst(4)) == Data("ftyp".utf8)
     }
+
+    /// The movie length from the `moov/mvhd` box, rounded to the nearest second. Nil if the file has no readable length.
+    /// It reads only box headers, so a large `mdat` box costs nothing.
+    static func length(of url: URL) -> Int? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        func read(_ offset: UInt64, _ count: Int) -> Data? {
+            guard (try? handle.seek(toOffset: offset)) != nil, let data = try? handle.read(upToCount: count),
+                  data.count == count else { return nil }
+            return data
+        }
+        func integer(_ data: Data, _ start: Int, _ size: Int) -> UInt64 {
+            data.dropFirst(start).prefix(size).reduce(0) { $0 << 8 | UInt64($1) }
+        }
+        /// Finds the body of the first box of `type` between `start` and `end`.
+        func find(_ type: String, from start: UInt64, to end: UInt64) -> (start: UInt64, end: UInt64)? {
+            var offset = start
+            while offset + 8 <= end, let header = read(offset, 8) {
+                var size = integer(header, 0, 4), body = offset + 8
+                if size == 1 {
+                    guard let large = read(offset + 8, 8) else { return nil }
+                    size = integer(large, 0, 8)
+                    body += 8
+                } else if size == 0 {
+                    size = end - offset
+                }
+                guard size >= body - offset, offset + size <= end else { return nil }
+                if header.dropFirst(4) == Data(type.utf8) { return (body, offset + size) }
+                offset += size
+            }
+            return nil
+        }
+        guard let fileSize = try? handle.seekToEnd(), let moov = find("moov", from: 0, to: fileSize),
+              let mvhd = find("mvhd", from: moov.start, to: moov.end), let version = read(mvhd.start, 1)?.first else { return nil }
+        // Version 1 has 64-bit times and duration. Version 0 has 32-bit fields.
+        let (offset, size) = version == 1 ? (20, 8) : (12, 4)
+        guard let fields = read(mvhd.start + UInt64(offset), 4 + size), mvhd.start + UInt64(offset + 4 + size) <= mvhd.end else {
+            return nil
+        }
+        let timescale = integer(fields, 0, 4)
+        var duration = integer(fields, 4, size)
+        // A fragmented MP4 can give 0 in `mvhd` and the length in `moov/mvex/mehd`.
+        if duration == 0 {
+            guard let mvex = find("mvex", from: moov.start, to: moov.end), let mehd = find("mehd", from: mvex.start, to: mvex.end),
+                  let header = read(mehd.start, 1)?.first else { return nil }
+            let size = header == 1 ? 8 : 4
+            guard mehd.start + UInt64(4 + size) <= mehd.end, let field = read(mehd.start + 4, size) else { return nil }
+            duration = integer(field, 0, size)
+        }
+        guard timescale > 0, duration > 0, duration < UInt64(Int.max) else { return nil }
+        return Int((Double(duration) / Double(timescale)).rounded())
+    }
 }

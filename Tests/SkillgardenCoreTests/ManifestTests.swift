@@ -171,16 +171,18 @@ func manifestRejectsPaths(path: String) throws {
 
 @Test func manifestMinimalArraysAndOptionalFields() throws {
     var object = try fixtureObject()
-    object["sections"] = []
+    // Each required list needs at least one item (#64).
+    object["sections"] = try #require(object["sections"] as? [Any]).prefix(1).map { $0 }
     object["credits"] = [["name": "Author", "role": NSNull(), "url": NSNull()]]
-    object["learning_outcomes"] = []
-    object["requirements"] = []
+    object["learning_outcomes"] = ["Plan a course"]
+    object["requirements"] = ["A Mac"]
     object["theme"] = ["accent_color": "#000000", "appearance": "dark"]
     try withFolder { folder in
         let file = folder.appendingPathComponent("skillgarden.json")
         try JSONSerialization.data(withJSONObject: object).write(to: file)
         let manifest = try ManifestLoader.load(file: file)
-        #expect(manifest.sections.isEmpty)
+        #expect(manifest.sections.map(\.id) == ["plan"])
+        #expect(manifest.learningOutcomes == ["Plan a course"])
         #expect(manifest.theme.appearance == .dark)
         #expect(manifest.credits[0].role == nil)
     }
