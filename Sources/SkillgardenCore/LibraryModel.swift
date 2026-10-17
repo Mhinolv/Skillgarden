@@ -5,6 +5,8 @@ public enum CourseDestination: Hashable, Sendable {
     case overview
     case section(sectionID: String)
     case lecture(sectionID: String, lectureID: String)
+    /// The course credits page. It is valid only if the course has credits.
+    case credits
 }
 
 /// Owns the learner's library and selection. Store reads run outside the main actor.
@@ -37,6 +39,8 @@ public final class LibraryModel {
     public private(set) var interactiveResults: [String: [String: InteractiveResult]] = [:]
     /// Assignment briefs and rubrics by course id, then lecture id, read from each installed manifest.
     public private(set) var assignments: [String: [String: LectureAssignment]] = [:]
+    /// Source cards by course id, then lecture id, read from each installed manifest. Lectures without sources have none.
+    public private(set) var sources: [String: [String: [LectureSource]]] = [:]
     /// Quiz attempts of this session by course id, then lecture id. They are not saved.
     private var quizAttempts: [String: [String: QuizAttempt]] = [:]
     /// Rubric checks of this session by course id, then lecture id. They are not saved.
@@ -77,7 +81,7 @@ public final class LibraryModel {
         let sectionID: String
         switch destination {
         case let .section(id), let .lecture(id, _): sectionID = id
-        case .overview, nil: return nil
+        case .overview, .credits, nil: return nil
         }
         return selectedCourse?.learnerSections.first { $0.id == sectionID }
     }
@@ -96,6 +100,11 @@ public final class LibraryModel {
 
     public var selectedLanding: CourseLanding? {
         selectedCourseID.flatMap { landings[$0] }
+    }
+
+    /// The credits of the selected course in manifest order. Empty if the course has none, so the entry points hide.
+    public var selectedCredits: [CourseCredit] {
+        selectedLanding?.credits ?? []
     }
 
     public func headerImage(forSection sectionID: String) -> SectionHeaderImage? {
@@ -304,6 +313,14 @@ public final class LibraryModel {
         quickCheckSessions[courseID, default: [:]][lectureID] = session
     }
 
+    // MARK: Sources
+
+    /// The source cards of the selected lecture in manifest order. Empty if the lecture has none.
+    public var selectedSources: [LectureSource] {
+        guard let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return [] }
+        return sources[courseID]?[lectureID] ?? []
+    }
+
     // MARK: Spaced review
 
     /// Opens the review sheet on the first visit to a section that has two or more questions from earlier quizzes.
@@ -368,7 +385,7 @@ public final class LibraryModel {
         destination = value
         switch value {
         case let .section(sectionID), let .lecture(sectionID, _): openReviewIfNeeded(sectionID: sectionID)
-        case .overview: break
+        case .overview, .credits: break
         }
         guard let courseID = selectedCourseID, case let .lecture(_, lectureID) = value,
               lastOpenedLectures[courseID] != lectureID else { return }
@@ -400,7 +417,7 @@ public final class LibraryModel {
 
     public func selectDestination(_ value: CourseDestination?) {
         guard let course = selectedCourse else { destination = nil; return }
-        guard Self.isValid(value, in: course) else { return }
+        guard Self.isValid(value, in: course, credits: selectedCredits) else { return }
         if let value { open(value) } else { destination = nil }
     }
 
@@ -434,11 +451,12 @@ public final class LibraryModel {
             self.quizResults = quizResults
             interactives = installed.interactives
             assignments = installed.assignments
+            sources = installed.sources
             self.interactiveResults = interactiveResults
             reviewedSections = reviewed
             errorMessage = nil
             if let course = selectedCourse {
-                if !Self.isValid(destination, in: course) { destination = .overview }
+                if !Self.isValid(destination, in: course, credits: selectedCredits) { destination = .overview }
             } else {
                 selectedCourseID = nil
                 destination = nil
@@ -458,6 +476,7 @@ public final class LibraryModel {
             interactives = [:]
             interactiveResults = [:]
             assignments = [:]
+            sources = [:]
             reviewedSections = [:]
             sectionReview = nil
             selectedCourseID = nil
@@ -466,27 +485,29 @@ public final class LibraryModel {
         }
     }
 
-    private static func isValid(_ value: CourseDestination?, in course: Course) -> Bool {
+    private static func isValid(_ value: CourseDestination?, in course: Course, credits: [CourseCredit]) -> Bool {
         let sections = course.learnerSections
         switch value {
         case let .section(sectionID):
             return sections.contains { $0.id == sectionID }
         case let .lecture(sectionID, lectureID):
             return sections.first { $0.id == sectionID }?.lectures.contains { $0.id == lectureID } == true
+        case .credits:
+            return !credits.isEmpty
         case .overview, nil:
             return true
         }
     }
 
     /// Reads header images, course page fields, article files, video files, quizzes, interactive bundles
-    /// and assignments from each installed manifest.
+    /// assignments and source cards from each installed manifest.
     /// A path outside the snapshot folder is ignored.
     nonisolated private static func installedData(store: CourseStore, root: URL) throws -> InstalledCourseData {
         var data = InstalledCourseData()
         for (courseID, publication) in try store.publications() {
             guard let manifest = try? JSONDecoder().decode(CourseManifest.self, from: publication.manifest) else { continue }
-            data.landings[courseID] = CourseLanding(manifest: manifest)
             let folder = root.appending(path: publication.directory).standardizedFileURL
+            data.landings[courseID] = CourseLanding(manifest: manifest, folder: folder)
             for section in manifest.sections {
                 let url = folder.appending(path: section.headerImage.path).standardizedFileURL
                 if url.path.hasPrefix(folder.path + "/") {
@@ -512,6 +533,10 @@ public final class LibraryModel {
                 if let assignment = lecture.assignment {
                     data.assignments[courseID, default: [:]][lecture.id] = LectureAssignment(manifest: assignment, folder: folder)
                 }
+                // Manifests saved before source support have no `sources` field.
+                if let sources = lecture.sources, !sources.isEmpty {
+                    data.sources[courseID, default: [:]][lecture.id] = sources.map(LectureSource.init(manifest:))
+                }
             }
         }
         return data
@@ -534,4 +559,6 @@ struct InstalledCourseData: Sendable {
     var interactives: [String: [String: InteractiveModule]] = [:]
     /// Assignment briefs and rubrics by course id, then lecture id.
     var assignments: [String: [String: LectureAssignment]] = [:]
+    /// Source cards by course id, then lecture id.
+    var sources: [String: [String: [LectureSource]]] = [:]
 }

@@ -135,6 +135,7 @@ See `Tests/Fixtures/sample-course/skillgarden.yaml` for a full example.
 | `state`, `order` | yes | Same as for a section. |
 | `recommended_next` | no | The id of a lecture in the same course. |
 | `video`, `article`, `quiz`, `assignment`, `interactive` | for that type | Give only the field that matches `type`. |
+| `sources` | no | "Sources and further watching" cards. Each card has `title` and `channel`. Optional: `url` (http or https), `timestamp_start`, `timestamp_end` (integer seconds, end after start). |
 
 ## 5. Lecture types
 

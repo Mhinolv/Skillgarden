@@ -90,7 +90,26 @@
                 "alt": "The two sections of the course plan"
               }
             ]
-          }
+          },
+          "sources": [
+            {
+              "title": "Plan a course on one page",
+              "channel": "Skillgarden Studio",
+              "url": "https://example.com/plan-a-course",
+              "timestamp_start": 250,
+              "timestamp_end": 572
+            },
+            {
+              "title": "Course outlines that work",
+              "channel": "Learning Lab",
+              "url": "https://example.com/course-outlines",
+              "timestamp_start": 3725
+            },
+            {
+              "title": "The course plan checklist",
+              "channel": "Skillgarden Docs"
+            }
+          ]
         }
       ]
     },

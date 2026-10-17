@@ -132,7 +132,8 @@ struct SectionPageView: View {
     }
 }
 
-/// Wraps every lecture type: label, title, section stones, objective, content, then Mark as Complete, the nudge and Previous and Next.
+/// Wraps every lecture type: label, title, section stones, objective, content, the source cards,
+/// then Mark as Complete, the nudge and Previous and Next.
 struct LectureFrameView<Content: View>: View {
     let sectionTitle: String
     let number: Int
@@ -147,7 +148,10 @@ struct LectureFrameView<Content: View>: View {
     let openNudge: () -> Void
     /// Interactive modules use a wider column (960 pt).
     var maxWidth: CGFloat = CourseStyle.textWidth
+    /// "Sources and further watching" cards. The block is hidden when it is empty.
+    var sources: [LectureSource] = []
     @ViewBuilder let content: Content
+    @State private var visibleTop: CGFloat?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -168,6 +172,7 @@ struct LectureFrameView<Content: View>: View {
                 }
                 ObjectiveCallout(objective: lecture.objective)
                 content
+                SourcesSection(sources: sources)
                 MarkCompleteButton(completed: completed, toggle: toggleComplete)
                     .padding(.top, GardenSpacing.xs)
                 if let nudge { NudgeCard(nudge: nudge, open: openNudge) }
@@ -185,7 +190,11 @@ struct LectureFrameView<Content: View>: View {
             .frame(maxWidth: maxWidth, alignment: .leading)
             .padding(GardenSpacing.l)
             .frame(maxWidth: .infinity)
+            .environment(\.pageVisibleTop, visibleTop)
         }
+        // The proxy frame leaves out the safe area, so its top is the bottom edge of the toolbar.
+        // It changes with the window layout, not on a scroll.
+        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { visibleTop = $0 }
     }
 }
 

@@ -58,6 +58,10 @@ struct ManifestValidator {
                 ("brief", article),
                 ("rubric", .array(.object([("id", .string), ("criterion", .string), ("guidance", .string)]))),
             ]))),
+            ("sources", .optional(.array(.object([
+                ("title", .string), ("channel", .string), ("url", .optional(.string)),
+                ("timestamp_start", .optional(.integer)), ("timestamp_end", .optional(.integer)),
+            ])))),
         ])
         let section = FieldRule.object([
             ("id", .string), ("title", .string), ("objective", .string),
@@ -79,6 +83,7 @@ struct ManifestValidator {
         checkQuizzes(value)
         checkQuickChecks(value)
         checkRubrics(value)
+        checkSources(value)
         for (id, path) in recommendations where !lectureIDs.contains(id) {
             add(path, "must refer to a lecture id in this course")
         }
@@ -281,6 +286,32 @@ struct ManifestValidator {
                     let rowPath = "\(path)[\(rowIndex)].id"
                     if let first = rowIDs[id] { add(rowPath, "duplicate id \"\(id)\" (first used at \(first))") }
                     else { rowIDs[id] = rowPath }
+                }
+            }
+        }
+    }
+
+    /// Each source `url` is an http or https URL. Timestamps are 0 or greater, and the end comes after the start.
+    private mutating func checkSources(_ root: ManifestValue) {
+        guard case .object(let course) = root, case .array(let sections)? = course["sections"] else { return }
+        for (sectionIndex, section) in sections.enumerated() {
+            guard case .object(let section) = section, case .array(let lectures)? = section["lectures"] else { continue }
+            for (lectureIndex, lecture) in lectures.enumerated() {
+                guard case .object(let lecture) = lecture, case .array(let sources)? = lecture["sources"] else { continue }
+                for (sourceIndex, source) in sources.enumerated() {
+                    guard case .object(let source) = source else { continue }
+                    let path = "sections[\(sectionIndex)].lectures[\(lectureIndex)].sources[\(sourceIndex)]"
+                    if case .string(let text)? = source["url"], !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        if LectureSource.webURL(text) == nil { add(path + ".url", "must be an http or https URL") }
+                    }
+                    var start: Int?
+                    if case .integer(let seconds)? = source["timestamp_start"] {
+                        if seconds < 0 { add(path + ".timestamp_start", "must be 0 or greater") } else { start = seconds }
+                    }
+                    if case .integer(let seconds)? = source["timestamp_end"] {
+                        if seconds < 0 { add(path + ".timestamp_end", "must be 0 or greater") }
+                        else if let start, seconds <= start { add(path + ".timestamp_end", "must be greater than timestamp_start") }
+                    }
                 }
             }
         }

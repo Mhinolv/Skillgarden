@@ -173,7 +173,8 @@ struct ContentView: View {
                     previous: library.previousLecture == nil ? nil : { library.goToPreviousLecture() },
                     next: library.nextLecture == nil ? nil : { library.goToNextLecture() },
                     openNudge: { library.goToNudge() },
-                    maxWidth: lecture.type == .interactive ? InteractiveStyle.maxWidth : CourseStyle.textWidth
+                    maxWidth: lecture.type == .interactive ? InteractiveStyle.maxWidth : CourseStyle.textWidth,
+                    sources: library.selectedSources
                 ) {
                     if let attempt = library.selectedQuizAttempt {
                         QuizView(attempt: attempt) { library.performQuizAction($0) }
@@ -223,7 +224,10 @@ struct ContentView: View {
                                   start: course.firstLecture.map { first in { library.selectDestination(first) } },
                                   openLecture: { section, lecture in
                                       library.selectDestination(.lecture(sectionID: section.id, lectureID: lecture.id))
-                                  })
+                                  },
+                                  openCredits: library.selectedCredits.isEmpty ? nil : { library.selectDestination(.credits) })
+            } else if library.destination == .credits {
+                CourseCreditsView(credits: library.selectedCredits)
             } else {
                 ContentUnavailableView("Select a lecture", systemImage: "list.bullet")
             }
