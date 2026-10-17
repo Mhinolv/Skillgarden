@@ -250,143 +250,291 @@ struct LectureStopRow: View {
     }
 }
 
-/// A lecture with its type, the "Free preview" capsule at the trailing edge and the complete mark.
-struct LectureRow: View {
-    let lecture: Lecture
-    let completed: Bool
-    var freePreview = false
-
-    var body: some View {
-        HStack(spacing: CourseStyle.spacing) {
-            Image(systemName: lecture.type.symbolName)
-                .foregroundStyle(.secondary)
-            Text(lecture.title).font(.body).lineLimit(2)
-            if completed || freePreview { Spacer(minLength: 0) }
-            if freePreview { FreePreviewBadge(filled: true) }
-            if completed {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(lecture.title), \(lecture.type.rawValue)\(freePreview ? ", Free preview" : "")\(completed ? ", Completed" : "")")
-    }
-}
-
-/// The landing button after the learner opened a lecture. The lecture title shows below it.
-struct ResumeButton: View {
-    let lecture: Lecture
-    let resume: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Button("Resume", systemImage: "play.fill", action: resume)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
-                .accessibilityHint(lecture.title)
-            Text(lecture.title).font(.callout).foregroundStyle(.secondary).accessibilityHidden(true)
-        }
-    }
-}
-
-/// The course landing page: image, title, meta line, "Start Course" or "Resume", then the manifest page fields.
+/// The course landing page: the hero card with the resume box, "Your path", then one card for each manifest page field.
+/// Two columns (560 pt and the rest) at 1040 pt or wider, else one column of 720 pt.
 struct CourseLandingView: View {
     let course: Course
     let landing: CourseLanding?
     let root: URL
+    let path: [CoursePathRow]
+    /// The percent of complete learner lectures in the course.
+    let percent: Int
     /// The last opened lecture. If it is set, "Resume" replaces "Start Course".
     let resumeLecture: Lecture?
     let resume: () -> Void
     let start: (() -> Void)?
+    let openLecture: (CourseSection, Lecture) -> Void
+    @Environment(\.gardenPalette) private var palette
 
-    private static let blockSpacing: CGFloat = 24
+    static let twoColumnWidth: CGFloat = 1040
 
-    private var metaLine: String {
-        let sections = course.learnerSections
-        let lectures = sections.reduce(0) { $0 + $1.lectures.count }
-        return "\(sections.count) \(sections.count == 1 ? "section" : "sections") · "
-            + "\(lectures) \(lectures == 1 ? "lecture" : "lectures")"
-    }
+    private var lectureCount: Int { path.reduce(0) { $0 + $1.section.lectures.count } }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Self.blockSpacing) {
-                // 750:422 at most 750 pt wide. A narrow column scales the image down and never crops it.
-                Color.clear
-                    .aspectRatio(750 / 422, contentMode: .fit)
-                    .frame(maxWidth: 750)
-                    .overlay {
-                        GeometryReader { geometry in
-                            CourseImageView(image: course.image, root: root,
-                                            width: geometry.size.width, height: geometry.size.height)
-                        }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: GardenSpacing.l) {
+                    hero.frame(width: 560)
+                    VStack(alignment: .leading, spacing: GardenSpacing.m) {
+                        pathCard
+                        blocks
                     }
-                    .frame(maxWidth: .infinity)
-                VStack(alignment: .leading, spacing: CourseStyle.spacing) {
-                    Text(course.title).font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
-                    if !course.subtitle.isEmpty {
-                        Text(course.subtitle).font(.title3).foregroundStyle(.secondary)
-                    }
-                    Text(metaLine).font(.callout).foregroundStyle(.secondary)
                 }
-                .fixedSize(horizontal: false, vertical: true)
-                if let resumeLecture {
-                    ResumeButton(lecture: resumeLecture, resume: resume)
-                } else {
-                    Button("Start Course") { start?() }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(start == nil)
+                // The ideal width is fixed, so this layout fits only in a column of 1040 pt or wider.
+                .frame(minWidth: Self.twoColumnWidth, idealWidth: Self.twoColumnWidth, maxWidth: .infinity, alignment: .topLeading)
+                VStack(alignment: .leading, spacing: GardenSpacing.m) {
+                    hero
+                    pathCard
+                    blocks
                 }
-                if let landing {
-                    blocks(landing)
-                }
+                .frame(maxWidth: CourseStyle.textWidth, alignment: .leading)
             }
-            .frame(maxWidth: CourseStyle.textWidth, alignment: .leading)
-            .padding(CourseStyle.detailPadding)
+            .padding(GardenSpacing.l)
             .frame(maxWidth: .infinity)
         }
     }
 
-    @ViewBuilder private func blocks(_ landing: CourseLanding) -> some View {
-        if !landing.learningOutcomes.isEmpty {
-            block("What you'll learn") {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .topLeading), count: 2),
-                          alignment: .leading, spacing: CourseStyle.spacing) {
-                    ForEach(Array(landing.learningOutcomes.enumerated()), id: \.offset) { _, outcome in
-                        Label {
-                            Text(outcome).fixedSize(horizontal: false, vertical: true)
-                        } icon: {
-                            Image(systemName: "checkmark").foregroundStyle(.tint)
+    private var hero: some View {
+        GardenCard(padding: 18) {
+            VStack(alignment: .leading, spacing: 0) {
+                // 750:422 at the card width. A narrow column scales the image down and never crops it.
+                Color.clear
+                    .aspectRatio(750 / 422, contentMode: .fit)
+                    .overlay {
+                        GeometryReader { geometry in
+                            CourseImageView(image: course.image, root: root, width: geometry.size.width,
+                                            height: geometry.size.height, cornerRadius: GardenRadius.image)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(course.title)
+                        .gardenText(.display)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, GardenSpacing.m)
+                        .accessibilityAddTraits(.isHeader)
+                    if !course.subtitle.isEmpty {
+                        Text(course.subtitle)
+                            .font(GardenFont.body).lineSpacing(GardenFont.bodyLineSpacing)
+                            .foregroundStyle(palette.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 10)
+                    }
+                    HStack(spacing: GardenSpacing.xs) {
+                        fact("\(path.count) \(path.count == 1 ? "section" : "sections")")
+                        fact("\(lectureCount) \(lectureCount == 1 ? "lecture" : "lectures")")
+                    }
+                    .padding(.top, 16)
+                }
+                .padding(.horizontal, 6)
+                resumeBox.padding(.top, 18)
+            }
+        }
+    }
+
+    private func fact(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13, weight: .bold)).monospacedDigit()
+            .foregroundStyle(palette.ink)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(palette.soft, in: Capsule())
+    }
+
+    /// "Resume · N% done" with the last opened lecture, or "Start here" with the first lecture.
+    private var resumeBox: some View {
+        let lecture = resumeLecture ?? course.learnerLectures.first?.lecture
+        return HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(resumeLecture == nil ? "Start here" : "Resume · \(percent)% done").gardenText(.label).monospacedDigit()
+                if let lecture {
+                    Text(lecture.title)
+                        .font(.system(size: 16, weight: .heavy))
+                        .foregroundStyle(palette.ink)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            if let resumeLecture {
+                Button("Resume", systemImage: "play.fill", action: resume)
+                    .buttonStyle(.garden())
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityHint(resumeLecture.title)
+            } else {
+                Button("Start Course") { start?() }
+                    .buttonStyle(.garden())
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(start == nil)
+            }
+        }
+        .padding(.vertical, 16)
+        .padding(.horizontal, 18)
+        .background(palette.soft, in: .garden(GardenRadius.innerBox))
+    }
+
+    @ViewBuilder private var pathCard: some View {
+        if !path.isEmpty {
+            GardenCard(padding: GardenSpacing.l) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Your path").gardenText(.heading).accessibilityAddTraits(.isHeader)
+                        Spacer(minLength: GardenSpacing.xs)
+                        Text("One stone per lecture").gardenText(.meta).accessibilityHidden(true)
+                    }
+                    .padding(.bottom, GardenSpacing.xxs)
+                    ForEach(Array(path.enumerated()), id: \.element.section.id) { index, row in
+                        if index > 0 {
+                            DashedLine().stroke(palette.line, style: StrokeStyle(lineWidth: 2, dash: [6, 5])).frame(height: 2)
+                        }
+                        CoursePathSectionView(row: row) { openLecture(row.section, $0) }
                     }
                 }
             }
         }
-        if !landing.requirements.isEmpty {
-            block("Requirements") {
-                VStack(alignment: .leading, spacing: CourseStyle.spacing) {
-                    ForEach(Array(landing.requirements.enumerated()), id: \.offset) { _, requirement in
-                        Text("• \(requirement)").fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder private var blocks: some View {
+        if let landing {
+            if !landing.learningOutcomes.isEmpty {
+                block("What you'll learn") {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: GardenSpacing.m, alignment: .topLeading), count: 2),
+                              alignment: .leading, spacing: GardenSpacing.xs) {
+                        ForEach(Array(landing.learningOutcomes.enumerated()), id: \.offset) { _, outcome in
+                            HStack(alignment: .firstTextBaseline, spacing: GardenSpacing.xs) {
+                                Image(systemName: "checkmark").font(.system(size: 13, weight: .heavy)).foregroundStyle(palette.accent)
+                                Text(outcome).font(.system(size: 14, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                 }
             }
-        }
-        if !landing.targetAudience.isEmpty {
-            block("Who this course is for") { Text(landing.targetAudience).fixedSize(horizontal: false, vertical: true) }
-        }
-        if !landing.description.isEmpty {
-            block("Description") { Text(landing.description).fixedSize(horizontal: false, vertical: true) }
+            if !landing.requirements.isEmpty {
+                block("Requirements") {
+                    VStack(alignment: .leading, spacing: GardenSpacing.xxs) {
+                        ForEach(Array(landing.requirements.enumerated()), id: \.offset) { _, requirement in
+                            Text("• \(requirement)").fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+            if !landing.targetAudience.isEmpty {
+                block("Who this course is for") { Text(landing.targetAudience).fixedSize(horizontal: false, vertical: true) }
+            }
+            if !landing.description.isEmpty {
+                block("Description") { Text(landing.description).fixedSize(horizontal: false, vertical: true) }
+            }
         }
     }
 
     private func block<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: CourseStyle.spacing) {
-            Text(title).font(.title3.bold()).accessibilityAddTraits(.isHeader)
-            content().font(.body)
+        GardenCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title).gardenText(.label).accessibilityAddTraits(.isHeader)
+                content()
+                    .font(GardenFont.body).lineSpacing(GardenFont.bodyLineSpacing)
+                    .foregroundStyle(palette.ink)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
+
+/// A horizontal line through the middle of its frame. Stroke it with a dash for the path dividers.
+struct DashedLine: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: rect.minX, y: rect.midY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        }
+    }
+}
+
+/// One "Your path" row: the 48 pt number tile, the title, the objective, the stones and the percent.
+/// The section with the next lecture lists its lectures in 2 columns. The next lecture has an ink fill.
+struct CoursePathSectionView: View {
+    let row: CoursePathRow
+    let open: (Lecture) -> Void
+    @Environment(\.gardenPalette) private var palette
+
+    private var objective: String { row.section.objective.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: GardenSpacing.s) {
+            HStack(spacing: 16) {
+                numberTile
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(row.section.title)
+                        .font(.system(size: 17, weight: .heavy))
+                        .foregroundStyle(palette.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                    if !objective.isEmpty {
+                        Text("Objective: \(objective)")
+                            .gardenText(.meta)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 3)
+                    }
+                    if !row.stones.isEmpty { SteppingStones(states: row.stones).padding(.top, GardenSpacing.xs) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if let percent = row.progress.percent {
+                    (Text("\(percent)").font(.system(size: 22, weight: .heavy))
+                        + Text("%").font(.system(size: 12, weight: .heavy)).foregroundStyle(palette.muted))
+                        .monospacedDigit()
+                        .foregroundStyle(palette.ink)
+                        .accessibilityLabel("Section \(percent) percent complete")
+                }
+            }
+            if row.nextLectureID != nil {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 2), spacing: 6) {
+                    ForEach(Array(row.section.lectures.enumerated()), id: \.offset) { index, lecture in
+                        lectureButton(lecture, stone: row.stones[index])
+                    }
+                }
+                .padding(.leading, 64)
+            }
+        }
+        .padding(.vertical, GardenSpacing.s)
+    }
+
+    private var numberTile: some View {
+        let full = row.progress.percent == 100
+        let text = palette.colorScheme == .dark ? palette.accent : palette.accent.mix(with: .black, by: 0.2, in: .device)
+        return Text("\(row.number)")
+            .font(.system(size: 20, weight: .heavy)).monospacedDigit()
+            .foregroundStyle(full ? palette.onAccent : text)
+            .frame(width: 48, height: 48)
+            .background(full ? palette.accent : palette.soft, in: .garden(16))
+            .accessibilityHidden(true)
+    }
+
+    private func lectureButton(_ lecture: Lecture, stone: SteppingStone) -> some View {
+        let isNext = stone == .next
+        let done = stone == .done
+        return Button { open(lecture) } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isNext ? "play.fill" : done ? "checkmark" : lecture.type.symbolName)
+                    .font(.system(size: 12, weight: .heavy))
+                    .foregroundStyle(isNext ? palette.card : done ? palette.accent : palette.muted)
+                    .frame(width: 16)
+                Text(lecture.title)
+                    .font(.system(size: 13.5, weight: .bold))
+                    .lineLimit(1)
+                Spacer(minLength: GardenSpacing.xxs)
+                Text(isNext ? "Next" : lecture.type.rawValue.capitalized)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(isNext ? palette.card.opacity(0.7) : palette.muted)
+            }
+            .foregroundStyle(isNext ? palette.card : palette.ink)
+            .padding(.vertical, GardenSpacing.xs)
+            .padding(.horizontal, 12)
+            .background(isNext ? palette.ink : palette.page, in: .garden(GardenRadius.row))
+            .contentShape(.garden(GardenRadius.row))
+        }
+        .buttonStyle(.plain)
+        .contentShape(.focusEffect, .garden(GardenRadius.row))
+        .accessibilityLabel("\(lecture.title), \(lecture.type.rawValue)\(isNext ? ", Next" : done ? ", Completed" : "")")
+    }
+}
+

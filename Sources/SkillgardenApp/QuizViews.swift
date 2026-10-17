@@ -2,38 +2,39 @@ import AppKit
 import SwiftUI
 import SkillgardenCore
 
-/// One answer row. Quiz, assignment (#14) and spaced review (#17) questions share it.
-/// Symbols carry the meaning, so the row never uses color alone.
+/// One answer row: a key badge and the choice text on a `page` fill. Quiz, assignment (#14) and spaced review (#17) questions share it.
+/// The badge symbols carry the meaning, so the row never uses color alone.
 struct ChoiceRow: View {
     let text: String
     let state: ChoiceState
     /// The 1-based position. Positions 1–9 get a number key.
     let number: Int
     let select: () -> Void
+    @Environment(\.gardenPalette) private var palette
 
-    private var symbol: String {
+    private static let radius: CGFloat = 16
+
+    private var fill: Color {
         switch state {
-        case .normal, .dimmed: "circle"
-        case .selected: "largecircle.fill.circle"
-        case .correct: "checkmark.circle.fill"
-        case .incorrect: "xmark.circle.fill"
+        case .correct: palette.soft
+        case .incorrect: palette.wrongFill
+        case .normal, .selected, .dimmed: palette.page
         }
     }
 
-    private var symbolStyle: AnyShapeStyle {
+    private var badgeFill: Color {
         switch state {
-        case .normal, .dimmed: AnyShapeStyle(.secondary)
-        case .selected: AnyShapeStyle(.tint)
-        case .correct: AnyShapeStyle(.green)
-        case .incorrect: AnyShapeStyle(.red)
+        case .normal, .dimmed: palette.soft
+        case .selected, .correct: palette.accent
+        case .incorrect: palette.wrong
         }
     }
 
-    private var borderStyle: AnyShapeStyle {
+    private var badgeText: Color {
         switch state {
-        case .correct: AnyShapeStyle(.green)
-        case .incorrect: AnyShapeStyle(.red)
-        case .normal, .selected, .dimmed: AnyShapeStyle(.separator)
+        case .normal, .dimmed: palette.ink
+        case .selected, .correct: palette.onAccent
+        case .incorrect: .white
         }
     }
 
@@ -48,19 +49,45 @@ struct ChoiceRow: View {
 
     var body: some View {
         Button(action: select) {
-            HStack(spacing: CourseStyle.spacing) {
-                Image(systemName: symbol).foregroundStyle(symbolStyle)
-                Text(text).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                badge
+                Text(text)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(palette.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(12)
-            .contentShape(.rect)
-            .overlay(RoundedRectangle(cornerRadius: CourseStyle.cornerRadius).strokeBorder(borderStyle, lineWidth: 1))
+            .padding(.vertical, 12)
+            .padding(.horizontal, GardenSpacing.s)
+            .background(fill, in: .garden(Self.radius))
+            .overlay {
+                RoundedRectangle.garden(Self.radius)
+                    .strokeBorder(state == .selected ? palette.accent : palette.line, lineWidth: state == .selected ? 2.5 : 1.5)
+            }
+            .contentShape(.garden(Self.radius))
         }
         .buttonStyle(.plain)
+        .contentShape(.focusEffect, .garden(Self.radius))
         .opacity(state == .dimmed ? 0.6 : 1)
         .keyboardShortcut(number <= 9 ? KeyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: []) : nil)
         .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits(state == .selected ? .isSelected : [])
+    }
+
+    /// The key number, or a check or a cross after Submit.
+    private var badge: some View {
+        Group {
+            switch state {
+            case .correct: Image(systemName: "checkmark")
+            case .incorrect: Image(systemName: "xmark")
+            case .normal, .selected, .dimmed: Text(number <= 9 ? "\(number)" : "")
+            }
+        }
+        .font(.system(size: 12, weight: .heavy)).monospacedDigit()
+        .foregroundStyle(badgeText)
+        .frame(width: 24, height: 24)
+        .background(badgeFill, in: .garden(8))
+        .accessibilityHidden(true)
     }
 }
 
@@ -68,14 +95,16 @@ struct ChoiceRow: View {
 struct QuizImageView: View {
     let image: QuizImage
     @Environment(\.imageLoads) private var imageLoads
+    @Environment(\.gardenPalette) private var palette
     @State private var loaded: NSImage?
 
     var body: some View {
         Group {
             if let loaded {
                 Image(nsImage: loaded).resizable().aspectRatio(contentMode: .fit)
+                    .clipShape(.garden(GardenRadius.image))
             } else {
-                Image(systemName: "photo").font(.largeTitle).foregroundStyle(.secondary)
+                Image(systemName: "photo").font(.largeTitle).foregroundStyle(palette.muted)
                     .frame(maxWidth: .infinity, minHeight: 120)
             }
         }
@@ -95,20 +124,20 @@ struct QuizImageView: View {
     }
 }
 
-/// The quiz lecture body: one question at a time, then the results screen.
+/// The quiz lecture body: one question at a time in a card, then the results card.
 struct QuizView: View {
     let attempt: QuizAttempt
     let perform: (QuizAction) -> Void
+    @Environment(\.gardenPalette) private var palette
 
     private var count: Int { attempt.quiz.questions.count }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: GardenSpacing.s) {
             Label("Quiz · \(count) \(count == 1 ? "question" : "questions")", systemImage: "checklist")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .gardenText(.meta)
             if let question = attempt.question {
-                questionView(question)
+                GardenCard { questionView(question) }
             } else {
                 QuizResultsView(result: attempt.result) { perform(.retake) }
             }
@@ -117,18 +146,17 @@ struct QuizView: View {
 
     private func questionView(_ question: QuizQuestion) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: CourseStyle.spacing) {
-                Text("Question \(attempt.index + 1) of \(count)").font(.subheadline).foregroundStyle(.secondary)
-                ProgressView(value: Double(attempt.index + 1), total: Double(count))
-                    .progressViewStyle(.linear)
-                    .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: GardenSpacing.xs) {
+                Text("Question \(attempt.index + 1) of \(count)").gardenText(.label).monospacedDigit()
+                // The question stones replace the linear progress bar. The label above reads the position.
+                SteppingStones(states: attempt.questionStones).accessibilityHidden(true)
             }
             Text(question.prompt)
-                .font(.title3.weight(.semibold))
+                .gardenText(.cardTitle)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
             if let image = question.image { QuizImageView(image: image) }
-            VStack(spacing: CourseStyle.spacing) {
+            VStack(spacing: GardenSpacing.xs) {
                 ForEach(Array(question.choices.enumerated()), id: \.element.id) { index, choice in
                     ChoiceRow(text: choice.text, state: attempt.state(of: choice), number: index + 1) {
                         perform(.select(choiceID: choice.id))
@@ -136,14 +164,7 @@ struct QuizView: View {
                 }
             }
             if let correct = attempt.isAnswerCorrect {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(correct ? "Correct" : "Not quite").font(.headline)
-                    Text(question.explanation)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .accessibilityElement(children: .combine)
+                QuizFeedback(correct: correct, explanation: question.explanation)
             }
             Group {
                 if attempt.isSubmitted {
@@ -152,51 +173,95 @@ struct QuizView: View {
                     Button("Submit") { perform(.submit) }.disabled(attempt.selection == nil)
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.garden())
             .keyboardShortcut(.defaultAction)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// The percent score and the skills to review.
+/// The feedback box after Submit: a check or a cross, "Correct" or "Not quite", then the explanation.
+struct QuizFeedback: View {
+    let correct: Bool
+    let explanation: String
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: correct ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .font(.system(size: 22, weight: .heavy))
+                .foregroundStyle(correct ? palette.accent : palette.wrong)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: GardenSpacing.xxs) {
+                Text(correct ? "Correct" : "Not quite").font(.system(size: 16, weight: .heavy)).foregroundStyle(palette.ink)
+                Text(explanation)
+                    .font(GardenFont.body)
+                    .foregroundStyle(palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(GardenSpacing.s)
+        .background(palette.soft, in: .garden(GardenRadius.row))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// The results card: the score, the percent, the skills to review and "Retake Quiz".
+/// `QuizResult` has no answer for each question, so the card shows no question pebbles.
 struct QuizResultsView: View {
     let result: QuizResult
     let retake: () -> Void
+    @Environment(\.gardenPalette) private var palette
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("\(result.percent)%").font(.largeTitle.weight(.bold))
-                Text("\(result.correct) of \(result.total) correct").font(.title3).foregroundStyle(.secondary)
-            }
-            .accessibilityElement(children: .combine)
-            if result.weakSkills.isEmpty {
-                Label {
-                    Text("You answered every question correctly.")
-                } icon: {
-                    Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+        GardenCard(padding: GardenSpacing.l) {
+            VStack(alignment: .leading, spacing: GardenSpacing.m) {
+                VStack(alignment: .leading, spacing: GardenSpacing.xs) {
+                    (Text("\(result.correct)").font(.system(size: 88, weight: .heavy))
+                        + Text(" of \(result.total)").font(.system(size: 34, weight: .heavy)).foregroundStyle(palette.muted))
+                        .foregroundStyle(palette.ink)
+                        .monospacedDigit()
+                    Text("\(result.percent)% correct").gardenText(.meta).monospacedDigit()
                 }
-            } else {
-                SkillsToReviewList(skills: result.weakSkills)
+                .accessibilityElement(children: .combine)
+                if result.weakSkills.isEmpty {
+                    Label {
+                        Text("You answered every question correctly.").font(GardenFont.body.weight(.bold)).foregroundStyle(palette.ink)
+                    } icon: {
+                        Image(systemName: "checkmark.seal.fill").foregroundStyle(palette.accent)
+                    }
+                } else {
+                    SkillsToReviewList(skills: result.weakSkills)
+                }
+                Button("Retake Quiz", systemImage: "arrow.clockwise", action: retake).buttonStyle(.garden())
             }
-            Button("Retake Quiz", action: retake).buttonStyle(.bordered)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
 
-/// The "Skills to review" heading and one row for each weak skill. Quiz and interactive results share it.
+/// The "Skills to review" label and one row for each weak skill. Quiz and interactive results share it.
 struct SkillsToReviewList: View {
     let skills: [String]
+    @Environment(\.gardenPalette) private var palette
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CourseStyle.spacing) {
-            Text("Skills to review").font(.headline).accessibilityAddTraits(.isHeader)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Skills to review").gardenText(.label).accessibilityAddTraits(.isHeader)
             ForEach(skills, id: \.self) { skill in
                 Label {
-                    Text(skill).fixedSize(horizontal: false, vertical: true)
+                    Text(skill)
+                        .font(.system(size: 16, weight: .heavy))
+                        .foregroundStyle(palette.ink)
+                        .fixedSize(horizontal: false, vertical: true)
                 } icon: {
-                    Image(systemName: "exclamationmark.circle").foregroundStyle(.orange)
+                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(palette.accent)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, GardenSpacing.s)
+                .padding(.horizontal, 16)
+                .background(palette.page, in: .garden(20))
             }
         }
     }
@@ -220,5 +285,6 @@ struct QuizView_Previews: PreviewProvider {
         }
         .padding()
         .frame(width: 720)
+        .gardenTheme(CourseTheme(accentColor: "#286644", appearance: .light))
     }
 }

@@ -46,10 +46,11 @@ struct RenderedMarkdown: Sendable {
     }
 }
 
-/// The content block of an article lecture: the reading time, then the Markdown.
+/// The content block of an article lecture: the reading time, then the Markdown in a card.
 struct ArticleLectureView: View {
     let article: LectureArticle?
     @Environment(\.imageLoads) private var imageLoads
+    @Environment(\.gardenPalette) private var palette
     @State private var content: RenderedMarkdown?
     @State private var unavailable = false
 
@@ -58,9 +59,8 @@ struct ArticleLectureView: View {
             if let content {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("Article · \(content.readingMinutes) min read", systemImage: LectureType.article.symbolName)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    MarkdownBlocksView(markdown: content)
+                        .gardenText(.meta)
+                    GardenCard(padding: GardenSpacing.l) { MarkdownBlocksView(markdown: content) }
                 }
             } else if unavailable {
                 ContentUnavailableView("Article unavailable", systemImage: "exclamationmark.triangle")
@@ -85,6 +85,7 @@ struct ArticleLectureView: View {
 /// Draws rendered Markdown in the reading column. Text is selectable. Links open with `openURL`.
 struct MarkdownBlocksView: View {
     let markdown: RenderedMarkdown
+    @Environment(\.gardenPalette) private var palette
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -92,7 +93,9 @@ struct MarkdownBlocksView: View {
                 blockView(block)
             }
         }
-        .lineSpacing(4)
+        .font(GardenFont.body)
+        .lineSpacing(GardenFont.bodyLineSpacing)
+        .foregroundStyle(palette.ink)
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -105,7 +108,7 @@ struct MarkdownBlocksView: View {
                 .padding(.top, level == 2 ? 8 : 0)
                 .accessibilityAddTraits(.isHeader)
         case let .paragraph(text):
-            Text(text).font(.body)
+            Text(text)
         case let .list(ordered, start, items):
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
@@ -113,34 +116,34 @@ struct MarkdownBlocksView: View {
                         Text(ordered ? "\(start + index)." : "•").frame(width: 20, alignment: .leading)
                         Text(item)
                     }
-                    .font(.body)
                 }
             }
         case let .code(text):
             Text(text)
-                .font(.body.monospaced())
-                .padding(12)
+                .font(.system(size: 13.5).monospaced())
+                .lineSpacing(3)
+                .padding(GardenSpacing.s)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary, in: .rect(cornerRadius: 6))
+                .background(palette.page, in: .garden(GardenRadius.row))
         case let .quote(text):
             Text(text)
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .padding(.leading, 12)
-                .overlay(alignment: .leading) { Rectangle().fill(.quaternary).frame(width: 3) }
+                .foregroundStyle(palette.muted)
+                .padding(.leading, GardenSpacing.s)
+                .overlay(alignment: .leading) { Capsule().fill(palette.accent).frame(width: 3) }
         case let .image(url, alt):
             ArticleImageView(url: url, alt: alt)
         case .rule:
-            Divider()
+            Rectangle().fill(palette.line).frame(height: 1.5)
         }
     }
 
+    /// Heavy headings: 26, 22, 18, then 15.
     private static func headingFont(_ level: Int) -> Font {
         switch level {
-        case 1: .title.weight(.semibold)
-        case 2: .title2.weight(.semibold)
-        case 3: .title3.weight(.semibold)
-        default: .headline
+        case 1: GardenFont.heading
+        case 2: .system(size: 22, weight: .heavy)
+        case 3: GardenFont.cardTitle
+        default: .system(size: 15, weight: .heavy)
         }
     }
 }
@@ -150,6 +153,7 @@ struct ArticleImageView: View {
     let url: URL?
     let alt: String
     @Environment(\.imageLoads) private var imageLoads
+    @Environment(\.gardenPalette) private var palette
     @State private var loaded: NSImage?
     @State private var failed = false
 
@@ -159,11 +163,11 @@ struct ArticleImageView: View {
                 Image(nsImage: loaded)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .clipShape(.rect(cornerRadius: 6))
+                    .clipShape(.garden(GardenRadius.image))
                     .frame(maxHeight: 480)
             } else {
                 Rectangle()
-                    .fill(.quaternary)
+                    .fill(palette.soft)
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .overlay {
                         if failed {
@@ -171,11 +175,11 @@ struct ArticleImageView: View {
                                 Image(systemName: "photo").font(.largeTitle)
                                 Text(alt).multilineTextAlignment(.center)
                             }
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(palette.muted)
                             .padding()
                         }
                     }
-                    .clipShape(.rect(cornerRadius: 6))
+                    .clipShape(.garden(GardenRadius.image))
             }
         }
         .frame(maxWidth: .infinity)
