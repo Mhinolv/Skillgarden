@@ -8,7 +8,10 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case lecture
     case lectureComplete = "lecture-complete"
     case article
+    /// The fixture course, which has a light theme. The learner opened a lecture, so "Resume" shows.
     case courseLanding = "course-landing"
+    /// The fixture course with `theme.appearance: dark` and a light accent. No lecture is opened, so "Start Course" shows.
+    case courseLandingDarkTheme = "course-landing-dark-theme"
 }
 
 public enum SnapshotAppearance: String, CaseIterable, Sendable {
@@ -39,6 +42,9 @@ public enum SnapshotPlan {
         }
     }
 
+    /// The accent of the dark-theme fixture copy. It has more than 3:1 contrast on the dark background.
+    public static let darkThemeAccent = "#7FD3A0"
+
     /// Writes the store that a screen needs into `root` and returns the course to select, if any.
     public static func seedStore(for screen: SnapshotScreen, root: URL, fixture: URL) throws -> String? {
         switch screen {
@@ -53,6 +59,16 @@ public enum SnapshotPlan {
             if screen == .library || screen == .lectureComplete { try store.setCompleted(true, courseID: id, lectureID: "welcome") }
             if screen == .courseLanding { try store.saveLastOpenedLecture(courseID: id, lectureID: "read") }
             return id
+        case .courseLandingDarkTheme:
+            let copy = FileManager.default.temporaryDirectory.appending(path: "SkillgardenDarkFixture-\(UUID())")
+            defer { try? FileManager.default.removeItem(at: copy) }
+            try FileManager.default.copyItem(at: fixture, to: copy)
+            let manifest = copy.appending(path: "skillgarden.yaml")
+            let text = try String(contentsOf: manifest, encoding: .utf8)
+                .replacingOccurrences(of: "appearance: light", with: "appearance: dark")
+                .replacingOccurrences(of: "accent_color: '#286644'", with: "accent_color: '\(darkThemeAccent)'")
+            try text.write(to: manifest, atomically: true, encoding: .utf8)
+            return try CoursePublisher.publish(courseFolder: copy, root: root).id
         }
     }
 
@@ -63,7 +79,7 @@ public enum SnapshotPlan {
         case .section: .section(sectionID: "plan")
         case .lecture, .lectureComplete: .lecture(sectionID: "plan", lectureID: "welcome")
         case .article: .lecture(sectionID: "plan", lectureID: "read")
-        case .courseLanding: .overview
+        case .courseLanding, .courseLandingDarkTheme: .overview
         }
     }
 }
