@@ -54,6 +54,9 @@ struct ManifestValidator {
                 ("brief", article),
                 ("rubric", .array(.object([("id", .string), ("criterion", .string), ("guidance", .string)]))),
             ]))),
+            ("downloads", .optional(.array(.object([
+                ("path", .string), ("title", .string), ("description", .optional(.string)),
+            ])))),
         ])
         let section = FieldRule.object([
             ("id", .string), ("title", .string), ("objective", .string),

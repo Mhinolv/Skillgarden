@@ -36,6 +36,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case assignment
     /// The same assignment with every rubric row checked, so the success line shows.
     case assignmentComplete = "assignment-complete"
+    /// The article lecture with three downloads, scrolled to the end: a PDF with its first-page thumbnail,
+    /// a CSV, and a text file that is missing from the store, so its row shows "File unavailable".
+    case lectureDownloads = "lecture-downloads"
 
     /// True when the harness opens the player of the video lecture before the capture.
     public var opensVideoPlayer: Bool { self == .videoPlayer || self == .videoTranscript }
@@ -44,7 +47,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     public var videoStartSeconds: Double? { self == .videoTranscript ? 3 : nil }
 
     /// True when the harness scrolls the lecture page to the end.
-    public var scrollsLectureToEnd: Bool { self == .videoTranscript }
+    public var scrollsLectureToEnd: Bool { self == .videoTranscript || self == .lectureDownloads }
 
     /// True when the harness fails if the capture has black video pixels in the title bar and the toolbar (#55).
     public var checksTitlebarForVideo: Bool { opensVideoPlayer }
@@ -134,6 +137,13 @@ public enum SnapshotPlan {
             return try publishCopy(of: fixture, root: root, replacing: reviewCourse)
         case .courseCredits:
             return try publishCopy(of: fixture, root: root, replacing: creditsCourse)
+        case .lectureDownloads:
+            let id = try publishCopy(of: fixture, root: root, replacing: downloadsCourse)
+            // A store file that disappears after publish shows the unavailable row.
+            if let snapshot = try CoursePublisher.assetDirectory(courseID: id, root: root) {
+                try FileManager.default.removeItem(at: snapshot.appending(path: "content/checklist.txt"))
+            }
+            return id
         }
     }
 
@@ -161,6 +171,22 @@ public enum SnapshotPlan {
     /// The replacement for the `course-credits` course: a second credit with no role and no URL.
     static let creditsCourse = [
         ("    url: https://example.com/credits\n", "    url: https://example.com/credits\n  - name: Garden Photo Library\n"),
+    ]
+
+    /// The replacement for the `lecture-downloads` course: three downloads on the article lecture.
+    static let downloadsCourse = [
+        ("              alt: The two sections of the course plan\n", """
+                      alt: The two sections of the course plan
+                downloads:
+                  - path: content/worksheet.pdf
+                    title: Course plan worksheet
+                    description: Fill in one row for each section of your course.
+                  - path: content/sections.csv
+                    title: Section list
+                  - path: content/checklist.txt
+                    title: Plan checklist
+
+        """),
     ]
 
     /// The seed of the review question order in the snapshot harness.
@@ -209,11 +235,11 @@ public enum SnapshotPlan {
 
     /// The image loads to wait for before the capture.
     /// Library: the hero and the tile images. Course screens: the outline course image, then the question image
-    /// or the assignment brief.
+    /// or the assignment brief or the PDF thumbnail.
     public static func imageLoads(for screen: SnapshotScreen) -> Int {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder: 0
-        case .library, .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete: 2
+        case .library, .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads: 2
         default: 1
         }
     }
@@ -224,7 +250,7 @@ public enum SnapshotPlan {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library: nil
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript: .lecture(sectionID: "plan", lectureID: "welcome")
-        case .article: .lecture(sectionID: "plan", lectureID: "read")
+        case .article, .lectureDownloads: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme: .overview
         case .courseCredits: .credits
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")

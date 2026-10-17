@@ -132,7 +132,8 @@ struct SectionPageView: View {
     }
 }
 
-/// Wraps every lecture type: label, title, section stones, objective, content, then Mark as Complete, the nudge and Previous and Next.
+/// Wraps every lecture type: label, title, section stones, objective, content, downloads,
+/// then Mark as Complete, the nudge and Previous and Next.
 struct LectureFrameView<Content: View>: View {
     let sectionTitle: String
     let number: Int
@@ -147,6 +148,8 @@ struct LectureFrameView<Content: View>: View {
     let openNudge: () -> Void
     /// Interactive modules use a wider column (960 pt).
     var maxWidth: CGFloat = CourseStyle.textWidth
+    /// The downloads of the lecture. The block hides when the list is empty.
+    var downloads: [LectureDownload] = []
     @ViewBuilder let content: Content
     @State private var visibleTop: CGFloat?
 
@@ -163,6 +166,7 @@ struct LectureFrameView<Content: View>: View {
                 }
                 ObjectiveCallout(objective: lecture.objective)
                 content
+                DownloadsBlock(downloads: downloads)
                 MarkCompleteButton(completed: completed, toggle: toggleComplete)
                     .padding(.top, GardenSpacing.xs)
                 if let nudge { NudgeCard(nudge: nudge, open: openNudge) }

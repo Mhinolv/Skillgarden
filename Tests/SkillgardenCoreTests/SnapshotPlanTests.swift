@@ -27,11 +27,12 @@ private func temporaryFolder() throws -> URL {
         "video-player-light.png", "video-player-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
         "section-review-light.png", "section-review-dark.png", "course-credits-light.png", "course-credits-dark.png",
         "assignment-light.png", "assignment-dark.png", "assignment-complete-light.png", "assignment-complete-dark.png",
+        "lecture-downloads-light.png", "lecture-downloads-dark.png",
     ])
     #expect(SnapshotScreen.allCases.filter(\.showsReviewInline) == [.sectionReview])
     #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer, .videoTranscript])
     #expect(SnapshotScreen.allCases.filter { $0.videoStartSeconds != nil } == [.videoTranscript])
-    #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [.videoTranscript])
+    #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [.videoTranscript, .lectureDownloads])
     #expect(SnapshotScreen.allCases.filter(\.checksTitlebarForVideo) == [.videoPlayer, .videoTranscript])
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: [.videoTranscript, .library]).map(\.url.lastPathComponent) == [
         "library-light.png", "library-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
@@ -211,6 +212,19 @@ private func temporaryFolder() throws -> URL {
             #expect(library.selectedCredits.map(\.name) == ["Skillgarden Team", "Garden Photo Library"])
             #expect(library.selectedCredits.map { $0.role != nil } == [true, false])
             #expect(library.selectedCredits.map { $0.url != nil } == [true, false])
+        case .lectureDownloads:
+            #expect(courseID == "sample-course")
+            #expect(SnapshotPlan.imageLoads(for: screen) == 2)
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.selectedLecture?.type == .article)
+            // A PDF with a first page, a CSV, and a text file that the seed removed from the store.
+            let downloads = library.downloads(forLecture: "read")
+            #expect(downloads.map(\.title) == ["Course plan worksheet", "Section list", "Plan checklist"])
+            #expect(downloads.map(\.kind) == [.pdf, .csv, .other("txt")])
+            #expect(downloads.map(\.isAvailable) == [true, true, false])
+            #expect(PDFPreview.firstPage(of: downloads[0].url, width: 64, height: 83) != nil)
+            #expect(library.downloads(forLecture: "welcome").isEmpty)
         }
         if screen != .sectionReview {
             // Other screens open the first section or a section without earlier quizzes, so no review sheet shows.
