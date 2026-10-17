@@ -156,7 +156,7 @@ struct VideoLectureView: View {
                         Spacer()
                         if let quickChecks {
                             Button(action: openQuickChecks) { Label(quickChecks.buttonTitle, systemImage: "checkmark.bubble") }
-                                .buttonStyle(.garden(.soft, .small))
+                                .buttonStyle(.garden(.bordered))
                         }
                     }
                     .frame(maxWidth: Self.maxWidth)
@@ -207,7 +207,7 @@ struct VideoLectureView: View {
                     posterView
                 }
             }
-            .clipShape(.garden(24))
+            .clipShape(.garden(GardenRadius.card))
             .mask { PageTopClip(visibleTop: pageVisibleTop) }
             .frame(maxWidth: Self.maxWidth)
     }
@@ -224,10 +224,11 @@ struct VideoLectureView: View {
                 ProgressView().controlSize(.small)
             } else {
                 Button(action: play) {
+                    // A dark disc behind the white play glyph keeps it visible on a light poster without a shadow.
                     Image(systemName: "play.circle.fill")
-                        .font(.system(size: 56))
-                        .foregroundStyle(.white)
-                        .shadow(radius: 6)
+                        .font(.system(size: 44))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, .black.opacity(0.45))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contentShape(.rect)
                 }
@@ -368,11 +369,11 @@ struct PlayerView: NSViewRepresentable {
     }
 }
 
-/// A small Garden pill for an on and off toggle: primary when on, soft when off.
+/// A bordered Garden button for an on and off toggle. "On" adds the neutral fill. It never uses the accent fill.
 struct GardenPillToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         Button { configuration.isOn.toggle() } label: { configuration.label }
-            .buttonStyle(.garden(configuration.isOn ? .primary : .soft, .small))
+            .buttonStyle(GardenButtonStyle(.bordered, isOn: configuration.isOn))
             .accessibilityValue(configuration.isOn ? "On" : "Off")
     }
 }
@@ -414,8 +415,7 @@ struct TranscriptPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: GardenSpacing.xs) {
             Text("Transcript")
-                .font(.headline)
-                .foregroundStyle(palette.ink)
+                .gardenText(.cardTitle)
             if transcript.lines.isEmpty {
                 Text("No transcript for this lecture.")
                     .foregroundStyle(palette.muted)
@@ -469,7 +469,7 @@ private struct TranscriptRow: View {
                     .foregroundStyle(isActive ? palette.accent : palette.muted)
                     .frame(width: 48, alignment: .leading)
                 Text(line.text)
-                    .font(.body)
+                    .font(GardenFont.body)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -489,7 +489,7 @@ private struct TranscriptRowStyle: ButtonStyle {
     }
 }
 
-/// Default: no fill. Hover: quaternary fill and a hand pointer. Active: accent fill at 15% and the time in accent.
+/// Default: no fill. Hover: the neutral fill and a hand pointer. Active: the accent tint and the time in accent.
 private struct TranscriptRowBody: View {
     let configuration: ButtonStyleConfiguration
     let isActive: Bool
@@ -504,9 +504,9 @@ private struct TranscriptRowBody: View {
             .padding(.horizontal, 8)
             .background {
                 if isActive {
-                    RoundedRectangle(cornerRadius: 6).fill(palette.accent.opacity(0.15))
+                    RoundedRectangle(cornerRadius: GardenRadius.row).fill(palette.tint)
                 } else if hovers {
-                    RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                    RoundedRectangle(cornerRadius: GardenRadius.row).fill(palette.fill)
                 }
             }
             .opacity(configuration.isPressed ? 0.7 : 1)

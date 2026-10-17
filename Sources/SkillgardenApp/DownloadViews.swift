@@ -42,21 +42,21 @@ struct DownloadRow: View {
             leading
             VStack(alignment: .leading, spacing: 2) {
                 Text(download.title)
-                    .font(.body.weight(.semibold))
+                    .font(GardenFont.cardTitle)
                     .foregroundStyle(palette.ink)
                     .fixedSize(horizontal: false, vertical: true)
                 if let description = download.description {
                     Text(description)
-                        .font(.subheadline)
+                        .font(GardenFont.meta)
                         .foregroundStyle(palette.muted)
                         .lineLimit(2)
                 }
                 Text(download.meta)
-                    .font(.caption)
+                    .font(GardenFont.small)
                     .foregroundStyle(palette.muted)
                     .monospacedDigit()
                 if !download.isAvailable {
-                    Text("File unavailable").font(.caption).foregroundStyle(.red)
+                    Text("File unavailable").font(GardenFont.small).foregroundStyle(palette.wrong)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -68,7 +68,7 @@ struct DownloadRow: View {
                 Button("Save…") { DownloadSaver.save(download) }
                     .accessibilityLabel("Save \(download.title)")
             }
-            .buttonStyle(.garden(.soft, .small))
+            .buttonStyle(.garden(.bordered, .small))
             .disabled(!download.isAvailable)
         }
         .opacity(download.isAvailable ? 1 : 0.6)
@@ -105,7 +105,7 @@ struct PDFThumbnail: View {
     var body: some View {
         let size = DownloadStyle.thumbnail
         ZStack {
-            Rectangle().fill(palette.soft)
+            Rectangle().fill(palette.fill)
             if let image {
                 Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
             } else {

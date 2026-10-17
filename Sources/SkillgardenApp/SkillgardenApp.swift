@@ -140,7 +140,7 @@ struct ContentView: View {
     private func workspace(_ course: Course) -> some View {
         NavigationSplitView {
             CourseSidebar(course: course, library: library)
-            .gardenColumn()
+            .gardenColumn(.sidebar)
             .navigationTitle(course.title)
             .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
         } detail: {
@@ -165,8 +165,8 @@ struct ContentView: View {
             Color.black.opacity(0.25)
             sheet()
                 .background(Color(nsColor: .windowBackgroundColor))
-                .clipShape(.garden(GardenRadius.card))
-                .shadow(radius: 12)
+                .clipShape(.garden(10))
+                .overlay { RoundedRectangle.garden(10).strokeBorder(.separator, lineWidth: 1) }
         }
     }
 
@@ -196,7 +196,9 @@ struct ContentView: View {
                     openNudge: { library.goToNudge() },
                     maxWidth: lecture.type == .interactive ? InteractiveStyle.maxWidth : CourseStyle.textWidth,
                     downloads: library.downloads(forLecture: lecture.id),
-                    sources: library.selectedSources
+                    sources: library.selectedSources,
+                    // A quiz has its own primary action, so each screen keeps one accent button.
+                    completeIsPrimary: lecture.type != .quiz
                 ) {
                     if let attempt = library.selectedQuizAttempt {
                         QuizView(attempt: attempt) { library.performQuizAction($0) }
@@ -266,7 +268,7 @@ extension EnvironmentValues {
     }
 }
 
-/// A 40 pt round toolbar button: card fill and a `line` stroke. It shows only the symbol of its label.
+/// A 28 pt toolbar button: a muted symbol, radius 6, no border. It shows only the symbol of its label.
 struct GardenToolbarButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         GardenToolbarButton(configuration: configuration)
@@ -281,13 +283,12 @@ private struct GardenToolbarButton: View {
     var body: some View {
         configuration.label
             .labelStyle(.iconOnly)
-            .font(.system(size: 15, weight: .heavy))
-            .foregroundStyle(palette.ink)
-            .frame(width: 40, height: 40)
-            .background(palette.card, in: Circle())
-            .overlay { Circle().strokeBorder(palette.line, lineWidth: 1) }
-            .opacity(isEnabled ? (configuration.isPressed ? 0.6 : 1) : 0.4)
-            .contentShape(Circle())
-            .contentShape(.focusEffect, Circle())
+            .font(.system(size: 13, weight: .regular))
+            .foregroundStyle(palette.muted)
+            .frame(width: 28, height: 28)
+            .background(configuration.isPressed ? palette.fill : .clear, in: .garden(GardenRadius.button))
+            .opacity(isEnabled ? 1 : 0.4)
+            .contentShape(.garden(GardenRadius.button))
+            .contentShape(.focusEffect, .garden(GardenRadius.button))
     }
 }

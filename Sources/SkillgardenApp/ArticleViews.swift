@@ -120,30 +120,30 @@ struct MarkdownBlocksView: View {
             }
         case let .code(text):
             Text(text)
-                .font(.system(size: 13.5).monospaced())
+                .font(.system(size: 12).monospaced())
                 .lineSpacing(3)
                 .padding(GardenSpacing.s)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(palette.page, in: .garden(GardenRadius.row))
+                .background(palette.fill, in: .garden(GardenRadius.button))
         case let .quote(text):
             Text(text)
                 .foregroundStyle(palette.muted)
                 .padding(.leading, GardenSpacing.s)
-                .overlay(alignment: .leading) { Capsule().fill(palette.accent).frame(width: 3) }
+                .overlay(alignment: .leading) { Capsule().fill(palette.line).frame(width: 2) }
         case let .image(url, alt):
             ArticleImageView(url: url, alt: alt)
         case .rule:
-            Rectangle().fill(palette.line).frame(height: 1.5)
+            Rectangle().fill(palette.line).frame(height: 1)
         }
     }
 
-    /// Heavy headings: 26, 22, 18, then 15.
+    /// Semibold headings: 20, 17, 15, then 13.
     private static func headingFont(_ level: Int) -> Font {
         switch level {
-        case 1: GardenFont.heading
-        case 2: .system(size: 22, weight: .heavy)
-        case 3: GardenFont.cardTitle
-        default: .system(size: 15, weight: .heavy)
+        case 1: GardenFont.title
+        case 2: .system(size: 17, weight: .semibold)
+        case 3: GardenFont.heading
+        default: GardenFont.cardTitle
         }
     }
 }
@@ -167,7 +167,7 @@ struct ArticleImageView: View {
                     .frame(maxHeight: 480)
             } else {
                 Rectangle()
-                    .fill(palette.soft)
+                    .fill(palette.fill)
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .overlay {
                         if failed {

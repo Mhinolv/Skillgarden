@@ -2,37 +2,41 @@ import AppKit
 import SwiftUI
 import SkillgardenCore
 
-// The Garden design system (`docs/design/garden.html`). Screens use only these tokens and components.
+// The Quiet Garden design system (`docs/design/garden-quiet.html`). Screens use only these tokens and components.
+// White surfaces, hairlines and the accent only on the primary action, progress, the current row and focus.
 
-/// Garden type. `gardenTheme(_:)` applies `.fontDesign(.rounded)`, so these fonts draw rounded.
+/// Quiet Garden type: the standard system font, weights 600, 500 and 400.
 /// Code stays `.monospaced()`. Numbers use `.monospacedDigit()`.
 enum GardenFont {
-    static let display = Font.system(size: 44, weight: .heavy)
-    static let title = Font.system(size: 34, weight: .heavy)
-    static let heading = Font.system(size: 26, weight: .heavy)
-    static let cardTitle = Font.system(size: 18, weight: .heavy)
-    static let body = Font.system(size: 15, weight: .regular)
-    static let bodyLineSpacing: CGFloat = 6
-    static let label = Font.system(size: 12.5, weight: .heavy)
-    static let meta = Font.system(size: 13, weight: .semibold)
+    /// The course title.
+    static let display = Font.system(size: 24, weight: .semibold)
+    /// The page title: lecture, section, Library and credits.
+    static let title = Font.system(size: 20, weight: .semibold)
+    /// A quiz question and the empty-state title.
+    static let heading = Font.system(size: 15, weight: .semibold)
+    static let cardTitle = Font.system(size: 13, weight: .semibold)
+    static let body = Font.system(size: 13, weight: .regular)
+    static let bodyLineSpacing: CGFloat = 3
+    static let label = Font.system(size: 11.5, weight: .regular)
+    static let meta = Font.system(size: 12, weight: .regular)
+    static let small = Font.system(size: 11, weight: .regular)
 }
 
 enum GardenSpacing {
     static let xxs: CGFloat = 4
     static let xs: CGFloat = 8
-    static let s: CGFloat = 14
-    static let m: CGFloat = 20
-    static let l: CGFloat = 28
-    static let xl: CGFloat = 40
+    static let s: CGFloat = 12
+    static let m: CGFloat = 16
+    static let l: CGFloat = 24
+    static let xl: CGFloat = 32
 }
 
 /// Corner radii. Use them with `style: .continuous`.
 enum GardenRadius {
-    static let card: CGFloat = 28
-    static let hero: CGFloat = 32
-    static let innerBox: CGFloat = 22
-    static let image: CGFloat = 18
-    static let row: CGFloat = 14
+    static let card: CGFloat = 8
+    static let button: CGFloat = 6
+    static let image: CGFloat = 6
+    static let row: CGFloat = 5
 }
 
 extension Shape where Self == RoundedRectangle {
@@ -57,57 +61,82 @@ extension ThemeColor {
 
 extension CourseAppearance {
     var colorScheme: ColorScheme { self == .dark ? .dark : .light }
+
+    init(_ colorScheme: ColorScheme) {
+        self = colorScheme == .dark ? .dark : .light
+    }
 }
 
-/// The Garden colors for one accent and color scheme. `gardenTheme(_:)` puts it in the environment.
+/// The Quiet Garden colors for one accent and color scheme. `gardenTheme(_:)` puts it in the environment.
 struct GardenPalette: Equatable, Sendable {
     let colorScheme: ColorScheme
     /// True while a course theme colors the window.
     let isCourseThemed: Bool
+    /// The course color, lighter in dark mode. Only the primary action, progress, the current row and focus use it.
     let accent: Color
+    /// The accent for small text and icons on a tint: a bit darker in light mode.
+    let accentInk: Color
     /// The text color on an accent fill: white, or ink for light accents.
     let onAccent: Color
-    /// The 3D base below primary buttons.
-    let accentBase: Color
+    /// The content page: white, or #1E1E20 in dark mode.
     let page: Color
+    /// The surface of cards and bordered buttons. It is the page color, so a hairline separates it.
     let card: Color
-    let soft: Color
+    /// The sidebar column: the accent at 4% (6% in dark mode) on an off-white or dark gray.
+    let sidebar: Color
+    /// A light accent tint: the objective line, a selected quiz choice and a correct answer.
+    let tint: Color
+    /// A neutral fill: search fields, an "on" toggle button and code blocks.
+    let fill: Color
+    /// The empty part of a progress stone.
+    let track: Color
+    /// The 1 pt hairline between surfaces.
     let line: Color
     let ink: Color
     let muted: Color
+    let faint: Color
     /// Only for wrong answers.
     let wrong: Color
     let wrongFill: Color
 
     /// A nil accent uses the system accent.
     init(accent theme: ThemeColor?, colorScheme: ColorScheme, isCourseThemed: Bool = false) {
-        let accent = theme?.color ?? .accentColor
-        func tint(_ base: Int, _ fraction: Double) -> Color {
+        let shown = theme?.displayAccent(for: CourseAppearance(colorScheme))
+        let accent = shown?.color ?? .accentColor
+        let dark = colorScheme == .dark
+        func tinted(_ base: Int, _ fraction: Double) -> Color {
             ThemeColor(hexValue: base).color.mix(with: accent, by: fraction, in: .device)
         }
         self.colorScheme = colorScheme
         self.isCourseThemed = isCourseThemed
         self.accent = accent
-        onAccent = (theme ?? .systemAccent).onAccent.color
-        accentBase = accent.mix(with: .black, by: 0.4, in: .device)
+        accentInk = dark ? accent : accent.mix(with: .black, by: 0.15, in: .device)
+        onAccent = (shown ?? .systemAccent).onAccent.color
         wrong = ThemeColor(hexValue: 0xC2412C).color
-        if colorScheme == .dark {
-            page = tint(0x0F0D16, 0.12)
-            card = tint(0x1A1724, 0.10)
-            soft = tint(0x1A1724, 0.22)
-            line = tint(0x2A2638, 0.22)
-            ink = ThemeColor(hexValue: 0xF3F0FA).color
-            muted = ThemeColor(hexValue: 0xA9A3BC).color
-            wrongFill = card.mix(with: wrong, by: 0.2, in: .device)
+        if dark {
+            page = ThemeColor(hexValue: 0x1E1E20).color
+            sidebar = tinted(0x262628, 0.06)
+            tint = tinted(0x1E1E20, 0.14)
+            fill = .white.opacity(0.06)
+            track = .white.opacity(0.16)
+            line = .white.opacity(0.08)
+            ink = ThemeColor(hexValue: 0xF2F2F7).color
+            muted = ThemeColor(hexValue: 0x98989D).color
+            faint = ThemeColor(hexValue: 0x5E5E63).color
+            wrongFill = page.mix(with: wrong, by: 0.2, in: .device)
         } else {
-            page = tint(0xFBFAF7, 0.07)
-            card = .white
-            soft = tint(0xFFFFFF, 0.12)
-            line = tint(0xEEEAE2, 0.18)
+            page = .white
+            sidebar = tinted(0xF4F4F3, 0.04)
+            tint = tinted(0xFFFFFF, 0.08)
+            fill = .black.opacity(0.045)
+            track = .black.opacity(0.09)
+            line = .black.opacity(0.08)
             ink = ThemeColor.ink.color
-            muted = ThemeColor(hexValue: 0x77716A).color
+            muted = ThemeColor(hexValue: 0x6E6E73).color
+            faint = ThemeColor(hexValue: 0xAEAEB2).color
             wrongFill = ThemeColor(hexValue: 0xFCEDEA).color
         }
+        card = page
     }
 }
 
@@ -122,6 +151,11 @@ extension EnvironmentValues {
     }
 }
 
+/// The column of a split view: the sidebar or the content page.
+enum GardenColumnKind {
+    case sidebar, page
+}
+
 extension View {
     /// Apply at the window root. A course theme sets the accent and the light or dark look of the whole window.
     /// Without a theme (Library) the window uses the system accent and color scheme.
@@ -129,9 +163,9 @@ extension View {
         modifier(GardenTheme(theme: theme))
     }
 
-    /// Fills a split view column with the page color while a course theme colors the window.
-    func gardenColumn() -> some View {
-        modifier(GardenColumn())
+    /// Fills a split view column with the sidebar or the page color.
+    func gardenColumn(_ kind: GardenColumnKind = .page) -> some View {
+        modifier(GardenColumn(kind: kind))
     }
 
     /// A Garden text style: font, line spacing and color.
@@ -139,7 +173,7 @@ extension View {
         modifier(GardenText(style: style))
     }
 
-    /// The Garden card surface: card fill, radius 28 and padding.
+    /// The Garden card surface: the card color, radius 8, a hairline and padding. No shadow.
     func gardenCard(padding: CGFloat = GardenSpacing.m) -> some View {
         modifier(GardenCardSurface(padding: padding))
     }
@@ -153,7 +187,6 @@ private struct GardenTheme: ViewModifier {
         let colorScheme = theme?.appearance.colorScheme ?? systemColorScheme
         let palette = GardenPalette(accent: theme?.accent, colorScheme: colorScheme, isCourseThemed: theme != nil)
         content
-            .fontDesign(.rounded)
             .tint(palette.accent)
             .environment(\.gardenPalette, palette)
             .environment(\.colorScheme, colorScheme)
@@ -180,14 +213,15 @@ private struct TransparentTitlebar: NSViewRepresentable {
 }
 
 private struct GardenColumn: ViewModifier {
+    let kind: GardenColumnKind
     @Environment(\.gardenPalette) private var palette
 
     func body(content: Content) -> some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .scrollContentBackground(palette.isCourseThemed ? .hidden : .automatic)
+            .scrollContentBackground(.hidden)
             .background {
-                if palette.isCourseThemed { SolidFill(color: NSColor(palette.page)).ignoresSafeArea() }
+                SolidFill(color: NSColor(kind == .sidebar ? palette.sidebar : palette.page)).ignoresSafeArea()
             }
     }
 }
@@ -222,7 +256,7 @@ private struct GardenText: ViewModifier {
         case .heading: content.font(GardenFont.heading).foregroundStyle(palette.ink)
         case .cardTitle: content.font(GardenFont.cardTitle).foregroundStyle(palette.ink)
         case .body: content.font(GardenFont.body).lineSpacing(GardenFont.bodyLineSpacing).foregroundStyle(palette.ink)
-        case .label: content.font(GardenFont.label).foregroundStyle(palette.accent)
+        case .label: content.font(GardenFont.label).foregroundStyle(palette.muted)
         case .meta: content.font(GardenFont.meta).foregroundStyle(palette.muted)
         }
     }
@@ -233,19 +267,14 @@ private struct GardenCardSurface: ViewModifier {
     @Environment(\.gardenPalette) private var palette
 
     func body(content: Content) -> some View {
-        let dark = palette.colorScheme == .dark
         content
             .padding(padding)
             .background(palette.card, in: .garden(GardenRadius.card))
-            .overlay {
-                if dark { RoundedRectangle.garden(GardenRadius.card).strokeBorder(palette.line, lineWidth: 1) }
-            }
-            // The mockup shadow is a 30 px CSS blur. A SwiftUI shadow radius is about half a CSS blur.
-            .shadow(color: dark ? .clear : palette.accent.opacity(0.10), radius: 15, y: 10)
+            .overlay { RoundedRectangle.garden(GardenRadius.card).strokeBorder(palette.line, lineWidth: 1) }
     }
 }
 
-/// A soft Garden card around its content.
+/// A Garden card around its content: the card color and a hairline.
 struct GardenCard<Content: View>: View {
     var padding: CGFloat = GardenSpacing.m
     @ViewBuilder let content: Content
@@ -255,21 +284,26 @@ struct GardenCard<Content: View>: View {
     }
 }
 
-/// The Garden pill button: `.primary` (accent fill with a 3D base) or `.soft` (soft fill), `.regular` or `.small`.
+/// The Garden button, radius 6. `.primary` has the accent fill: use it for one action per screen.
+/// `.bordered` has the card color and a hairline. `.plain` has muted text only.
+/// `.regular` is 28 pt high, `.small` is 24 pt high.
 struct GardenButtonStyle: ButtonStyle {
-    enum Kind { case primary, soft }
+    enum Kind { case primary, bordered, plain }
     enum Size { case regular, small }
 
     var kind: Kind
     var size: Size
+    /// A bordered "on" toggle has the neutral fill.
+    var isOn = false
 
-    init(_ kind: Kind = .primary, _ size: Size = .regular) {
+    init(_ kind: Kind = .primary, _ size: Size = .regular, isOn: Bool = false) {
         self.kind = kind
         self.size = size
+        self.isOn = isOn
     }
 
     func makeBody(configuration: Configuration) -> some View {
-        GardenButton(configuration: configuration, kind: kind, size: size)
+        GardenButton(configuration: configuration, kind: kind, size: size, isOn: isOn)
     }
 }
 
@@ -283,46 +317,64 @@ private struct GardenButton: View {
     let configuration: ButtonStyleConfiguration
     let kind: GardenButtonStyle.Kind
     let size: GardenButtonStyle.Size
+    let isOn: Bool
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.gardenPalette) private var palette
 
+    private var foreground: Color {
+        switch kind {
+        case .primary: palette.onAccent
+        case .bordered: palette.ink
+        case .plain: palette.muted
+        }
+    }
+
+    private var background: Color {
+        switch kind {
+        case .primary: palette.accent
+        case .bordered: isOn ? palette.fill : palette.card
+        case .plain: .clear
+        }
+    }
+
     var body: some View {
         let regular = size == .regular
-        let base: CGFloat = kind == .primary && isEnabled ? (regular ? 4 : 3) : 0
-        let pressed = configuration.isPressed && isEnabled
+        let shape = RoundedRectangle.garden(GardenRadius.button)
         configuration.label
-            .font(.system(size: regular ? 15.5 : 13.5, weight: .heavy))
+            .font(.system(size: regular ? 12.5 : 12, weight: kind == .primary ? .semibold : .medium))
+            .labelStyle(GardenButtonLabelStyle())
             .lineLimit(1)
-            .padding(.horizontal, regular ? 24 : 16)
-            .frame(height: regular ? 46 : 36)
-            .foregroundStyle(kind == .primary ? palette.onAccent : palette.ink)
-            .background(kind == .primary ? palette.accent : palette.soft, in: Capsule())
-            .offset(y: pressed ? 3 : 0)
-            .background {
-                if base > 0 { Capsule().fill(palette.accentBase).offset(y: base) }
+            .padding(.horizontal, kind == .plain ? 6 : (regular ? 12 : 10))
+            .frame(height: regular ? 28 : 24)
+            .foregroundStyle(foreground)
+            .background(background, in: shape)
+            .overlay {
+                if kind == .bordered { shape.strokeBorder(palette.line, lineWidth: 1) }
             }
-            .padding(.bottom, base)
-            .opacity(isEnabled ? 1 : 0.4)
-            .contentShape(Capsule())
-            // Keep the system focus ring, in the pill shape.
-            .contentShape(.focusEffect, Capsule())
+            .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.4)
+            .contentShape(shape)
+            // Keep the system focus ring, in the button shape.
+            .contentShape(.focusEffect, shape)
     }
 }
 
-/// Stepping-stone progress: one 10 pt stone per lecture. Rows wrap. VoiceOver reads one summary.
-struct SteppingStones: View {
-    enum Style {
-        case standard
-        /// For stones on an accent fill: done is white, todo is white at 30%.
-        case onAccent
+/// A 13 pt icon 6 pt before the title, like the mockup buttons.
+private struct GardenButtonLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon.imageScale(.small)
+            configuration.title
+        }
     }
+}
 
+/// Stepping-stone progress: one 8 pt stone per lecture. Rows wrap. VoiceOver reads one summary.
+struct SteppingStones: View {
     let states: [SteppingStone]
-    var style: Style = .standard
     @Environment(\.gardenPalette) private var palette
 
     var body: some View {
-        GardenFlowLayout(spacing: 5) {
+        GardenFlowLayout(spacing: 4) {
             ForEach(Array(states.enumerated()), id: \.offset) { _, state in
                 stone(state)
             }
@@ -332,33 +384,29 @@ struct SteppingStones: View {
     }
 
     private func stone(_ state: SteppingStone) -> some View {
-        let onAccent = style == .onAccent
-        let ring: Color = onAccent ? .white : palette.accent
         let fill: Color = switch state {
-        case .done: onAccent ? .white : palette.accent
-        case .next: onAccent ? palette.accent : palette.card
-        case .todo: onAccent ? .white.opacity(0.3) : palette.line
+        case .done: palette.accent
+        case .next: palette.card
+        case .todo: palette.track
         case .missed: palette.wrong
         }
         return Circle()
             .fill(fill)
             .overlay {
-                // The ring is outside the stone, like a CSS box-shadow spread.
-                if state == .next { Circle().stroke(ring, lineWidth: 2.5).padding(-1.25) }
+                if state == .next { Circle().strokeBorder(palette.accent, lineWidth: 1.5) }
             }
-            .frame(width: 10, height: 10)
+            .frame(width: 8, height: 8)
     }
 }
 
-/// Course progress: one 12 pt stone per section. A stone fills from the bottom as its lectures are done.
-/// The first section that is not done has a ring. Rows wrap. VoiceOver reads one summary.
+/// Course progress: one 10 pt stone per section. A stone fills from the bottom as its lectures are done.
+/// The first section that is not done has a thin ring. Rows wrap. VoiceOver reads one summary.
 struct SectionStones: View {
     let stones: [SectionStone]
-    var style: SteppingStones.Style = .standard
     @Environment(\.gardenPalette) private var palette
 
     var body: some View {
-        GardenFlowLayout(spacing: 5) {
+        GardenFlowLayout(spacing: 4) {
             ForEach(Array(stones.enumerated()), id: \.offset) { _, stone in
                 self.stone(stone)
             }
@@ -368,23 +416,20 @@ struct SectionStones: View {
     }
 
     private func stone(_ stone: SectionStone) -> some View {
-        let onAccent = style == .onAccent
-        let fill: Color = onAccent ? .white : palette.accent
-        let track: Color = onAccent ? .white.opacity(0.3) : palette.line
-        return Circle()
-            .fill(track)
+        Circle()
+            .fill(palette.track)
             .overlay(alignment: .bottom) {
                 GeometryReader { geometry in
-                    fill.frame(height: geometry.size.height * stone.fraction)
+                    palette.accent.frame(height: geometry.size.height * stone.fraction)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
             }
             .clipShape(Circle())
             .overlay {
                 // The ring is outside the stone, like a CSS box-shadow spread.
-                if stone.isNext { Circle().stroke(fill, lineWidth: 2.5).padding(-1.25) }
+                if stone.isNext { Circle().stroke(palette.accent, lineWidth: 1.5).padding(-0.75) }
             }
-            .frame(width: 12, height: 12)
+            .frame(width: 10, height: 10)
     }
 }
 
@@ -441,7 +486,7 @@ struct GardenDesign_Previews: PreviewProvider {
 
     static func sample(_ theme: CourseTheme?) -> some View {
         VStack(alignment: .leading, spacing: GardenSpacing.m) {
-            Text("SECTION 2").gardenText(.label)
+            Text("Section 2 · Lecture 3").gardenText(.label)
             Text("Plan a course").gardenText(.title)
             Text("7 of 16 lectures · 42 min").gardenText(.meta).monospacedDigit()
             GardenCard {
@@ -457,12 +502,11 @@ struct GardenDesign_Previews: PreviewProvider {
             }
             HStack(spacing: GardenSpacing.xs) {
                 Button("Resume", systemImage: "play.fill") {}.buttonStyle(.garden())
-                Button("Outline") {}.buttonStyle(.garden(.soft))
-                Button("Next") {}.buttonStyle(.garden(.primary, .small))
-                Button("Skip") {}.buttonStyle(.garden(.soft, .small))
+                Button("Outline") {}.buttonStyle(.garden(.bordered))
+                Button("Captions", systemImage: "captions.bubble") {}.buttonStyle(GardenButtonStyle(.bordered, isOn: true))
+                Button("Skip") {}.buttonStyle(.garden(.plain))
                 Button("Locked") {}.buttonStyle(.garden()).disabled(true)
             }
-            OnAccentSample(stones: stones)
         }
         .padding(GardenSpacing.l)
         .frame(width: 640)
@@ -477,17 +521,6 @@ struct GardenDesign_Previews: PreviewProvider {
             sample(CourseTheme(accentColor: "#FFD60A", appearance: .light)).previewDisplayName("Low-contrast accent")
             sample(nil).preferredColorScheme(.light).previewDisplayName("Library light")
             sample(nil).preferredColorScheme(.dark).previewDisplayName("Library dark")
-        }
-    }
-
-    private struct OnAccentSample: View {
-        let stones: [SteppingStone]
-        @Environment(\.gardenPalette) private var palette
-
-        var body: some View {
-            SteppingStones(states: stones, style: .onAccent)
-                .padding(GardenSpacing.m)
-                .background(palette.accent, in: .garden(GardenRadius.hero))
         }
     }
 }

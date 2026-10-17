@@ -63,8 +63,7 @@ struct RubricView: View {
             Label("Self-check rubric", systemImage: "checklist")
                 .gardenText(.cardTitle)
             Text("Check each criterion that your work meets.")
-                .font(.subheadline)
-                .foregroundStyle(palette.muted)
+                .gardenText(.meta)
             GardenCard {
                 VStack(alignment: .leading, spacing: GardenSpacing.s) {
                     ForEach(Array(checklist.rubric.enumerated()), id: \.element.id) { index, row in
@@ -84,13 +83,13 @@ struct RubricView: View {
                 Label {
                     Text("You met every criterion.")
                 } icon: {
-                    Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                    Image(systemName: "checkmark.seal.fill").foregroundStyle(palette.accent)
                 }
-                .font(.subheadline)
+                .font(GardenFont.body)
                 .foregroundStyle(palette.ink)
             } else {
                 Text(checklist.summary)
-                    .font(.subheadline)
+                    .font(GardenFont.body)
                     .foregroundStyle(palette.ink)
             }
             ProgressView(value: Double(checklist.metCount), total: Double(max(checklist.rubric.count, 1)))
@@ -102,7 +101,7 @@ struct RubricView: View {
             Spacer()
             // No confirmation: the checks are session-only.
             Button("Reset", action: reset)
-                .buttonStyle(.borderless)
+                .buttonStyle(.garden(.plain))
                 .disabled(checklist.metCount == 0)
         }
     }
@@ -119,10 +118,10 @@ private struct RubricRow: View {
         Toggle(isOn: Binding(get: { isChecked }, set: { if $0 != isChecked { toggle() } })) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.criterion)
-                    .font(.body.weight(.semibold))
+                    .font(GardenFont.body.weight(.medium))
                     .foregroundStyle(palette.ink)
                 Text(row.guidance)
-                    .font(.subheadline)
+                    .font(GardenFont.meta)
                     .foregroundStyle(palette.muted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
