@@ -75,19 +75,26 @@ struct CourseOutlineView: View {
     let course: Course
     @Binding var selection: CourseDestination?
 
+    private var sections: [CourseSection] { course.learnerSections }
+
     var body: some View {
         List(selection: $selection) {
             Label("Course Overview", systemImage: "info.circle")
                 .tag(CourseDestination.overview)
-            ForEach(course.sections) { section in
-                Section(section.title) {
+            ForEach(sections) { section in
+                Section {
+                    // The section header is a row, so a click selects it and opens the section page.
+                    Text(section.title)
+                        .font(.headline)
+                        .accessibilityAddTraits(.isHeader)
+                        .tag(CourseDestination.section(sectionID: section.id))
                     ForEach(section.lectures) { lecture in
                         LectureRow(lecture: lecture)
                             .tag(CourseDestination.lecture(sectionID: section.id, lectureID: lecture.id))
                     }
                 }
             }
-            if course.sections.allSatisfy({ $0.lectures.isEmpty }) {
+            if sections.allSatisfy({ $0.lectures.isEmpty }) {
                 ContentUnavailableView("No lectures yet", systemImage: "list.bullet")
             }
         }
