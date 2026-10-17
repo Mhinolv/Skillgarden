@@ -2,8 +2,9 @@
 # Canonical build: works in a normal shell and inside the agents' workspace-write sandbox.
 # Caches live under .build/ (the sandbox cannot write ~/.cache). SwiftPM's own sandbox is
 # disabled because nested sandboxes are not permitted.
-# Usage: scripts/build.sh [test [<swift test options>] | app]
+# Usage: scripts/build.sh [test [<swift test options>] | app | icon]
 #   app: build the learner app and wrap it as build/Skillgarden.app.
+#   icon: render assets/AppIcon/AppIcon.icns from the SVG sources.
 set -e
 cd "$(dirname "$0")/.."
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache"
@@ -12,5 +13,6 @@ FLAGS="--disable-sandbox --cache-path $PWD/.build/swiftpm-cache --config-path $P
 case "$1" in
   test) shift; exec swift test $FLAGS "$@" ;;
   app) exec ./scripts/bundle_app.sh ;;
+  icon) exec zsh ./scripts/make_icon.sh ;;
   *) exec swift build $FLAGS "$@" ;;
 esac
