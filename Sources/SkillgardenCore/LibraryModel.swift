@@ -41,12 +41,25 @@ public final class LibraryModel {
     public private(set) var assignments: [String: [String: LectureAssignment]] = [:]
     /// Lecture downloads by course id, then lecture id, read from each installed manifest. Lectures without downloads have none.
     public private(set) var downloads: [String: [String: [LectureDownload]]] = [:]
+    /// Source cards by course id, then lecture id, read from each installed manifest. Lectures without sources have none.
+    public private(set) var sources: [String: [String: [LectureSource]]] = [:]
     /// Quiz attempts of this session by course id, then lecture id. They are not saved.
     private var quizAttempts: [String: [String: QuizAttempt]] = [:]
     /// Rubric checks of this session by course id, then lecture id. They are not saved.
     private var rubricChecklists: [String: [String: RubricChecklist]] = [:]
+    /// Video quick-check answers of this session by course id, then lecture id. They are not saved.
+    private var quickCheckSessions: [String: [String: QuickCheckSession]] = [:]
     /// Section ids whose review sheet opened, by course id.
     public private(set) var reviewedSections: [String: Set<String>] = [:]
+    /// Indexed transcript cues by course id (#18). Courses published before the index have none.
+    public private(set) var transcriptCues: [String: [TranscriptCue]] = [:]
+    /// The text of the transcript search field of the selected course.
+    public var transcriptQuery = ""
+    /// The results of the last search. Nil shows the outline.
+    public private(set) var transcriptResults: TranscriptSearchResults?
+    /// The cue that the video player of the selected lecture must seek to, paused. Nil when no seek waits.
+    public private(set) var transcriptSeek: TranscriptSeek?
+    @ObservationIgnored private var seekCount = 0
     /// The open spaced review sheet. Nil when no sheet shows.
     public private(set) var sectionReview: SectionReview?
     /// Picks the review questions. Tests and the snapshot harness pass a seeded generator.
@@ -289,6 +302,41 @@ public final class LibraryModel {
         rubricChecklists[courseID, default: [:]][lectureID] = checklist
     }
 
+    // MARK: Quick checks
+
+    /// The quick checks of this session for the selected video. Nil if the video has no checks.
+    /// A republish that changes the checks clears the answers.
+    public var selectedQuickChecks: QuickCheckSession? {
+        guard let courseID = selectedCourseID, let lecture = selectedLecture, lecture.type == .video,
+              let checks = videos[courseID]?[lecture.id]?.quickChecks, !checks.isEmpty else { return nil }
+        if let session = quickCheckSessions[courseID]?[lecture.id], session.checks == checks { return session }
+        return QuickCheckSession(checks: checks)
+    }
+
+    /// Answers one quick check of the selected video. The first answer locks the check.
+    public func answerQuickCheck(_ checkID: Int, choiceID: String) {
+        updateQuickChecks { $0.answer(checkID: checkID, choiceID: choiceID) }
+    }
+
+    /// Unlocks one quick check of the selected video.
+    public func retryQuickCheck(_ checkID: Int) {
+        updateQuickChecks { $0.tryAgain(checkID: checkID) }
+    }
+
+    private func updateQuickChecks(_ body: (inout QuickCheckSession) -> Void) {
+        guard var session = selectedQuickChecks, let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return }
+        body(&session)
+        quickCheckSessions[courseID, default: [:]][lectureID] = session
+    }
+
+    // MARK: Sources
+
+    /// The source cards of the selected lecture in manifest order. Empty if the lecture has none.
+    public var selectedSources: [LectureSource] {
+        guard let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return [] }
+        return sources[courseID]?[lectureID] ?? []
+    }
+
     // MARK: Spaced review
 
     /// Opens the review sheet on the first visit to a section that has two or more questions from earlier quizzes.
@@ -346,11 +394,38 @@ public final class LibraryModel {
         }
     }
 
+    // MARK: Transcript search
+
+    /// Searches the transcripts of the selected course for `transcriptQuery`.
+    /// A query shorter than `TranscriptSearch.minimumQueryLength` clears the results, so the outline shows.
+    public func searchTranscripts() {
+        let results = selectedCourse.flatMap {
+            TranscriptSearch.search(transcriptQuery, course: $0, cues: transcriptCues[$0.id] ?? [])
+        }
+        if results != transcriptResults { transcriptResults = results }
+    }
+
+    /// Clears the query and the results, so the outline shows again.
+    public func clearTranscriptSearch() {
+        transcriptQuery = ""
+        transcriptResults = nil
+    }
+
+    /// Opens the lecture of a result. The video player seeks to the cue start and stays paused.
+    /// The results stay, so the learner can select another result.
+    public func openTranscriptHit(_ hit: TranscriptHit) {
+        guard let course = selectedCourse, Self.isValid(hit.destination, in: course, credits: selectedCredits) else { return }
+        open(hit.destination)
+        seekCount += 1
+        transcriptSeek = TranscriptSeek(id: seekCount, lectureID: hit.lectureID, seconds: hit.start)
+    }
+
     /// Waits until all queued progress writes finish.
     func waitForWrites() async { _ = await pendingWrite?.value }
 
     private func open(_ value: CourseDestination) {
         destination = value
+        transcriptSeek = nil
         switch value {
         case let .section(sectionID), let .lecture(sectionID, _): openReviewIfNeeded(sectionID: sectionID)
         case .overview, .credits: break
@@ -381,6 +456,8 @@ public final class LibraryModel {
         selectedCourseID = courses.first { $0.id == id }?.id
         destination = selectedCourseID == nil ? nil : .overview
         sectionReview = nil
+        transcriptSeek = nil
+        clearTranscriptSearch()
     }
 
     public func selectDestination(_ value: CourseDestination?) {
@@ -401,11 +478,11 @@ public final class LibraryModel {
         // Queued writes finish first, so the reload reads them.
         await waitForWrites()
         do {
-            let (store, loaded, installed, progress, lastOpened, quizResults, interactiveResults, reviewed) = try await Task.detached {
+            let (store, loaded, installed, progress, lastOpened, quizResults, interactiveResults, reviewed, cues) = try await Task.detached {
                 let store = try CourseStore(root: root)
                 return (store, try store.listCourses(), try Self.installedData(store: store, root: root),
                         try store.allProgress(), try store.lastOpenedLectures(), try store.allQuizResults(),
-                        try store.allInteractiveResults(), try store.allReviewedSections())
+                        try store.allInteractiveResults(), try store.allReviewedSections(), try store.allTranscriptCues())
             }.value
             self.store = store
             courses = loaded
@@ -420,8 +497,10 @@ public final class LibraryModel {
             interactives = installed.interactives
             assignments = installed.assignments
             downloads = installed.downloads
+            sources = installed.sources
             self.interactiveResults = interactiveResults
             reviewedSections = reviewed
+            transcriptCues = cues
             errorMessage = nil
             if let course = selectedCourse {
                 if !Self.isValid(destination, in: course, credits: selectedCredits) { destination = .overview }
@@ -430,6 +509,7 @@ public final class LibraryModel {
                 destination = nil
             }
             if sectionReview?.courseID != selectedCourseID { sectionReview = nil }
+            if selectedCourseID == nil { clearTranscriptSearch() } else { searchTranscripts() }
         } catch {
             store = nil
             courses = []
@@ -445,7 +525,11 @@ public final class LibraryModel {
             interactiveResults = [:]
             assignments = [:]
             downloads = [:]
+            sources = [:]
             reviewedSections = [:]
+            transcriptCues = [:]
+            clearTranscriptSearch()
+            transcriptSeek = nil
             sectionReview = nil
             selectedCourseID = nil
             destination = nil
@@ -468,7 +552,7 @@ public final class LibraryModel {
     }
 
     /// Reads header images, course page fields, article files, video files, quizzes, interactive bundles
-    /// assignments and downloads from each installed manifest.
+    /// assignments, downloads and source cards from each installed manifest.
     /// A path outside the snapshot folder is ignored.
     nonisolated private static func installedData(store: CourseStore, root: URL) throws -> InstalledCourseData {
         var data = InstalledCourseData()
@@ -504,10 +588,22 @@ public final class LibraryModel {
                 // Manifests saved before download support have no `downloads` field.
                 let files = LectureDownload.list(lecture.downloads, folder: folder)
                 if !files.isEmpty { data.downloads[courseID, default: [:]][lecture.id] = files }
+                // Manifests saved before source support have no `sources` field.
+                if let sources = lecture.sources, !sources.isEmpty {
+                    data.sources[courseID, default: [:]][lecture.id] = sources.map(LectureSource.init(manifest:))
+                }
             }
         }
         return data
     }
+}
+
+/// A request to the video player of `lectureID`: seek to `seconds` and stay paused (#18).
+/// `id` changes on each request, so a second click on the same result seeks again.
+public struct TranscriptSeek: Equatable, Sendable {
+    public let id: Int
+    public let lectureID: String
+    public let seconds: Double
 }
 
 /// The data that `LibraryModel` reads from the installed publication folders. Add new fields here.
@@ -528,4 +624,6 @@ struct InstalledCourseData: Sendable {
     var assignments: [String: [String: LectureAssignment]] = [:]
     /// Lecture downloads by course id, then lecture id.
     var downloads: [String: [String: [LectureDownload]]] = [:]
+    /// Source cards by course id, then lecture id.
+    var sources: [String: [String: [LectureSource]]] = [:]
 }

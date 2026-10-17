@@ -44,7 +44,9 @@ private let video = "sections[0].lectures[0].video"
     let welcome = manifest.sections[0].lectures[0]
     #expect(welcome.video == ManifestVideo(
         path: "content/welcome.mp4", durationSeconds: 4, captions: ManifestCaptions(path: "content/welcome.vtt"),
-        poster: ManifestImage(path: "media/poster.svg", alt: "The first frame of the welcome video"), freePreview: true))
+        poster: ManifestImage(path: "media/poster.svg", alt: "The first frame of the welcome video"), freePreview: true,
+        quickChecks: welcome.video?.quickChecks))
+    #expect(welcome.video?.quickChecks?.count == 2)
     #expect(manifest.sections[0].lectures[1].video == nil)
     // A manifest saved before video support decodes with no video.
     var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(manifest)) as? [String: Any])
@@ -62,6 +64,7 @@ private let video = "sections[0].lectures[0].video"
         try edit(folder, "          captions:\n            path: content/welcome.vtt\n", "")
         try edit(folder, "          poster:\n            path: media/poster.svg\n            alt: The first frame of the welcome video\n", "")
         try edit(folder, "          free_preview: true\n", "")
+        try edit(folder, sampleQuickChecksYAML, "")
         #expect(try publishErrors(folder, root) == [])
         let lecture = try ManifestLoader.load(courseFolder: folder).sections[0].lectures[0]
         #expect(lecture.video == ManifestVideo(path: "content/welcome.mp4", durationSeconds: 4))

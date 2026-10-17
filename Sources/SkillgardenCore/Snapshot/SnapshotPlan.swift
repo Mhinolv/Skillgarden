@@ -27,6 +27,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case videoPlayer = "video-player"
     /// The video lecture scrolled to the end, so the Transcript panel and all its lines show. The second cue is active.
     case videoTranscript = "video-transcript"
+    /// The video lecture with its quick-check card open and scrolled into view.
+    /// Two checks: the first is unanswered, the second is answered wrong and shows its explanation.
+    case videoQuickCheck = "video-quick-check"
     /// The spaced review sheet of the "plan" section, after the quiz section moved first.
     /// Two questions: one unanswered, one answered correctly.
     case sectionReview = "section-review"
@@ -41,15 +44,27 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case lectureDownloads = "lecture-downloads"
     /// The same lecture with the PDF preview sheet of the worksheet open. The real PDFKit view shows page 1.
     case pdfPreview = "pdf-preview"
+    /// The transcript search of a course with a second video lecture. The query "course" finds cues in both lectures.
+    case transcriptSearch = "transcript-search"
+    /// The same course with a query that no cue contains.
+    case transcriptSearchNoResults = "transcript-search-no-results"
+    /// The article lecture scrolled to the end, so its three source cards show:
+    /// a full time range with a URL, a start only with a URL, and no URL.
+    case lectureSources = "lecture-sources"
 
     /// True when the harness opens the player of the video lecture before the capture.
-    public var opensVideoPlayer: Bool { self == .videoPlayer || self == .videoTranscript }
+    public var opensVideoPlayer: Bool { self == .videoPlayer || self == .videoTranscript || self == .videoQuickCheck }
 
     /// The paused player opens at this time instead of the saved position. 3 s is in the second fixture cue (2–4 s).
     public var videoStartSeconds: Double? { self == .videoTranscript ? 3 : nil }
 
     /// True when the harness scrolls the lecture page to the end.
-    public var scrollsLectureToEnd: Bool { self == .videoTranscript || self == .lectureDownloads || self == .pdfPreview }
+    public var scrollsLectureToEnd: Bool {
+        [.videoTranscript, .videoQuickCheck, .lectureSources, .lectureDownloads, .pdfPreview].contains(self)
+    }
+
+    /// True when the harness opens the quick-check card of the video lecture.
+    public var showsQuickChecks: Bool { self == .videoQuickCheck }
 
     /// True when the harness fails if the capture has black video pixels in the title bar and the toolbar (#55).
     public var checksTitlebarForVideo: Bool { opensVideoPlayer }
@@ -66,6 +81,15 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// The fixed library path that the harness shows. The real temporary root changes on each run.
     public var customRootPath: String? { self == .libraryEmptyCustomFolder ? "/Users/agent/skillgarden-library" : nil }
+
+    /// The text that the harness types into the transcript search field. Nil leaves the field empty.
+    public var transcriptQuery: String? {
+        switch self {
+        case .transcriptSearch: "course"
+        case .transcriptSearchNoResults: "zebra"
+        default: nil
+        }
+    }
 }
 
 public enum SnapshotAppearance: String, CaseIterable, Sendable {
@@ -106,7 +130,8 @@ public enum SnapshotPlan {
         case .libraryEmpty, .libraryEmptyCustomFolder:
             _ = try CourseStore(root: root)
             return nil
-        case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript:
+        case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
+             .videoQuickCheck, .lectureSources:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -150,6 +175,8 @@ public enum SnapshotPlan {
                 try FileManager.default.removeItem(at: snapshot.appending(path: "content/checklist.txt"))
             }
             return id
+        case .transcriptSearch, .transcriptSearchNoResults:
+            return try publishCopy(of: fixture, root: root, replacing: searchCourse)
         }
     }
 
@@ -195,6 +222,27 @@ public enum SnapshotPlan {
         """),
     ]
 
+    /// The replacement for the transcript search course: a second video lecture after "read" with the welcome captions.
+    /// The stable key line of the "practice" section is the anchor, so the lecture goes in at the end of "plan".
+    static let searchCourse = [
+        ("\n  - id: practice\n", """
+
+              - id: recap
+                title: Recap the plan
+                type: video
+                objective: Review the course plan
+                state: published
+                order: 2
+                video:
+                  path: content/welcome.mp4
+                  duration_seconds: 4
+                  captions:
+                    path: content/welcome.vtt
+          - id: practice
+
+        """),
+    ]
+
     /// The seed of the review question order in the snapshot harness.
     public static let reviewSeed: UInt64 = 17
 
@@ -234,6 +282,11 @@ public enum SnapshotPlan {
         }
     }
 
+    /// Quick-check answers that the harness applies after it opens the video lecture: check id, then choice id.
+    public static func quickCheckAnswers(for screen: SnapshotScreen) -> [(checkID: Int, choiceID: String)] {
+        screen == .videoQuickCheck ? [(1, "scores")] : []
+    }
+
     /// The rubric rows that the harness checks after it opens the assignment lecture.
     public static func rubricChecks(for screen: SnapshotScreen) -> [String] {
         screen == .assignmentComplete ? ["goal", "sections", "order", "length"] : []
@@ -255,9 +308,9 @@ public enum SnapshotPlan {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library: nil
         case .section, .sectionReview: .section(sectionID: "plan")
-        case .lecture, .lectureComplete, .videoPlayer, .videoTranscript: .lecture(sectionID: "plan", lectureID: "welcome")
-        case .article, .lectureDownloads, .pdfPreview: .lecture(sectionID: "plan", lectureID: "read")
-        case .courseLanding, .courseLandingDarkTheme: .overview
+        case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck: .lecture(sectionID: "plan", lectureID: "welcome")
+        case .article, .lectureSources, .lectureDownloads, .pdfPreview: .lecture(sectionID: "plan", lectureID: "read")
+        case .courseLanding, .courseLandingDarkTheme, .transcriptSearch, .transcriptSearchNoResults: .overview
         case .courseCredits: .credits
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")
         case .interactiveResult: .lecture(sectionID: "practice", lectureID: "order-steps")

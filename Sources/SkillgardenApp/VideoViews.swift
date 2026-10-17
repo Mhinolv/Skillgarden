@@ -32,10 +32,13 @@ final class VideoPlayback {
     private(set) var captionText: String?
     /// The index of the active line in `transcript`.
     private(set) var activeLine: Int?
+    /// Goes up by one each time playback reaches the end of the video.
+    private(set) var endCount = 0
     @ObservationIgnored private let captions: WebVTT?
     @ObservationIgnored private let transcript: Transcript?
     @ObservationIgnored private var observer: Any?
     @ObservationIgnored private var statusObserver: NSKeyValueObservation?
+    @ObservationIgnored private var endObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var lastSaved: Double = 0
     @ObservationIgnored private var pendingSeeks = 0
     @ObservationIgnored private let save: @MainActor (Double) -> Void
@@ -69,12 +72,17 @@ final class VideoPlayback {
                 }
             }
         }
+        endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
+                                                             object: player.currentItem, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.endCount += 1 }
+        }
         if plays { player.play() }
     }
 
     /// Seeks exactly to `seconds` and plays. A click on a transcript line calls it.
+    /// A transcript search result passes `plays: false`, so the player pauses at the cue (#18).
     /// Time ticks during a seek can show the old time, so they do not change the active line until the seek ends.
-    func seek(to seconds: Double) {
+    func seek(to seconds: Double, plays: Bool = true) {
         pendingSeeks += 1
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             DispatchQueue.main.async {
@@ -82,7 +90,7 @@ final class VideoPlayback {
             }
         }
         update(at: seconds)
-        player.play()
+        if plays { player.play() } else { player.pause() }
     }
 
     private func update(at seconds: Double) {
@@ -96,6 +104,8 @@ final class VideoPlayback {
     func stop() {
         statusObserver?.invalidate()
         statusObserver = nil
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = nil
         player.pause()
         if let observer { player.removeTimeObserver(observer) }
         observer = nil
@@ -110,18 +120,27 @@ final class VideoPlayback {
     }
 }
 
-/// The content block of a video lecture: the metadata row, the player, the controls row and the transcript.
+/// The content block of a video lecture: the metadata row, the player, the controls row, the transcript and the quick checks.
 /// Before the first play the poster shows with a play button. The player starts on a click or Space.
+/// The quick-check card is hidden when the lecture opens. It shows at the video end or from the "Quick Check" button.
 struct VideoLectureView: View {
     let video: LectureVideo?
+    /// Nil when the video has no quick checks.
+    var quickChecks: QuickCheckSession?
+    var answerQuickCheck: (Int, String) -> Void = { _, _ in }
+    var retryQuickCheck: (Int) -> Void = { _ in }
     /// The seek time for the first play.
     let startSeconds: @MainActor () -> Double
     let saveResumePosition: @MainActor @Sendable (Double) -> Void
     /// The window keeps this choice for all lectures. View > Show Transcript changes it too.
     @Binding var showsTranscript: Bool
+    /// A transcript search result of this lecture (#18). The player seeks to the cue and stays paused.
+    var seekRequest: TranscriptSeek? = nil
     @Environment(\.imageLoads) private var imageLoads
     @Environment(\.opensVideoPlayer) private var opensVideoPlayer
     @Environment(\.snapshotVideoStart) private var snapshotVideoStart
+    @Environment(\.snapshotShowsQuickChecks) private var snapshotShowsQuickChecks
+    @Environment(\.lectureScrollProxy) private var scrollProxy
     @Environment(\.pageVisibleTop) private var pageVisibleTop
     @State private var poster: NSImage?
     @State private var available: Bool?
@@ -129,6 +148,7 @@ struct VideoLectureView: View {
     @State private var transcript: Transcript?
     @State private var playback: VideoPlayback?
     @State private var showsCaptions = true
+    @State private var showsQuickChecks = false
 
     private static let maxWidth: CGFloat = 960
 
@@ -146,24 +166,53 @@ struct VideoLectureView: View {
                                        description: Text("Publish the course again to restore this file."))
             } else {
                 player
-                if hasCaptions {
+                if hasCaptions || quickChecks != nil {
                     HStack(spacing: GardenSpacing.xs) {
-                        Toggle(isOn: $showsCaptions) { Label("Captions", systemImage: "captions.bubble") }
-                        Toggle(isOn: $showsTranscript) { Label("Transcript", systemImage: "text.quote") }
-                            .help(showsTranscript ? "Hide Transcript (⌥⌘T)" : "Show Transcript (⌥⌘T)")
+                        if hasCaptions {
+                            Group {
+                                Toggle(isOn: $showsCaptions) { Label("Captions", systemImage: "captions.bubble") }
+                                Toggle(isOn: $showsTranscript) { Label("Transcript", systemImage: "text.quote") }
+                                    .help(showsTranscript ? "Hide Transcript (⌥⌘T)" : "Show Transcript (⌥⌘T)")
+                            }
+                            .toggleStyle(GardenPillToggleStyle())
+                            .disabled(captions == nil)
+                        }
+                        Spacer()
+                        if let quickChecks {
+                            Button(action: openQuickChecks) { Label(quickChecks.buttonTitle, systemImage: "checkmark.bubble") }
+                                .buttonStyle(.garden(.soft, .small))
+                        }
                     }
-                    .toggleStyle(GardenPillToggleStyle())
-                    .disabled(captions == nil)
-                    if showsTranscript, let transcript {
-                        TranscriptPanel(transcript: transcript, activeLine: playback?.activeLine, seek: seek)
-                            .frame(maxWidth: Self.maxWidth)
-                    }
+                    .frame(maxWidth: Self.maxWidth)
+                }
+                if hasCaptions, showsTranscript, let transcript {
+                    TranscriptPanel(transcript: transcript, activeLine: playback?.activeLine, seek: seek)
+                        .frame(maxWidth: Self.maxWidth)
+                }
+                if showsQuickChecks, let quickChecks {
+                    QuickCheckCard(session: quickChecks, answer: answerQuickCheck, retry: retryQuickCheck)
+                        .frame(maxWidth: Self.maxWidth)
+                        .id(QuickCheckCard.scrollID)
                 }
             }
         }
         .focusedSceneValue(\.showsTranscript, hasCaptions ? $showsTranscript : nil)
         .task(id: video) { await load() }
+        .onChange(of: seekRequest) { applySeekRequest() }
+        .onChange(of: playback?.endCount) { _, count in
+            if let count, count > 0 { openQuickChecks() }
+        }
         .onDisappear { playback?.stop() }
+    }
+
+    /// Shows the quick-check card and scrolls it into view after the next layout.
+    private func openQuickChecks() {
+        guard quickChecks != nil else { return }
+        showsQuickChecks = true
+        let proxy = scrollProxy
+        DispatchQueue.main.async {
+            withAnimation { proxy?.scrollTo(QuickCheckCard.scrollID, anchor: .bottom) }
+        }
     }
 
     /// False hides the Captions and Transcript toggles and the transcript.
@@ -249,7 +298,22 @@ struct VideoLectureView: View {
         transcript = cues.map(Transcript.init(captions:))
         available = exists
         if exists && opensVideoPlayer { play() }
+        applySeekRequest()
+        if snapshotShowsQuickChecks { showsQuickChecks = true }
         imageLoads?.finish(loaded: exists)
+    }
+
+    /// Opens the player paused at the cue of the search result and shows the transcript with the cue active.
+    /// Before the load ends this does nothing. The load calls it again.
+    private func applySeekRequest() {
+        guard let seekRequest, let video, available == true else { return }
+        if captions != nil { showsTranscript = true }
+        if let playback {
+            playback.seek(to: seekRequest.seconds, plays: false)
+        } else {
+            playback = VideoPlayback(url: video.url, start: seekRequest.seconds, captions: captions, transcript: transcript,
+                                     plays: false, save: saveResumePosition)
+        }
     }
 }
 
