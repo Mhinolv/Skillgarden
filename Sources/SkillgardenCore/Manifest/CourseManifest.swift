@@ -76,9 +76,28 @@ public struct ManifestLecture: Codable, Equatable, Sendable {
     public var interactive: ManifestInteractive?
     /// Required when `type` is `assignment`, and not allowed for other types.
     public var assignment: ManifestAssignment?
+    /// Optional for every type. Nil when the manifest has no `sources` field.
+    public var sources: [ManifestSource]?
     enum CodingKeys: String, CodingKey {
-        case id, title, type, objective, state, order, article, video, quiz, interactive, assignment
+        case id, title, type, objective, state, order, article, video, quiz, interactive, assignment, sources
         case recommendedNext = "recommended_next"
+    }
+}
+
+/// One "Sources and further watching" card of a lecture.
+/// `timestamp_start` and `timestamp_end` are integer seconds, the same as `duration_seconds`.
+public struct ManifestSource: Codable, Equatable, Sendable {
+    public var title: String
+    public var channel: String
+    /// Optional. An http or https URL.
+    public var url: String?
+    /// Optional. 0 or greater.
+    public var timestampStart: Int?
+    /// Optional. Greater than `timestampStart` when both are present.
+    public var timestampEnd: Int?
+    enum CodingKeys: String, CodingKey {
+        case title, channel, url
+        case timestampStart = "timestamp_start", timestampEnd = "timestamp_end"
     }
 }
 

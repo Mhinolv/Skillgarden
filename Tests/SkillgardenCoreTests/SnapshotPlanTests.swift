@@ -27,11 +27,12 @@ private func temporaryFolder() throws -> URL {
         "video-player-light.png", "video-player-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
         "section-review-light.png", "section-review-dark.png", "course-credits-light.png", "course-credits-dark.png",
         "assignment-light.png", "assignment-dark.png", "assignment-complete-light.png", "assignment-complete-dark.png",
+        "lecture-sources-light.png", "lecture-sources-dark.png",
     ])
     #expect(SnapshotScreen.allCases.filter(\.showsReviewInline) == [.sectionReview])
     #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer, .videoTranscript])
     #expect(SnapshotScreen.allCases.filter { $0.videoStartSeconds != nil } == [.videoTranscript])
-    #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [.videoTranscript])
+    #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [.videoTranscript, .lectureSources])
     #expect(SnapshotScreen.allCases.filter(\.checksTitlebarForVideo) == [.videoPlayer, .videoTranscript])
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: [.videoTranscript, .library]).map(\.url.lastPathComponent) == [
         "library-light.png", "library-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
@@ -107,6 +108,15 @@ private func temporaryFolder() throws -> URL {
             library.selectDestination(SnapshotPlan.destination(for: screen))
             #expect(library.selectedLecture?.type == .article)
             #expect(library.article(forLecture: "read")?.path == "content/plan.md")
+        case .lectureSources:
+            #expect(courseID == "sample-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.selectedLecture?.id == "read")
+            // Three cards: a full range with a URL, a start only with a URL, and no URL.
+            let sources = library.selectedSources
+            #expect(sources.map(\.rangeText) == ["4:10 – 9:32", "From 1:02:05", nil])
+            #expect(sources.map { $0.url != nil } == [true, true, false])
         case .courseLanding, .courseLandingDarkTheme:
             #expect(courseID == "sample-course")
             library.selectCourse(courseID)

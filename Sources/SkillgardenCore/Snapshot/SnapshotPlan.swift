@@ -36,6 +36,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case assignment
     /// The same assignment with every rubric row checked, so the success line shows.
     case assignmentComplete = "assignment-complete"
+    /// The article lecture scrolled to the end, so its three source cards show:
+    /// a full time range with a URL, a start only with a URL, and no URL.
+    case lectureSources = "lecture-sources"
 
     /// True when the harness opens the player of the video lecture before the capture.
     public var opensVideoPlayer: Bool { self == .videoPlayer || self == .videoTranscript }
@@ -44,7 +47,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     public var videoStartSeconds: Double? { self == .videoTranscript ? 3 : nil }
 
     /// True when the harness scrolls the lecture page to the end.
-    public var scrollsLectureToEnd: Bool { self == .videoTranscript }
+    public var scrollsLectureToEnd: Bool { self == .videoTranscript || self == .lectureSources }
 
     /// True when the harness fails if the capture has black video pixels in the title bar and the toolbar (#55).
     public var checksTitlebarForVideo: Bool { opensVideoPlayer }
@@ -97,7 +100,8 @@ public enum SnapshotPlan {
         case .libraryEmpty, .libraryEmptyCustomFolder:
             _ = try CourseStore(root: root)
             return nil
-        case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript:
+        case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
+             .lectureSources:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -224,7 +228,7 @@ public enum SnapshotPlan {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library: nil
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript: .lecture(sectionID: "plan", lectureID: "welcome")
-        case .article: .lecture(sectionID: "plan", lectureID: "read")
+        case .article, .lectureSources: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme: .overview
         case .courseCredits: .credits
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")

@@ -39,6 +39,8 @@ public final class LibraryModel {
     public private(set) var interactiveResults: [String: [String: InteractiveResult]] = [:]
     /// Assignment briefs and rubrics by course id, then lecture id, read from each installed manifest.
     public private(set) var assignments: [String: [String: LectureAssignment]] = [:]
+    /// Source cards by course id, then lecture id, read from each installed manifest. Lectures without sources have none.
+    public private(set) var sources: [String: [String: [LectureSource]]] = [:]
     /// Quiz attempts of this session by course id, then lecture id. They are not saved.
     private var quizAttempts: [String: [String: QuizAttempt]] = [:]
     /// Rubric checks of this session by course id, then lecture id. They are not saved.
@@ -282,6 +284,14 @@ public final class LibraryModel {
         rubricChecklists[courseID, default: [:]][lectureID] = checklist
     }
 
+    // MARK: Sources
+
+    /// The source cards of the selected lecture in manifest order. Empty if the lecture has none.
+    public var selectedSources: [LectureSource] {
+        guard let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return [] }
+        return sources[courseID]?[lectureID] ?? []
+    }
+
     // MARK: Spaced review
 
     /// Opens the review sheet on the first visit to a section that has two or more questions from earlier quizzes.
@@ -412,6 +422,7 @@ public final class LibraryModel {
             self.quizResults = quizResults
             interactives = installed.interactives
             assignments = installed.assignments
+            sources = installed.sources
             self.interactiveResults = interactiveResults
             reviewedSections = reviewed
             errorMessage = nil
@@ -436,6 +447,7 @@ public final class LibraryModel {
             interactives = [:]
             interactiveResults = [:]
             assignments = [:]
+            sources = [:]
             reviewedSections = [:]
             sectionReview = nil
             selectedCourseID = nil
@@ -459,7 +471,7 @@ public final class LibraryModel {
     }
 
     /// Reads header images, course page fields, article files, video files, quizzes, interactive bundles
-    /// and assignments from each installed manifest.
+    /// assignments and source cards from each installed manifest.
     /// A path outside the snapshot folder is ignored.
     nonisolated private static func installedData(store: CourseStore, root: URL) throws -> InstalledCourseData {
         var data = InstalledCourseData()
@@ -492,6 +504,10 @@ public final class LibraryModel {
                 if let assignment = lecture.assignment {
                     data.assignments[courseID, default: [:]][lecture.id] = LectureAssignment(manifest: assignment, folder: folder)
                 }
+                // Manifests saved before source support have no `sources` field.
+                if let sources = lecture.sources, !sources.isEmpty {
+                    data.sources[courseID, default: [:]][lecture.id] = sources.map(LectureSource.init(manifest:))
+                }
             }
         }
         return data
@@ -514,4 +530,6 @@ struct InstalledCourseData: Sendable {
     var interactives: [String: [String: InteractiveModule]] = [:]
     /// Assignment briefs and rubrics by course id, then lecture id.
     var assignments: [String: [String: LectureAssignment]] = [:]
+    /// Source cards by course id, then lecture id.
+    var sources: [String: [String: [LectureSource]]] = [:]
 }
