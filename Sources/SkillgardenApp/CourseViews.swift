@@ -16,6 +16,7 @@ extension LectureType {
         case .article: "doc.text"
         case .quiz: "checklist"
         case .assignment: "pencil.and.list.clipboard"
+        case .interactive: "hand.tap"
         }
     }
 }

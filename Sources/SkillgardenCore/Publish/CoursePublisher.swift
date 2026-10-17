@@ -63,9 +63,17 @@ public enum CoursePublisher {
         }
         for (sectionIndex, section) in manifest.sections.enumerated() {
             for (lectureIndex, lecture) in section.lectures.enumerated() {
+                let field = "sections[\(sectionIndex)].lectures[\(lectureIndex)]"
+                if let interactive = lecture.interactive {
+                    // The bundle stays in the snapshot as it is. The app loads its `index.html` from there.
+                    let path = LectureArticle.normalize(interactive.bundlePath)
+                    if path.map({ !files.contains($0 + "/" + InteractiveModule.entryFile) }) ?? true {
+                        problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: field + ".interactive.bundle_path",
+                                                           message: "folder must contain \(InteractiveModule.entryFile)"))
+                    }
+                }
                 guard let article = lecture.article else { continue }
-                problems += articleProblems(article, field: "sections[\(sectionIndex)].lectures[\(lectureIndex)].article",
-                                            files: files, source: source, folder: courseFolder)
+                problems += articleProblems(article, field: field + ".article", files: files, source: source, folder: courseFolder)
             }
         }
         guard problems.isEmpty else { throw ManifestValidationError(diagnostics: problems) }

@@ -225,7 +225,7 @@ func validationFailsWhenAQuestionLacksAField(field: String) throws {
     try old.saveLastOpenedLecture(courseID: "c", lectureID: "q")
 
     let store = try CourseStore(root: root)
-    #expect(try store.schemaVersion == 6)
+    #expect(try store.schemaVersion == CourseStore.currentSchemaVersion)
     #expect(try store.lastOpenedLectures() == ["c": "q"])
     #expect(try store.allQuizResults().isEmpty)
     try store.saveQuizResult(QuizResult(correct: 1, total: 3, weakSkills: ["A", "B"]), courseID: "c", lectureID: "q")

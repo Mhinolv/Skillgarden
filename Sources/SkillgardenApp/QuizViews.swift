@@ -177,18 +177,27 @@ struct QuizResultsView: View {
                     Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
                 }
             } else {
-                VStack(alignment: .leading, spacing: CourseStyle.spacing) {
-                    Text("Skills to review").font(.headline).accessibilityAddTraits(.isHeader)
-                    ForEach(result.weakSkills, id: \.self) { skill in
-                        Label {
-                            Text(skill).fixedSize(horizontal: false, vertical: true)
-                        } icon: {
-                            Image(systemName: "exclamationmark.circle").foregroundStyle(.orange)
-                        }
-                    }
-                }
+                SkillsToReviewList(skills: result.weakSkills)
             }
             Button("Retake Quiz", action: retake).buttonStyle(.bordered)
+        }
+    }
+}
+
+/// The "Skills to review" heading and one row for each weak skill. Quiz and interactive results share it.
+struct SkillsToReviewList: View {
+    let skills: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CourseStyle.spacing) {
+            Text("Skills to review").font(.headline).accessibilityAddTraits(.isHeader)
+            ForEach(skills, id: \.self) { skill in
+                Label {
+                    Text(skill).fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "exclamationmark.circle").foregroundStyle(.orange)
+                }
+            }
         }
     }
 }

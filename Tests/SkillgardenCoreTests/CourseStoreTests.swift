@@ -22,6 +22,7 @@ private func sampleCourse(id: String = "course", state: PublicationState = .publ
         ]),
         CourseSection(id: "draft", title: "Draft", order: 30, state: .draft, lectures: [
             Lecture(id: "hidden", title: "Hidden", type: .video, order: 0, state: .published),
+            Lecture(id: "module", title: "Module", type: .interactive, order: 1, state: .published),
         ]),
     ])
 }

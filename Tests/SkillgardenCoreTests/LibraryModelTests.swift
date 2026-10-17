@@ -31,7 +31,7 @@ import Testing
         #expect(library.selectedLecture?.type == type)
     }
     library.selectDestination(.lecture(sectionID: "draft", lectureID: "hidden"))
-    #expect(library.selectedLecture?.type == .assignment)
+    #expect(library.selectedLecture?.type == LectureType.allCases.last)
     library.selectCourse("a")
     #expect(library.destination == .overview)
     #expect(library.selectedLecture == nil)

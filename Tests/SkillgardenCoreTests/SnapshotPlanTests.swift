@@ -22,7 +22,7 @@ private func temporaryFolder() throws -> URL {
         "course-landing-light.png", "course-landing-dark.png",
         "course-landing-dark-theme-light.png", "course-landing-dark-theme-dark.png",
         "quiz-question-light.png", "quiz-question-dark.png", "quiz-wrong-answer-light.png", "quiz-wrong-answer-dark.png",
-        "quiz-results-light.png", "quiz-results-dark.png",
+        "quiz-results-light.png", "quiz-results-dark.png", "interactive-result-light.png", "interactive-result-dark.png",
     ])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
@@ -116,6 +116,14 @@ private func temporaryFolder() throws -> URL {
                 #expect(attempt.result.weakSkills == ["Read a course outline", "Order course sections"])
                 await library.waitForWrites()
             }
+        case .interactiveResult:
+            #expect(courseID == "interactive-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.selectedLecture?.type == .interactive)
+            let module = try #require(library.selectedInteractive)
+            #expect(module.entryExists())
+            #expect(library.selectedInteractiveResult == InteractiveResult(score: 75, weakSkills: ["Order the steps of a course plan"]))
         }
     }
 }

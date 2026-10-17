@@ -2,7 +2,7 @@ import Foundation
 
 public enum ManifestState: String, Codable, Sendable { case draft, published }
 public enum ManifestAppearance: String, Codable, Sendable { case light, dark }
-public enum ManifestLectureType: String, Codable, Sendable { case video, article, quiz, assignment }
+public enum ManifestLectureType: String, Codable, Sendable { case video, article, quiz, assignment, interactive }
 
 public struct ManifestImage: Codable, Equatable, Sendable {
     public var path: String
@@ -29,6 +29,12 @@ public struct ManifestArticle: Codable, Equatable, Sendable {
     public var images: [ManifestImage]?
 }
 
+/// The HTML bundle of an interactive lecture. `bundle_path` is a folder under the course root with an `index.html` file.
+public struct ManifestInteractive: Codable, Equatable, Sendable {
+    public var bundlePath: String
+    enum CodingKeys: String, CodingKey { case bundlePath = "bundle_path" }
+}
+
 public struct ManifestLecture: Codable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -41,8 +47,10 @@ public struct ManifestLecture: Codable, Equatable, Sendable {
     public var article: ManifestArticle?
     /// Required when `type` is `quiz`. Nil for every other type.
     public var quiz: ManifestQuiz?
+    /// Required when `type` is `interactive`, and not allowed for other types.
+    public var interactive: ManifestInteractive?
     enum CodingKeys: String, CodingKey {
-        case id, title, type, objective, state, order, article, quiz
+        case id, title, type, objective, state, order, article, quiz, interactive
         case recommendedNext = "recommended_next"
     }
 }
