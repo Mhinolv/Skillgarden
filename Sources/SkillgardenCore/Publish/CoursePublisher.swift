@@ -52,6 +52,13 @@ public enum CoursePublisher {
         for (index, file) in (manifest.internalMaterial?.files ?? []).enumerated() where !files.contains(file.path) {
             problems.append(ManifestDiagnostic(file: courseFolder.path, fieldPath: "internal.files[\(index)].path", message: "file does not exist"))
         }
+        for (sectionIndex, section) in manifest.sections.enumerated() {
+            for (lectureIndex, lecture) in section.lectures.enumerated() {
+                guard let article = lecture.article else { continue }
+                problems += articleProblems(article, field: "sections[\(sectionIndex)].lectures[\(lectureIndex)].article",
+                                            files: files, source: source, folder: courseFolder)
+            }
+        }
         guard problems.isEmpty else { throw ManifestValidationError(diagnostics: problems) }
         let store = try CourseStore(root: root)
         let previous = try store.publication(id: manifest.id)
@@ -160,6 +167,35 @@ public enum CoursePublisher {
                 ])
             }
         }
+    }
+
+    /// Each listed image must be a readable image file. Each Markdown image must exist and have alt text in `images`.
+    private static func articleProblems(_ article: ManifestArticle, field: String, files: [String], source: URL,
+                                        folder: URL) -> [ManifestDiagnostic] {
+        func problem(_ path: String, _ message: String) -> ManifestDiagnostic {
+            ManifestDiagnostic(file: folder.path, fieldPath: "\(field).\(path)", message: message)
+        }
+        var problems: [ManifestDiagnostic] = []
+        for (index, image) in (article.images ?? []).enumerated() {
+            guard files.contains(image.path) else { problems.append(problem("images[\(index)].path", "file does not exist")); continue }
+            do throws(ImagePipelineError) { _ = try ImagePipeline.format(of: source.appending(path: image.path)) }
+            catch { problems.append(problem("images[\(index)].path", error.message)) }
+        }
+        guard files.contains(article.path) else { return problems + [problem("path", "file does not exist")] }
+        let lecture = LectureArticle(folder: source, path: article.path, images: article.images ?? [])
+        guard let document = try? lecture.load() else { return problems + [problem("path", "cannot read the Markdown file as UTF-8 text")] }
+        for reference in document.imageSources {
+            guard let target = LectureArticle.resolve(reference, article: article.path) else {
+                problems.append(problem("path", "image \"\(reference)\" must be a file inside the course folder"))
+                continue
+            }
+            if !files.contains(target) {
+                problems.append(problem("path", "image \"\(reference)\" does not exist (expected \(target))"))
+            } else if lecture.alts[target] == nil {
+                problems.append(problem("images", "image \"\(target)\" needs an entry with alt text"))
+            }
+        }
+        return problems
     }
 
     private static func sourceFiles(in folder: URL) throws -> [String] {

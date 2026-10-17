@@ -17,6 +17,8 @@ public final class LibraryModel {
     public private(set) var destination: CourseDestination? = nil
     /// Section header images by course id, then section id. Courses without an installed snapshot have none.
     public private(set) var headerImages: [String: [String: SectionHeaderImage]] = [:]
+    /// Article files by course id, then lecture id. Courses without an installed snapshot have none.
+    public private(set) var articles: [String: [String: LectureArticle]] = [:]
     /// Learner progress by course id, then lecture id.
     public private(set) var progress: [String: [String: LectureProgress]] = [:]
     /// The last opened lecture id by course id. The lecture can be absent from the current outline.
@@ -63,6 +65,11 @@ public final class LibraryModel {
 
     public func headerImage(forSection sectionID: String) -> SectionHeaderImage? {
         selectedCourseID.flatMap { headerImages[$0]?[sectionID] }
+    }
+
+    /// The article file of a lecture in the selected course, or nil if the snapshot has none.
+    public func article(forLecture lectureID: String) -> LectureArticle? {
+        selectedCourseID.flatMap { articles[$0]?[lectureID] }
     }
 
     public func goToPreviousLecture() { if let previousLecture { open(previousLecture) } }
@@ -167,14 +174,15 @@ public final class LibraryModel {
         // Queued writes finish first, so the reload reads them.
         await waitForWrites()
         do {
-            let (store, loaded, images, progress, lastOpened) = try await Task.detached {
+            let (store, loaded, media, progress, lastOpened) = try await Task.detached {
                 let store = try CourseStore(root: root)
-                return (store, try store.listCourses(), try Self.headerImages(store: store, root: root),
+                return (store, try store.listCourses(), try Self.snapshotMedia(store: store, root: root),
                         try store.allProgress(), try store.lastOpenedLectures())
             }.value
             self.store = store
             courses = loaded
-            headerImages = images
+            headerImages = media.headerImages
+            articles = media.articles
             self.progress = progress
             lastOpenedLectures = lastOpened
             errorMessage = nil
@@ -188,6 +196,7 @@ public final class LibraryModel {
             store = nil
             courses = []
             headerImages = [:]
+            articles = [:]
             progress = [:]
             lastOpenedLectures = [:]
             selectedCourseID = nil
@@ -208,18 +217,26 @@ public final class LibraryModel {
         }
     }
 
-    /// Reads header images from each installed manifest. A path outside the snapshot folder is ignored.
-    nonisolated private static func headerImages(store: CourseStore, root: URL) throws -> [String: [String: SectionHeaderImage]] {
-        var result: [String: [String: SectionHeaderImage]] = [:]
+    /// Reads header images and article files from each installed manifest. A path outside the snapshot folder is ignored.
+    nonisolated private static func snapshotMedia(store: CourseStore, root: URL) throws
+        -> (headerImages: [String: [String: SectionHeaderImage]], articles: [String: [String: LectureArticle]]) {
+        var images: [String: [String: SectionHeaderImage]] = [:]
+        var articles: [String: [String: LectureArticle]] = [:]
         for (courseID, publication) in try store.publications() {
             guard let manifest = try? JSONDecoder().decode(CourseManifest.self, from: publication.manifest) else { continue }
             let folder = root.appending(path: publication.directory).standardizedFileURL
             for section in manifest.sections {
                 let url = folder.appending(path: section.headerImage.path).standardizedFileURL
-                guard url.path.hasPrefix(folder.path + "/") else { continue }
-                result[courseID, default: [:]][section.id] = SectionHeaderImage(url: url, alt: section.headerImage.alt)
+                if url.path.hasPrefix(folder.path + "/") {
+                    images[courseID, default: [:]][section.id] = SectionHeaderImage(url: url, alt: section.headerImage.alt)
+                }
+                // Manifests saved before article support have no `article` field.
+                for lecture in section.lectures {
+                    guard let article = lecture.article, let path = LectureArticle.normalize(article.path) else { continue }
+                    articles[courseID, default: [:]][lecture.id] = LectureArticle(folder: folder, path: path, images: article.images ?? [])
+                }
             }
         }
-        return result
+        return (images, articles)
     }
 }

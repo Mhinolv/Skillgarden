@@ -49,6 +49,7 @@ struct CourseImageView: View {
         .accessibilityLabel(image?.alt ?? "")
         .task(id: url) {
             guard let url else { loaded = nil; return }
+            imageLoads?.start()
             // Read the file off the main actor. NSImage keeps SVG as a vector, so it draws sharp at any size.
             let data = await Task.detached { try? Data(contentsOf: url) }.value
             loaded = data.flatMap(NSImage.init(data:))
@@ -57,11 +58,16 @@ struct CourseImageView: View {
     }
 }
 
-/// Counts finished course image loads so the snapshot harness can capture after the load ends. The app sets none.
+/// Counts course image and article loads so the snapshot harness can capture after the loads end. The app sets none.
 @MainActor
 final class ImageLoadTracker {
+    private(set) var started = 0
     private(set) var finished = 0
     private(set) var loaded = 0
+
+    var pending: Int { started - finished }
+
+    func start() { started += 1 }
 
     func finish(loaded success: Bool) {
         finished += 1
