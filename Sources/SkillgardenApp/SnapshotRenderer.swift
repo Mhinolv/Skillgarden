@@ -63,6 +63,7 @@ enum SnapshotRenderer {
             .environment(\.locale, Locale(identifier: SnapshotPlan.localeIdentifier))
             .environment(\.timeZone, TimeZone(identifier: SnapshotPlan.timeZoneIdentifier)!)
             .environment(\.imageLoads, imageLoads)
+            .environment(\.opensVideoPlayer, output.screen.opensVideoPlayer)
             .transaction { $0.disablesAnimations = true; $0.animation = nil }
         let size = NSSize(width: SnapshotPlan.width, height: SnapshotPlan.height)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
