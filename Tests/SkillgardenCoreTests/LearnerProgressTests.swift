@@ -110,6 +110,46 @@ private let course = Course(id: "c", title: "Course", state: .published, section
     }
 }
 
+@MainActor @Test func outlineOpensOnlyTheSectionOfTheSelectionOrOfTheNextLecture() async throws {
+    try await withRoot { root in
+        let three = Course(id: "t", title: "Three", state: .published, sections: [
+            CourseSection(id: "s1", title: "One", order: 0, state: .published, lectures: [lecture("a", order: 0)]),
+            CourseSection(id: "s2", title: "Two", order: 1, state: .published, lectures: [lecture("b", order: 0), lecture("c", order: 1)]),
+            CourseSection(id: "s3", title: "Three", order: 2, state: .published, lectures: [lecture("d", order: 0)]),
+        ])
+        try CourseStore(root: root).saveCourse(three)
+        let library = LibraryModel(root: root)
+        await library.reload()
+        #expect(library.outlineOpenSectionID == nil)
+        library.selectCourse("t")
+        // A new course opens the section of the first lecture.
+        #expect(library.outlineOpenSectionID == "s1")
+
+        library.selectDestination(.lecture(sectionID: "s1", lectureID: "a"))
+        await library.toggleSelectedLectureComplete()
+        // The selection decides, also if the section is done.
+        #expect(library.outlineOpenSectionID == "s1")
+        library.selectDestination(.section(sectionID: "s3"))
+        #expect(library.outlineOpenSectionID == "s3")
+        library.selectDestination(.lecture(sectionID: "s2", lectureID: "c"))
+        #expect(library.outlineOpenSectionID == "s2")
+
+        // On the overview and with no selection, the section of the next lecture opens.
+        library.selectDestination(.overview)
+        #expect(library.outlineOpenSectionID == "s2")
+        library.selectDestination(nil)
+        #expect(library.outlineOpenSectionID == "s2")
+
+        // If every lecture is done, the first section opens.
+        for (section, id) in [("s2", "b"), ("s2", "c"), ("s3", "d")] {
+            library.selectDestination(.lecture(sectionID: section, lectureID: id))
+            await library.toggleSelectedLectureComplete()
+        }
+        library.selectDestination(.overview)
+        #expect(library.outlineOpenSectionID == "s1")
+    }
+}
+
 @Test func resumeStartIgnoresTheFirstAndLastFiveSeconds() {
     #expect(PlaybackResume.startSeconds(saved: 0, duration: 120) == 0)
     #expect(PlaybackResume.startSeconds(saved: 4.9, duration: 120) == 0)

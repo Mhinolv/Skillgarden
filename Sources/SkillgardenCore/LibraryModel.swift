@@ -161,6 +161,15 @@ public final class LibraryModel {
         return SteppingStone.states(lectureIDs: lectures.map(\.id)) { isComplete($0) }
     }
 
+    /// The one section that the outline shows open (#70): the section of the selection.
+    /// On the overview, the credits or no selection, the section of the next lecture. If all lectures are done, the first section.
+    public var outlineOpenSectionID: String? {
+        if let selectedSection { return selectedSection.id }
+        guard let course = selectedCourse else { return nil }
+        if case let .lecture(sectionID, _)? = summary(of: course).nextDestination { return sectionID }
+        return course.learnerSections.first?.id
+    }
+
     // MARK: Library home
 
     /// The tile progress of any course in the library. It does not need a selected course.
