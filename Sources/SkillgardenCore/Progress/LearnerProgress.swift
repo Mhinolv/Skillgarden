@@ -20,6 +20,27 @@ public struct SectionProgress: Equatable, Sendable {
     }
 }
 
+/// The state of one lecture in a stepping-stone progress row.
+public enum SteppingStone: Equatable, Sendable {
+    case done, next, todo, missed
+
+    /// One stone per lecture, in order. The first incomplete lecture is `next`. The other incomplete lectures are `todo`.
+    public static func states(lectureIDs: [String], isComplete: (String) -> Bool) -> [SteppingStone] {
+        var foundNext = false
+        return lectureIDs.map { id in
+            if isComplete(id) { return .done }
+            if foundNext { return .todo }
+            foundNext = true
+            return .next
+        }
+    }
+
+    /// The VoiceOver label for a row, for example "7 of 16 lectures complete".
+    public static func accessibilityLabel(_ states: [SteppingStone]) -> String {
+        "\(states.filter { $0 == .done }.count) of \(states.count) \(states.count == 1 ? "lecture" : "lectures") complete"
+    }
+}
+
 /// Rules for the saved video position.
 public enum PlaybackResume {
     /// The player saves the position at this interval, on pause and when the learner leaves the lecture.

@@ -121,6 +121,12 @@ public final class LibraryModel {
         SectionProgress(section: section, progress: selectedCourseID.flatMap { progress[$0] } ?? [:])
     }
 
+    /// The stepping stones of the learner lectures in the selected course. Pass a section to get only its lectures.
+    public func steppingStones(in section: CourseSection? = nil) -> [SteppingStone] {
+        let lectures = section?.lectures ?? selectedCourse?.learnerLectures.map(\.lecture) ?? []
+        return SteppingStone.states(lectureIDs: lectures.map(\.id)) { isComplete($0) }
+    }
+
     /// Marks the selected lecture complete or incomplete. If the write fails, the state goes back.
     public func toggleSelectedLectureComplete() async {
         guard let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return }
