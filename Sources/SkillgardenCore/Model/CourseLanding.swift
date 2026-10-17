@@ -70,6 +70,61 @@ public struct CourseTheme: Equatable, Sendable {
     }
 }
 
+/// One row of the course credits page.
+public struct CourseCredit: Equatable, Sendable {
+    public let name: String
+    /// Nil if the manifest has no role or an empty role.
+    public let role: String?
+    /// The link that "Open Link" opens. Nil if the manifest has no usable `url`.
+    public let url: URL?
+
+    public init(name: String, role: String? = nil, url: URL? = nil) {
+        self.name = name
+        self.role = role
+        self.url = url
+    }
+
+    /// Returns nil if the name is empty.
+    /// `url` can be an `http` or `https` link, or a file of the course snapshot `folder`.
+    /// A file link is a relative path or a `file` URL. Other links, `internal/` files and paths outside the folder give no URL.
+    public init?(manifest: ManifestCredit, folder: URL?) {
+        let name = manifest.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        let role = manifest.role?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.init(name: name, role: role.isEmpty ? nil : role,
+                  url: (manifest.url?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { Self.link($0, folder: folder) })
+    }
+
+    private static func link(_ text: String, folder: URL?) -> URL? {
+        guard !text.isEmpty else { return nil }
+        let url = URL(string: text)
+        switch url?.scheme?.lowercased() {
+        case "http", "https":
+            return url?.host().map { !$0.isEmpty } == true ? url : nil
+        case "file":
+            guard let folder, let path = url?.path(percentEncoded: false) else { return nil }
+            let base = folder.standardizedFileURL.path
+            guard path.hasPrefix(base + "/") else { return nil }
+            return bundled(String(path.dropFirst(base.count + 1)), folder: folder)
+        case nil:
+            // A Windows drive path such as `C:/file` has the scheme "c", so it gives no URL.
+            guard let folder, !text.hasPrefix("/") else { return nil }
+            return bundled(text, folder: folder)
+        default:
+            return nil
+        }
+    }
+
+    /// A file inside the snapshot folder, outside `internal/`. The file must exist.
+    private static func bundled(_ path: String, folder: URL) -> URL? {
+        let folder = folder.standardizedFileURL
+        guard let path = LectureArticle.normalize(path) else { return nil }
+        let url = folder.appending(path: path).standardizedFileURL
+        guard url.path.hasPrefix(folder.path + "/"), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+}
+
 /// The course page fields of an installed manifest.
 public struct CourseLanding: Equatable, Sendable {
     public let description: String
@@ -77,8 +132,11 @@ public struct CourseLanding: Equatable, Sendable {
     public let requirements: [String]
     public let targetAudience: String
     public let theme: CourseTheme
+    /// The credits in manifest order. Credits with an empty name are left out.
+    public let credits: [CourseCredit]
 
-    public init(manifest: CourseManifest) {
+    /// `folder` is the installed snapshot folder. Relative credit links resolve inside it.
+    public init(manifest: CourseManifest, folder: URL? = nil) {
         func clean(_ items: [String]) -> [String] {
             items.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         }
@@ -88,6 +146,7 @@ public struct CourseLanding: Equatable, Sendable {
         targetAudience = manifest.targetAudience.trimmingCharacters(in: .whitespacesAndNewlines)
         theme = CourseTheme(accentColor: manifest.theme.accentColor,
                             appearance: manifest.theme.appearance == .dark ? .dark : .light)
+        credits = manifest.credits.compactMap { CourseCredit(manifest: $0, folder: folder) }
     }
 }
 
