@@ -1,0 +1,66 @@
+schema_version: 1
+id: sample-course
+title: Local Course Basics
+subtitle: A course for the Skillgarden sample
+description: Learn how to plan and complete a local course.
+learning_outcomes:
+  - Plan a course
+  - Check your work
+requirements:
+  - A Mac
+target_audience: New learners
+state: published
+theme:
+  accent_color: '#286644'
+  appearance: light
+course_image:
+  path: media/course.svg
+  alt: A green garden with two plants
+credits:
+  - name: Skillgarden Team
+    role: Author
+    url: https://example.com/credits
+sections:
+  - id: plan
+    title: Plan the course
+    objective: Identify the course structure
+    state: published
+    order: 0
+    header_image:
+      path: media/section.svg
+      alt: Two course sections
+    lectures:
+      - id: welcome
+        title: Welcome
+        type: video
+        objective: Identify the course goal
+        state: published
+        order: 0
+        recommended_next: read
+      - id: read
+        title: Read the plan
+        type: article
+        objective: Describe the course plan
+        state: published
+        order: 1
+  - id: practice
+    title: Check your work
+    objective: Apply the course plan
+    state: draft
+    order: 1
+    header_image:
+      path: media/section.svg
+      alt: Two course sections
+    lectures:
+      - id: check
+        title: Check the plan
+        type: quiz
+        objective: Select the correct plan
+        state: published
+        order: 0
+      - id: apply
+        title: Write a plan
+        type: assignment
+        objective: Create a course plan
+        state: draft
+        order: 1
