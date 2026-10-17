@@ -332,7 +332,8 @@ struct ManifestValidator {
             if escapes || !inside { add(path, "path must stay inside internal/") }
         } else if escapes {
             add(path, "path must stay inside the course folder")
-        } else if normalized.hasPrefix("internal/") {
+        } else if let first = normalized.split(separator: "/").first(where: { $0 != "." }),
+                  LectureArticle.isInternalFolder(first) {
             add(path, "path must not be inside internal/")
         }
     }

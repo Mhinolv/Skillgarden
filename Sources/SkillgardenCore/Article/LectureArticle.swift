@@ -66,7 +66,12 @@ public struct LectureArticle: Equatable, Sendable {
             default: parts.append(part)
             }
         }
-        guard !parts.isEmpty, parts.first != "internal" else { return nil }
+        guard let first = parts.first, !isInternalFolder(first) else { return nil }
         return parts.joined(separator: "/")
+    }
+
+    /// True for the team-only folder name `internal` in any case. Mac volumes often ignore case.
+    static func isInternalFolder(_ name: some StringProtocol) -> Bool {
+        name.lowercased() == "internal"
     }
 }

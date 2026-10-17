@@ -40,9 +40,9 @@ public enum CoursePublisher {
         let (manifest, source, files, images) = try check(courseFolder: courseFolder, library: destination)
         let manager = FileManager.default
         // Learner snapshots never hold internal/. Internal files go to a separate store area.
-        let learnerFiles = files.filter { !$0.hasPrefix(internalPrefix) }
-        let internalFiles = files.filter { $0.hasPrefix(internalPrefix) }.map { String($0.dropFirst(internalPrefix.count)) }
-        let internalSource = source.appending(path: "internal")
+        // `files` holds on-disk names, so the internal folder can be `Internal/` or `INTERNAL/`.
+        let learnerFiles = files.filter { !isInternal($0) }
+        let internalFiles = files.filter(isInternal)
         let store = try CourseStore(root: root)
         let previous = try store.publication(id: manifest.id)
         let oldManifest = try previous.map { try JSONDecoder().decode(CourseManifest.self, from: $0.manifest) }
@@ -53,7 +53,7 @@ public enum CoursePublisher {
         if let previous, oldManifest == manifest, try store.loadCourse(id: manifest.id, includeDrafts: true)?.image != nil,
            try equalFiles(learnerFiles, source: source, snapshot: destination.appending(path: previous.directory)),
            try previous.internalDirectory.map({
-               try equalFiles(internalFiles, source: internalSource, snapshot: destination.appending(path: $0))
+               try equalFiles(internalFiles, source: source, snapshot: destination.appending(path: $0), target: insideInternal)
            }) ?? internalFiles.isEmpty {
             // Courses saved before the transcript index (#18) get it from the installed snapshot.
             if try !store.hasTranscriptIndex(courseID: manifest.id) {
@@ -70,7 +70,7 @@ public enum CoursePublisher {
         do {
             try copy(learnerFiles, from: source, to: snapshot)
             if let internalRelative {
-                try copy(internalFiles, from: internalSource, to: destination.appending(path: internalRelative))
+                try copy(internalFiles, from: source, to: destination.appending(path: internalRelative), target: insideInternal)
             }
             // A source edit during the copy must not install a different manifest.
             guard try ManifestLoader.load(courseFolder: snapshot) == manifest else {
@@ -106,7 +106,9 @@ public enum CoursePublisher {
         if let library, library.path.hasPrefix(source.path + "/") || library == source {
             throw diagnostic(courseFolder, "library must be outside the course folder")
         }
-        let files = try sourceFiles(in: source)
+        let found = try sourceFiles(in: source)
+        // Manifest paths name the internal folder in lowercase. The folder on disk can use any case.
+        let files = found.map { isInternal($0) ? "internal/" + insideInternal($0) : $0 }
         let images = [ImageField(field: "course_image", image: manifest.courseImage, role: .course)]
             + manifest.sections.enumerated().map {
                 ImageField(field: "sections[\($0.offset)].header_image", image: $0.element.headerImage, role: .sectionHeader)
@@ -162,7 +164,7 @@ public enum CoursePublisher {
             }
         }
         guard problems.isEmpty else { throw ManifestValidationError(diagnostics: problems) }
-        return (manifest, source, files, images)
+        return (manifest, source, found, images)
     }
 
     /// Returns the installed snapshot. Source files can be removed after publish.
@@ -181,7 +183,15 @@ public enum CoursePublisher {
         }
     }
 
-    private static let internalPrefix = "internal/"
+    /// True for a course-relative file path inside the internal folder, in any case.
+    private static func isInternal(_ path: String) -> Bool {
+        path.split(separator: "/", maxSplits: 1).first.map(LectureArticle.isInternalFolder) ?? false
+    }
+
+    /// The part of an internal file path after the internal folder name.
+    private static func insideInternal(_ path: String) -> String {
+        String(path.drop { $0 != "/" }.dropFirst())
+    }
 
     /// The caption cues of each video lecture, read from the snapshot. Draft lectures are indexed too.
     /// The learner search leaves out the lectures that the learner cannot see.
@@ -192,10 +202,11 @@ public enum CoursePublisher {
         }
     }
 
-    private static func copy(_ files: [String], from source: URL, to directory: URL) throws {
+    private static func copy(_ files: [String], from source: URL, to directory: URL,
+                             target name: (String) -> String = { $0 }) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for path in files {
-            let target = directory.appending(path: path)
+            let target = directory.appending(path: name(path))
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: source.appending(path: path), to: target)
         }
@@ -327,10 +338,11 @@ public enum CoursePublisher {
         return files
     }
 
-    private static func equalFiles(_ files: [String], source: URL, snapshot: URL) throws -> Bool {
-        guard (try? sourceFiles(in: snapshot)) == files else { return false }
+    private static func equalFiles(_ files: [String], source: URL, snapshot: URL,
+                                   target name: (String) -> String = { $0 }) throws -> Bool {
+        guard (try? sourceFiles(in: snapshot)) == files.map(name) else { return false }
         return files.allSatisfy {
-            FileManager.default.contentsEqual(atPath: source.appending(path: $0).path, andPath: snapshot.appending(path: $0).path)
+            FileManager.default.contentsEqual(atPath: source.appending(path: $0).path, andPath: snapshot.appending(path: name($0)).path)
         }
     }
 

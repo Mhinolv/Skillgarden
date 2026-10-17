@@ -152,6 +152,7 @@ See `Tests/Fixtures/sample-course/skillgarden.yaml` for a full example.
 
 - Put team-only files in `internal/`. List each one in `internal.files` with `path` and `title`. `description` is optional.
 - Each `internal.files` path must stay inside `internal/`.
+- The folder name `internal` matches in any case.
 - Learner paths (images, videos, articles) must not point into `internal/`.
 - Publish keeps `internal/` out of the learner snapshot. The learner app never shows these files.
 

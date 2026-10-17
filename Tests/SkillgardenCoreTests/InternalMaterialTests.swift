@@ -84,6 +84,47 @@ private func files(in directory: URL) throws -> [String] {
     }
 }
 
+@Test func publishTreatsAnInternalFolderInAnyCaseAsInternal() throws {
+    for name in ["Internal", "INTERNAL"] {
+        try withCourse { folder, root in
+            // Two moves give a new case on a case-insensitive volume too.
+            try FileManager.default.moveItem(at: folder.appending(path: "internal"), to: folder.appending(path: "moved"))
+            try FileManager.default.moveItem(at: folder.appending(path: "moved"), to: folder.appending(path: name))
+            #expect(try CoursePublisher.validate(courseFolder: folder).id == "sample-course")
+            try CoursePublisher.publish(courseFolder: folder, root: root)
+            let snapshot = try #require(try CoursePublisher.assetDirectory(courseID: "sample-course", root: root))
+            #expect(try files(in: snapshot) == [
+                "content/brief.md", "content/checklist.txt", "content/plan.md", "content/sections.csv",
+                "content/welcome.mp4", "content/welcome.vtt", "content/worksheet.pdf", "media/course.svg", "media/poster.svg", "media/section.svg", "skillgarden.yaml",
+            ], "\(name)")
+            let relative = try #require(try internalDirectory(root))
+            #expect(try files(in: root.appending(path: relative)) == ["research.md", "transcript.vtt"])
+            #expect(try CoursePublisher.internalFiles(courseID: "sample-course", root: root)?.map(\.path)
+                == ["internal/research.md", "internal/transcript.vtt"])
+            // An unchanged course keeps both areas.
+            try CoursePublisher.publish(courseFolder: folder, root: root)
+            #expect(try CoursePublisher.assetDirectory(courseID: "sample-course", root: root) == snapshot)
+            #expect(try internalDirectory(root) == relative)
+        }
+    }
+}
+
+@Test func learnerPathsIntoAnInternalFolderInAnyCaseFail() throws {
+    for bad in ["Internal/research.md", "INTERNAL/research.md", "./internal/research.md", "./Internal/research.md"] {
+        try withCourse { folder, root in
+            let manifest = folder.appending(path: "skillgarden.yaml").path
+            try edit(folder, "path: media/course.svg", "path: \(bad)")
+            #expect(SkillgardenCommand.run(arguments: ["publish", folder.path], root: root) == CommandResult(
+                exitCode: 1, stdout: "", stderr: "error: \(manifest): course_image.path: path must not be inside internal/\n"), "\(bad)")
+        }
+    }
+    // Runtime guards resolve no file inside the internal folder in any case.
+    for bad in ["Internal/research.md", "INTERNAL/a", "./iNtErNaL/a", "content/../Internal/a"] {
+        #expect(LectureArticle.normalize(bad) == nil, "\(bad)")
+    }
+    #expect(LectureArticle.normalize("internals/a") == "internals/a")
+}
+
 @Test func learnerQueriesReturnNoInternalMaterial() throws {
     try withCourse { folder, root in
         try CoursePublisher.publish(courseFolder: folder, root: root)
