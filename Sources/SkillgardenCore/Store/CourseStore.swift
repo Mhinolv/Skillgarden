@@ -3,7 +3,7 @@ import SQLite3
 
 /// A synchronous local store. The lock protects the connection and each complete operation.
 public final class CourseStore: @unchecked Sendable {
-    public static let currentSchemaVersion = 3
+    public static let currentSchemaVersion = 4
     public let databaseURL: URL
     private let database: SQLiteDatabase
     private let lock = NSLock()
@@ -156,22 +156,25 @@ public final class CourseStore: @unchecked Sendable {
         return String(decoding: data, as: UTF8.self)
     }
 
-    func publication(id: String) throws -> (manifest: Data, directory: String)? {
+    /// `internalDirectory` is nil when the course has no internal files or was saved before schema version 4.
+    func publication(id: String) throws -> (manifest: Data, directory: String, internalDirectory: String?)? {
         try lock.withLock {
-            try database.query("SELECT manifest, directory FROM course_publications WHERE course_id = ?", [id]) {
-                (Data(SQLiteDatabase.text($0, 0).utf8), SQLiteDatabase.text($0, 1))
+            try database.query("SELECT manifest, directory, internal_directory FROM course_publications WHERE course_id = ?", [id]) {
+                (Data(SQLiteDatabase.text($0, 0).utf8), SQLiteDatabase.text($0, 1),
+                 sqlite3_column_type($0, 2) == SQLITE_NULL ? nil : SQLiteDatabase.text($0, 2))
             }.first
         }
     }
 
-    func savePublication(_ course: Course, manifest: Data, directory: String) throws {
+    func savePublication(_ course: Course, manifest: Data, directory: String, internalDirectory: String? = nil) throws {
         try lock.withLock {
             try database.transaction {
                 try saveCourseRows(course)
                 try database.execute("""
-                    INSERT INTO course_publications (course_id, manifest, directory) VALUES (?, ?, ?)
-                    ON CONFLICT(course_id) DO UPDATE SET manifest=excluded.manifest, directory=excluded.directory
-                    """, [course.id, String(decoding: manifest, as: UTF8.self), directory])
+                    INSERT INTO course_publications (course_id, manifest, directory, internal_directory) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(course_id) DO UPDATE SET manifest=excluded.manifest, directory=excluded.directory,
+                        internal_directory=excluded.internal_directory
+                    """, [course.id, String(decoding: manifest, as: UTF8.self), directory, internalDirectory])
             }
         }
     }
@@ -240,5 +243,8 @@ public final class CourseStore: @unchecked Sendable {
         // Image metadata is a CourseImage JSON object. NULL means that the row has no image metadata.
         "ALTER TABLE courses ADD COLUMN image TEXT",
         "ALTER TABLE sections ADD COLUMN header_image TEXT",
+    ], [
+        // Internal files live outside the learner snapshot. Learner reads never select this column.
+        "ALTER TABLE course_publications ADD COLUMN internal_directory TEXT",
     ]]
 }

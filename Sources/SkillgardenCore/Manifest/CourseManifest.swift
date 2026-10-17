@@ -49,6 +49,17 @@ public struct ManifestSection: Codable, Equatable, Sendable {
     }
 }
 
+/// Team-only material. Learners never see these files.
+public struct ManifestInternalFile: Codable, Equatable, Sendable {
+    public var path: String
+    public var title: String
+    public var description: String?
+}
+
+public struct ManifestInternal: Codable, Equatable, Sendable {
+    public var files: [ManifestInternalFile]
+}
+
 /// Version 1 interchange data. Store models remain separate from this format.
 public struct CourseManifest: Codable, Equatable, Sendable {
     public var schemaVersion: Int
@@ -64,9 +75,11 @@ public struct CourseManifest: Codable, Equatable, Sendable {
     public var courseImage: ManifestImage
     public var credits: [ManifestCredit]
     public var sections: [ManifestSection]
+    /// Optional. Nil when the manifest has no `internal` field.
+    public var internalMaterial: ManifestInternal?
     enum CodingKeys: String, CodingKey {
         case id, title, subtitle, description, requirements, state, theme, credits, sections
         case schemaVersion = "schema_version", learningOutcomes = "learning_outcomes"
-        case targetAudience = "target_audience", courseImage = "course_image"
+        case targetAudience = "target_audience", courseImage = "course_image", internalMaterial = "internal"
     }
 }

@@ -253,7 +253,7 @@ func derivativeMatchesTargetSizeWithLetterbox(source: (Int, Int), target: (Int, 
         try v2.execute("INSERT INTO course_publications (course_id, manifest, directory) VALUES ('sample-course', ?, ?)",
                        [String(decoding: try JSONEncoder().encode(manifest), as: UTF8.self), directory])
         let upgraded = try CourseStore(root: root)
-        #expect(try upgraded.schemaVersion == 3)
+        #expect(try upgraded.schemaVersion == CourseStore.currentSchemaVersion)
         #expect(try upgraded.loadCourse(id: "sample-course") == saved)
         let db = try SQLiteDatabase(url: upgraded.databaseURL)
         #expect(try db.query("SELECT image IS NULL FROM courses") { sqlite3_column_int64($0, 0) } == [1])

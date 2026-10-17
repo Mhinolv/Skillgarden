@@ -48,6 +48,9 @@ struct ManifestValidator {
             ("course_image", image),
             ("credits", .array(.object([("name", .string), ("role", .optional(.string)), ("url", .optional(.string))]))),
             ("sections", .array(section)),
+            ("internal", .optional(.object([("files", .array(.object([
+                ("path", .string), ("title", .string), ("description", .optional(.string)),
+            ])))]))),
         ])
         check(value, rule: root, path: "$")
         for (id, path) in recommendations where !lectureIDs.contains(id) {
@@ -135,8 +138,9 @@ struct ManifestValidator {
             let key = path.components(separatedBy: ".").last ?? path
             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 add(path, "must not be empty")
+            } else if key == "path" {
+                checkPath(text, path: path)
             }
-            if key == "path" { checkPath(text, path: path) }
             if key == "id" {
                 if let first = ids[text] { add(path, "duplicate id \"\(text)\" (first used at \(first))") }
                 else { ids[text] = path }
@@ -150,10 +154,17 @@ struct ManifestValidator {
     private mutating func checkPath(_ text: String, path: String) {
         // Treat both separators as boundaries so a manifest is safe across platforms.
         let normalized = text.replacingOccurrences(of: "\\", with: "/")
-        if normalized.hasPrefix("/") || normalized.split(separator: "/").contains("..")
+        let escapes = normalized.hasPrefix("/") || normalized.split(separator: "/").contains("..")
             || normalized.range(of: "^[A-Za-z]:", options: .regularExpression) != nil
-            || URL(string: normalized)?.scheme != nil {
+            || URL(string: normalized)?.scheme != nil
+        // Publish keeps internal/ out of the learner snapshot, so each path belongs to one side only.
+        let inside = normalized.hasPrefix("internal/") && normalized.count > "internal/".count
+        if path.hasPrefix("internal.") {
+            if escapes || !inside { add(path, "path must stay inside internal/") }
+        } else if escapes {
             add(path, "path must stay inside the course folder")
+        } else if normalized.hasPrefix("internal/") {
+            add(path, "path must not be inside internal/")
         }
     }
 
