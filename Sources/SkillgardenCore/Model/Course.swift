@@ -44,6 +44,16 @@ public struct CourseSection: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+public struct LectureProgress: Codable, Equatable, Sendable {
+    public var completed: Bool
+    public var resumeSeconds: Double
+
+    public init(completed: Bool = false, resumeSeconds: Double = 0) {
+        self.completed = completed
+        self.resumeSeconds = resumeSeconds
+    }
+}
+
 public struct Lecture: Identifiable, Codable, Equatable, Sendable {
     public var id: String
     public var title: String

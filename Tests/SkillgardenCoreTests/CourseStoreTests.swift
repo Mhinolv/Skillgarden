@@ -26,9 +26,9 @@ private func sampleCourse(id: String = "course", state: PublicationState = .publ
     ])
 }
 
-@Test func emptyStoreCreatesVersionOne() throws {
+@Test func emptyStoreCreatesCurrentVersion() throws {
     try withStore { (store: CourseStore, root: URL) throws in
-        #expect(try store.schemaVersion == 1)
+        #expect(try store.schemaVersion == CourseStore.currentSchemaVersion)
         #expect(FileManager.default.fileExists(atPath: store.databaseURL.path))
         #expect(store.databaseURL.path == root.appending(path: "library.sqlite").path)
         #expect(try store.listCourses().isEmpty)
@@ -153,14 +153,14 @@ private func sampleCourse(id: String = "course", state: PublicationState = .publ
         let before = try store.loadCourse(id: "course", includeDrafts: true)
         let migration = ["ALTER TABLE courses ADD COLUMN future_value TEXT NOT NULL DEFAULT 'default'"]
         let upgraded = try CourseStore(root: root, migrations: CourseStore.migrations + [migration])
-        #expect(try upgraded.schemaVersion == 2)
+        #expect(try upgraded.schemaVersion == 3)
         #expect(try upgraded.loadCourse(id: "course", includeDrafts: true) == before)
         let reopened = try CourseStore(root: root, migrations: CourseStore.migrations + [migration])
-        #expect(try reopened.schemaVersion == 2)
+        #expect(try reopened.schemaVersion == 3)
         #expect(try reopened.loadCourse(id: "course", includeDrafts: true) == before)
         let db = try SQLiteDatabase(url: store.databaseURL)
         #expect(try db.query("SELECT future_value FROM courses") { SQLiteDatabase.text($0, 0) } == ["default"])
-        #expect(throws: CourseStoreError.unsupportedSchema(found: 2, supported: 1)) { try CourseStore(root: root) }
+        #expect(throws: CourseStoreError.unsupportedSchema(found: 3, supported: 2)) { try CourseStore(root: root) }
     }
 }
 
@@ -173,7 +173,7 @@ private func sampleCourse(id: String = "course", state: PublicationState = .publ
             try CourseStore(root: root, migrations: CourseStore.migrations + [migration])
         }
         let reopened = try CourseStore(root: root)
-        #expect(try reopened.schemaVersion == 1)
+        #expect(try reopened.schemaVersion == 2)
         #expect(try reopened.loadCourse(id: "course", includeDrafts: true) == before)
         let db = try SQLiteDatabase(url: store.databaseURL)
         let columns = try db.query("PRAGMA table_info(courses)") { SQLiteDatabase.text($0, 1) }
@@ -220,7 +220,7 @@ private func sampleCourse(id: String = "course", state: PublicationState = .publ
         try db.execute("INSERT INTO schema_version VALUES (1)")
         #expect(throws: CourseStoreError.invalidData) { try CourseStore(root: root) }
         try db.execute("DELETE FROM schema_version")
-        try db.execute("INSERT INTO schema_version VALUES (1)")
+        try db.execute("INSERT INTO schema_version VALUES (?)", [String(CourseStore.currentSchemaVersion)])
         #expect(try CourseStore(root: root).loadCourse(id: "course", includeDrafts: true) == before)
     }
 }
