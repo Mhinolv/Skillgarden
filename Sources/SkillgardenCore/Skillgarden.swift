@@ -56,6 +56,18 @@ public enum Skillgarden {
         CFPreferencesSetAppValue(appearanceKey as CFString, appearance.rawValue as CFString, defaultsDomain as CFString)
         CFPreferencesAppSynchronize(defaultsDomain as CFString)
     }
+
+    /// The saved Captions and Transcript choices (#97).
+    public static func savedVideoTextChoices() -> VideoTextChoices {
+        VideoTextChoices { CFPreferencesCopyAppValue($0 as CFString, defaultsDomain as CFString) }
+    }
+
+    public static func saveVideoTextChoices(_ choices: VideoTextChoices) {
+        for (key, value) in choices.savedValues {
+            CFPreferencesSetAppValue(key as CFString, value ? kCFBooleanTrue : kCFBooleanFalse, defaultsDomain as CFString)
+        }
+        CFPreferencesAppSynchronize(defaultsDomain as CFString)
+    }
 }
 
 /// The app appearance of the View menu (#83). Dark and Light win over a course manifest appearance (#93).
@@ -91,6 +103,32 @@ public enum AppAppearance: String, CaseIterable, Identifiable, Sendable {
     /// A missing or unknown saved value is Dark.
     public init(savedValue: String?) {
         self = savedValue.flatMap(AppAppearance.init(rawValue:)) ?? .dark
+    }
+}
+
+/// The Captions and Transcript choices of the learner (#97 owner decision). They apply to every video lecture.
+/// The app saves each change at once in the `dev.skillgarden.app` domain, so they stay after the app starts again.
+public struct VideoTextChoices: Equatable, Sendable {
+    public static let captionsKey = "Captions"
+    public static let transcriptKey = "Transcript"
+
+    public var showsCaptions: Bool
+    public var showsTranscript: Bool
+
+    public init(showsCaptions: Bool = true, showsTranscript: Bool = true) {
+        self.showsCaptions = showsCaptions
+        self.showsTranscript = showsTranscript
+    }
+
+    /// Reads each key with `savedValue`. A missing value or a value that is not a Boolean is on.
+    public init(savedValue: (String) -> Any?) {
+        func read(_ key: String) -> Bool { savedValue(key) as? Bool ?? true }
+        self.init(showsCaptions: read(Self.captionsKey), showsTranscript: read(Self.transcriptKey))
+    }
+
+    /// The keys and the values to save.
+    public var savedValues: [(String, Bool)] {
+        [(Self.captionsKey, showsCaptions), (Self.transcriptKey, showsTranscript)]
     }
 }
 

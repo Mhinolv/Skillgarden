@@ -91,8 +91,10 @@ extension FocusedValues {
 
 struct ContentView: View {
     @State private var library: LibraryModel
-    /// The transcript choice stays for the app session and for all lectures of the window.
-    @State private var showsTranscript = true
+    /// The Captions and Transcript choices for all video lectures (#97). Each change is saved at once.
+    @State private var videoText: VideoTextChoices
+    /// Nil saves nothing. The snapshot harness passes nil, so it never touches the real defaults domain.
+    private let saveVideoText: ((VideoTextChoices) -> Void)?
     /// Theater hides the sidebar and widens the player (#85). It stays on for video lectures and ends on other pages.
     @State private var theater = TheaterMode()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
@@ -114,15 +116,28 @@ struct ContentView: View {
         } catch {
             library = LibraryModel(rootError: error.localizedDescription)
         }
-        self.init(library: library, customRootPath: Skillgarden.customDataDirectoryPath(library.root), appearance: appearance)
+        self.init(library: library, customRootPath: Skillgarden.customDataDirectoryPath(library.root), appearance: appearance,
+                  videoText: Skillgarden.savedVideoTextChoices(), saveVideoText: Skillgarden.saveVideoTextChoices)
     }
 
     /// The snapshot harness passes a loaded library and sets `reloadsOnAppear` to false.
-    init(library: LibraryModel, reloadsOnAppear: Bool = true, customRootPath: String? = nil, appearance: AppAppearance = .dark) {
+    init(library: LibraryModel, reloadsOnAppear: Bool = true, customRootPath: String? = nil, appearance: AppAppearance = .dark,
+         videoText: VideoTextChoices = VideoTextChoices(), saveVideoText: ((VideoTextChoices) -> Void)? = nil) {
         _library = State(initialValue: library)
+        _videoText = State(initialValue: videoText)
+        self.saveVideoText = saveVideoText
         self.reloadsOnAppear = reloadsOnAppear
         self.customRootPath = customRootPath
         self.appearance = appearance
+    }
+
+    /// A binding to one video text choice that saves the change at once.
+    private func videoTextBinding(_ keyPath: WritableKeyPath<VideoTextChoices, Bool>) -> Binding<Bool> {
+        Binding(get: { videoText[keyPath: keyPath] }, set: { value in
+            guard videoText[keyPath: keyPath] != value else { return }
+            videoText[keyPath: keyPath] = value
+            saveVideoText?(videoText)
+        })
     }
 
     var body: some View {
@@ -267,7 +282,8 @@ struct ContentView: View {
                                                  return library.startSeconds(forLecture: lecture.id, duration: duration)
                                              },
                                              saveResumePosition: { [library] in library.saveResumePosition($0, lectureID: lecture.id) },
-                                             showsTranscript: $showsTranscript,
+                                             showsCaptions: videoTextBinding(\.showsCaptions),
+                                             showsTranscript: videoTextBinding(\.showsTranscript),
                                              theater: Binding(get: { theater.isOn }, set: { setTheater($0) }),
                                              playerMaxWidth: theater.playerMaxWidth,
                                              seekRequest: library.transcriptSeek.flatMap { $0.lectureID == lecture.id ? $0 : nil },
