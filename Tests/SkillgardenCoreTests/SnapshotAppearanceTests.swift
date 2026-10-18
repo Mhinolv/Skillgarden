@@ -54,10 +54,12 @@ private func matches(_ color: [UInt8]?, _ expected: [UInt8]) -> Bool {
     expectPage("library-empty-light", lightPage)
     expectPage("library-empty-dark", darkPage)
     #expect(capture("library-empty-light") != capture("library-empty-dark"))
-    // A dark course theme is dark in both appearances.
+    // #93: the app setting wins over the course theme. The dark-theme course is light in the Light setting.
     expectPage("course-landing-dark-theme-dark", darkPage)
-    // The light fixture theme stays light in dark mode, like the real app (owner decision).
-    expectPage("lecture-dark", lightPage)
+    expectPage("course-landing-dark-theme-light", lightPage)
+    // The light fixture theme is dark in the Dark setting (owner decision).
+    expectPage("lecture-dark", darkPage)
+    expectPage("lecture-light", lightPage)
     // The fixture copy without a theme follows the dark appearance.
     expectPage("lecture-unthemed-dark", darkPage)
     #expect(!FileManager.default.fileExists(atPath: out.appending(path: "lecture-unthemed-light.png").path))
