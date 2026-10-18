@@ -335,7 +335,7 @@ public enum SnapshotPlan {
         }
     }
 
-    /// The page to open after the course is selected. The fixture lecture has a `recommended_next` target.
+    /// The page to open after the course is selected.
     public static func destination(for screen: SnapshotScreen) -> CourseDestination? {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library: nil
