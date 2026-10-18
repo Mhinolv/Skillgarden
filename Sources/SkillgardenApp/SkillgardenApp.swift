@@ -15,7 +15,9 @@ enum SkillgardenMain {
 struct SkillgardenApp: App {
     var body: some Scene {
         WindowGroup("Skillgarden") {
-            ContentView()
+            ContentView(appearance: appearance)
+                // The app appearance colors every window, its menus and sheets. A course theme still overrides it.
+                .onChange(of: appearance, initial: true) { NSApp.appearance = appearance.nsAppearance }
         }
         // The toolbar shares the row of the window buttons and shows no title. The snapshot window copies this style.
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
@@ -32,6 +34,10 @@ struct SkillgardenApp: App {
                 }
                 .keyboardShortcut("t", modifiers: [.option, .command])
                 .disabled(showsTranscript == nil)
+                Divider()
+                Picker("Appearance", selection: Binding(get: { appearance }, set: { appearance = $0; Skillgarden.saveAppearance($0) })) {
+                    ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
+                }
             }
             CommandGroup(after: .textEditing) {
                 Button("Search Transcripts", systemImage: "magnifyingglass") { searchTranscripts?() }
@@ -58,6 +64,8 @@ struct SkillgardenApp: App {
         }
     }
 
+    /// The View > Appearance choice. Each change is saved at once.
+    @State private var appearance = Skillgarden.savedAppearance()
     @FocusedValue(\.library) private var focusedLibrary
     /// Nil when no video lecture with captions shows.
     @FocusedBinding(\.showsTranscript) private var showsTranscript
@@ -83,26 +91,29 @@ struct ContentView: View {
     private let reloadsOnAppear: Bool
     /// The library folder to show under "No courses yet". It is nil for the default folder.
     private let customRootPath: String?
+    /// The app appearance. A course theme overrides it in the course workspace.
+    private let appearance: AppAppearance
     @Environment(\.showsReviewInline) private var showsReviewInline
     @Environment(\.showsPDFPreviewInline) private var showsPDFPreviewInline
     @Environment(\.snapshotIgnoresCourseTheme) private var ignoresCourseTheme
 
     /// Uses the data folder that `SKILLGARDEN_DATA_DIR` or the saved `DataDirectory` setting names.
-    init() {
+    init(appearance: AppAppearance) {
         let library: LibraryModel
         do {
             library = LibraryModel(root: try Skillgarden.dataDirectory())
         } catch {
             library = LibraryModel(rootError: error.localizedDescription)
         }
-        self.init(library: library, customRootPath: Skillgarden.customDataDirectoryPath(library.root))
+        self.init(library: library, customRootPath: Skillgarden.customDataDirectoryPath(library.root), appearance: appearance)
     }
 
     /// The snapshot harness passes a loaded library and sets `reloadsOnAppear` to false.
-    init(library: LibraryModel, reloadsOnAppear: Bool = true, customRootPath: String? = nil) {
+    init(library: LibraryModel, reloadsOnAppear: Bool = true, customRootPath: String? = nil, appearance: AppAppearance = .dark) {
         _library = State(initialValue: library)
         self.reloadsOnAppear = reloadsOnAppear
         self.customRootPath = customRootPath
+        self.appearance = appearance
     }
 
     var body: some View {
@@ -133,7 +144,7 @@ struct ContentView: View {
             }
         }
         // The course theme colors the whole window: sidebar, toolbar and content.
-        .gardenTheme(ignoresCourseTheme ? nil : library.selectedLanding?.theme)
+        .gardenTheme(ignoresCourseTheme ? nil : library.selectedLanding?.theme, appearance: appearance.courseAppearance)
         .frame(minWidth: 900, minHeight: 600)
         .focusedSceneValue(\.library, library)
         .task { if reloadsOnAppear { await library.reload() } }
@@ -261,6 +272,17 @@ struct ContentView: View {
             } else {
                 ContentUnavailableView("Select a lecture", systemImage: "list.bullet")
             }
+        }
+    }
+}
+
+extension AppAppearance {
+    /// The app-wide AppKit appearance, or nil for System.
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .dark: NSAppearance(named: .darkAqua)
+        case .light: NSAppearance(named: .aqua)
+        case .system: nil
         }
     }
 }
