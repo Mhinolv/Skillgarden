@@ -47,12 +47,13 @@ private func temporaryFolder() throws -> URL {
         "lecture-sources-light.png", "lecture-sources-dark.png", "lecture-sources-unthemed-dark.png",
         "video-up-next-light.png", "video-up-next-dark.png", "video-up-next-unthemed-dark.png",
         "video-up-next-theater-light.png", "video-up-next-theater-dark.png", "video-up-next-theater-unthemed-dark.png",
+        "outline-durations-light.png", "outline-durations-dark.png", "outline-durations-unthemed-dark.png",
         "settings-light.png", "settings-dark.png",
     ])
     // #82: every course screen except the dark-theme screen gets one dark capture with no course theme.
     #expect(SnapshotScreen.allCases.filter { $0.selectsCourse && !$0.hasUnthemedCapture } == [.courseLandingDarkTheme])
     let unthemed = outputs.filter(\.ignoresCourseTheme)
-    #expect(unthemed.count == 26)
+    #expect(unthemed.count == 27)
     #expect(unthemed.allSatisfy { $0.appearance == .dark && $0.screen.hasUnthemedCapture })
     #expect(unthemed.allSatisfy { $0.url.lastPathComponent == "\($0.screen.rawValue)-unthemed-dark.png" })
     #expect(outputs.filter { !$0.ignoresCourseTheme }.map(\.url.lastPathComponent) == SnapshotScreen.allCases.flatMap { screen in
@@ -317,6 +318,18 @@ private func temporaryFolder() throws -> URL {
             } else {
                 #expect(results.groups.isEmpty)
             }
+        case .outlineDurations:
+            #expect(courseID == "sample-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.selectedLecture?.id == "recap")
+            #expect(library.isComplete("welcome"))
+            // The open section: a done video, an article and the selected video with a long title.
+            let lectures = try #require(library.selectedCourse?.learnerSections.first?.lectures)
+            #expect(lectures.map(\.id) == ["welcome", "read", "recap"])
+            #expect(lectures.map { LectureVideo.outlineDurationLabel(type: $0.type, video: library.video(forLecture: $0.id)) }
+                == ["0:04", nil, "0:04"])
+            #expect(lectures[2].title.count > 60)
         }
         if screen != .sectionReview {
             // Other screens open the first section or a section without earlier quizzes, so no review sheet shows.

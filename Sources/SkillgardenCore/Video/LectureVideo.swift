@@ -37,6 +37,33 @@ public struct LectureVideo: Equatable, Sendable {
         return hours > 0 ? "\(hours):\(two(minutes)):\(two(rest))" : "\(minutes):\(two(rest))"
     }
 
+    /// The spoken length for VoiceOver, for example "4 minutes, 32 seconds" in English. A negative value speaks as 0 seconds.
+    public static func spokenDuration(seconds: Int, locale: Locale = .current) -> String {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .full
+        formatter.allowedUnits = [.hour, .minute, .second]
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = locale
+        formatter.calendar = calendar
+        return formatter.string(from: TimeInterval(max(seconds, 0))) ?? durationLabel(seconds: seconds)
+    }
+
+    /// The trailing length of a lecture row in the sidebar outline (#103), for example "4:32".
+    /// Nil for a lecture that is not a video, or a video lecture that has no resolved video in the snapshot.
+    public static func outlineDurationLabel(type: LectureType, video: LectureVideo?) -> String? {
+        guard type == .video, let video else { return nil }
+        return durationLabel(seconds: video.durationSeconds)
+    }
+
+    /// The VoiceOver label of a lecture row in the sidebar outline: the title, the type, the spoken length of a video and "Completed".
+    /// For example "Set up the garden bed, video, 4 minutes, 32 seconds, Completed".
+    public static func outlineAccessibilityLabel(lecture: Lecture, video: LectureVideo?, isDone: Bool,
+                                                 locale: Locale = .current) -> String {
+        let duration = lecture.type == .video ? video.map { spokenDuration(seconds: $0.durationSeconds, locale: locale) } : nil
+        return ([lecture.title, lecture.type.rawValue] + [duration, isDone ? "Completed" : nil].compactMap { $0 })
+            .joined(separator: ", ")
+    }
+
     /// Reads and parses the captions file. Call it off the main actor. Returns nil when the lecture has no captions.
     public func loadCaptions() throws -> WebVTT? {
         guard let captionsURL else { return nil }
