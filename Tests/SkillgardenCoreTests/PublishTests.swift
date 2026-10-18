@@ -170,12 +170,12 @@ private func counts(_ result: PublishResult) -> [Int] {
 
 @Test func commandUsageAndHelp() throws {
     let root = FileManager.default.temporaryDirectory.appending(path: "SkillgardenUnused-\(UUID())")
-    let usage = "usage: skillgarden publish <course-folder>\n       skillgarden validate <course-folder>\n       skillgarden internal list <course-id>\n"
+    let usage = "usage: skillgarden publish <course-folder> [--json]\n       skillgarden validate <course-folder> [--json]\n       skillgarden internal list <course-id> [--json]\n"
     for arguments in [["publish", "--help"], ["--help"]] {
         #expect(SkillgardenCommand.run(arguments: arguments, root: root) == CommandResult(exitCode: 0, stdout: usage, stderr: ""))
     }
     #expect(SkillgardenCommand.run(arguments: ["--version"], root: root).stdout == "skillgarden \(Skillgarden.version)\n")
-    for arguments in [[], ["publish"], ["publish", "a", "b"], ["publish", "--json"], ["remove", "a"]] {
+    for arguments in [[], ["publish"], ["publish", "a", "b"], ["publish", "--bogus"], ["remove", "a"]] {
         let result = SkillgardenCommand.run(arguments: arguments, root: root)
         #expect(result == CommandResult(exitCode: 2, stdout: "", stderr: "error: expected publish <course-folder>\n" + usage))
     }

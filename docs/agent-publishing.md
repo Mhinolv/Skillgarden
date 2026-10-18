@@ -223,3 +223,33 @@ For a draft course, `validate` and `publish` also print `Draft: learners do not 
 | 1 | Manifest or file errors | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem. List indexes in `<fieldPath>` start at 0: `sections[0]` is the first section. |
 | 2 | Usage error or bad data folder setting | `error: ...` on stderr. A usage error also prints the usage text. |
 | 3 | I/O or library error. For `validate`, also a missing course folder. | `error: <description>` on stderr |
+
+### JSON output
+
+Add `--json` anywhere after the command name, for example `skillgarden validate <course-folder> --json`. Then each run writes one JSON document to stdout, for every exit code. Stderr stays empty. The exit codes do not change.
+
+| Key | Value |
+|---|---|
+| `format_version` | `1`. Later versions add keys only. |
+| `command` | `validate`, `publish`, `internal list`, or `null` for an unknown command |
+| `ok` | `true` when `exit_code` is 0 |
+| `exit_code` | The process exit code |
+| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`. `internal list`: `files`, each with `title`, `path`, `description`. |
+| `diagnostics` | One object for each problem: `code`, `severity` (`error`), `message`, `file`, `field_path`, `hint`. `file`, `field_path` and `hint` are `null` when unknown. |
+
+The `code` values are stable. New versions add codes, but never rename a code.
+
+| Code | Problem |
+|---|---|
+| `usage` | The arguments are wrong |
+| `data_dir.relative` | The data folder setting is not an absolute path |
+| `course_folder.missing` | The course folder does not exist |
+| `manifest.missing`, `manifest.duplicate`, `manifest.syntax` | No manifest, two manifests, or a manifest that cannot be parsed |
+| `field.required`, `field.type`, `field.choice`, `field.not_allowed` | A field is missing or empty, has the wrong type, has an unknown value, or is not allowed for the lecture type |
+| `field.value` | A value breaks a rule, such as a range, a URL or a hex color |
+| `id.duplicate`, `order.duplicate`, `reference.unknown` | A duplicate id, a duplicate order, or an id that does not exist |
+| `path.outside`, `path.missing`, `path.not_normalized` | A path leaves its folder, names no file, or is not normalized |
+| `media.invalid` | An image, video, captions, Markdown or bundle file is not valid |
+| `course.not_found` | `internal list` cannot find the course |
+| `library.busy` | Another process uses the library |
+| `io` | All other errors |
