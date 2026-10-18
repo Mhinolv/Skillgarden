@@ -86,6 +86,8 @@ struct GardenPalette: Equatable, Sendable {
     let sidebar: Color
     /// A light accent tint: the objective line, a selected quiz choice and a correct answer.
     let tint: Color
+    /// The fill of the selected sidebar row: the accent at 14% (24% in dark mode) on the sidebar gray (#89).
+    let selection: Color
     /// A neutral fill: search fields, an "on" toggle button and code blocks.
     let fill: Color
     /// The empty part of a progress stone.
@@ -117,6 +119,7 @@ struct GardenPalette: Equatable, Sendable {
             page = ThemeColor(hexValue: 0x1E1E20).color
             sidebar = tinted(0x262628, 0.06)
             tint = tinted(0x1E1E20, 0.14)
+            selection = tinted(0x262628, SidebarSelection.fraction(for: .dark))
             fill = .white.opacity(0.06)
             track = .white.opacity(0.16)
             line = .white.opacity(0.08)
@@ -128,6 +131,7 @@ struct GardenPalette: Equatable, Sendable {
             page = .white
             sidebar = tinted(0xF4F4F3, 0.04)
             tint = tinted(0xFFFFFF, 0.08)
+            selection = tinted(0xF4F4F3, SidebarSelection.fraction(for: .light))
             fill = .black.opacity(0.045)
             track = .black.opacity(0.09)
             line = .black.opacity(0.08)
