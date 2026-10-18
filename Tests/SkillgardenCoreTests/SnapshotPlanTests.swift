@@ -40,6 +40,8 @@ private func temporaryFolder() throws -> URL {
         "lecture-downloads-light.png", "lecture-downloads-dark.png", "lecture-downloads-unthemed-dark.png",
         "pdf-preview-light.png", "pdf-preview-dark.png", "pdf-preview-unthemed-dark.png",
         "transcript-search-light.png", "transcript-search-dark.png", "transcript-search-unthemed-dark.png",
+        "transcript-search-selected-light.png", "transcript-search-selected-dark.png",
+        "transcript-search-selected-unthemed-dark.png",
         "transcript-search-no-results-light.png", "transcript-search-no-results-dark.png",
         "transcript-search-no-results-unthemed-dark.png",
         "lecture-sources-light.png", "lecture-sources-dark.png", "lecture-sources-unthemed-dark.png",
@@ -47,13 +49,15 @@ private func temporaryFolder() throws -> URL {
     // #82: every course screen except the dark-theme screen gets one dark capture with no course theme.
     #expect(SnapshotScreen.allCases.filter { $0.selectsCourse && !$0.hasUnthemedCapture } == [.courseLandingDarkTheme])
     let unthemed = outputs.filter(\.ignoresCourseTheme)
-    #expect(unthemed.count == 23)
+    #expect(unthemed.count == 24)
     #expect(unthemed.allSatisfy { $0.appearance == .dark && $0.screen.hasUnthemedCapture })
     #expect(unthemed.allSatisfy { $0.url.lastPathComponent == "\($0.screen.rawValue)-unthemed-dark.png" })
     #expect(outputs.filter { !$0.ignoresCourseTheme }.map(\.url.lastPathComponent) == SnapshotScreen.allCases.flatMap { screen in
         SnapshotAppearance.allCases.map { "\(screen.rawValue)-\($0.rawValue).png" }
     })
-    #expect(SnapshotScreen.allCases.filter { $0.transcriptQuery != nil } == [.transcriptSearch, .transcriptSearchNoResults])
+    #expect(SnapshotScreen.allCases.filter { $0.transcriptQuery != nil }
+        == [.transcriptSearch, .transcriptSearchSelected, .transcriptSearchNoResults])
+    #expect(SnapshotScreen.allCases.filter(\.selectsFirstTranscriptHit) == [.transcriptSearchSelected])
     #expect(SnapshotScreen.allCases.filter(\.showsReviewInline) == [.sectionReview])
     #expect(SnapshotScreen.allCases.filter(\.showsPDFPreviewInline) == [.pdfPreview])
     #expect(SnapshotScreen.allCases.filter(\.showsLandingDetails) == [.courseLandingDetails])
@@ -289,7 +293,7 @@ private func temporaryFolder() throws -> URL {
             #expect(library.downloads(forLecture: "welcome").isEmpty)
             // The source cards of the fixture lecture stay next to the downloads.
             #expect(library.selectedSources.count == 3)
-        case .transcriptSearch, .transcriptSearchNoResults:
+        case .transcriptSearch, .transcriptSearchSelected, .transcriptSearchNoResults:
             #expect(courseID == "sample-course")
             // The results replace the outline, so only the course page image loads.
             #expect(SnapshotPlan.imageLoads(for: screen) == 1)
@@ -299,7 +303,7 @@ private func temporaryFolder() throws -> URL {
             library.searchTranscripts()
             let results = try #require(library.transcriptResults)
             #expect(results.hasTranscripts)
-            if screen == .transcriptSearch {
+            if screen != .transcriptSearchNoResults {
                 #expect(results.groups.map(\.lectureID) == ["welcome", "recap"])
                 #expect(results.summary == "4 results in 2 lectures")
             } else {

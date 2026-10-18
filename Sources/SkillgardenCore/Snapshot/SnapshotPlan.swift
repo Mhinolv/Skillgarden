@@ -52,6 +52,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case pdfPreview = "pdf-preview"
     /// The transcript search of a course with a second video lecture. The query "course" finds cues in both lectures.
     case transcriptSearch = "transcript-search"
+    /// The same search with the first result selected (#90). The row shows the quiet selection fill.
+    case transcriptSearchSelected = "transcript-search-selected"
     /// The same course with a query that no cue contains.
     case transcriptSearchNoResults = "transcript-search-no-results"
     /// The article lecture scrolled to the end, so its three source cards show:
@@ -96,13 +98,16 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The `-dark` capture uses the Dark setting, which wins over the light fixture theme (#93). The dark-theme screen gets no unthemed capture.
     public var hasUnthemedCapture: Bool { selectsCourse && self != .courseLandingDarkTheme }
 
+    /// True when the harness selects the first transcript search result (#90). The selection does not open the result.
+    public var selectsFirstTranscriptHit: Bool { self == .transcriptSearchSelected }
+
     /// The fixed library path that the harness shows. The real temporary root changes on each run.
     public var customRootPath: String? { self == .libraryEmptyCustomFolder ? "/Users/agent/skillgarden-library" : nil }
 
     /// The text that the harness types into the transcript search field. Nil leaves the field empty.
     public var transcriptQuery: String? {
         switch self {
-        case .transcriptSearch: "course"
+        case .transcriptSearch, .transcriptSearchSelected: "course"
         case .transcriptSearchNoResults: "zebra"
         default: nil
         }
@@ -200,7 +205,7 @@ public enum SnapshotPlan {
                 try FileManager.default.removeItem(at: snapshot.appending(path: "content/checklist.txt"))
             }
             return id
-        case .transcriptSearch, .transcriptSearchNoResults:
+        case .transcriptSearch, .transcriptSearchSelected, .transcriptSearchNoResults:
             return try publishCopy(of: fixture, root: root, replacing: searchCourse)
         }
     }
@@ -343,7 +348,8 @@ public enum SnapshotPlan {
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater:
             .lecture(sectionID: "plan", lectureID: "welcome")
         case .article, .lectureSources, .lectureDownloads, .pdfPreview: .lecture(sectionID: "plan", lectureID: "read")
-        case .courseLanding, .courseLandingDarkTheme, .courseLandingDetails, .transcriptSearch, .transcriptSearchNoResults: .overview
+        case .courseLanding, .courseLandingDarkTheme, .courseLandingDetails, .transcriptSearch, .transcriptSearchSelected,
+             .transcriptSearchNoResults: .overview
         case .courseCredits: .credits
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")
         case .interactiveResult: .lecture(sectionID: "practice", lectureID: "order-steps")

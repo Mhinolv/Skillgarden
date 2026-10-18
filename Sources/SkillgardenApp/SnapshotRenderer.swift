@@ -91,6 +91,7 @@ enum SnapshotRenderer {
             .environment(\.snapshotVideoStart, output.screen.videoStartSeconds)
             .environment(\.snapshotShowsQuickChecks, output.screen.showsQuickChecks)
             .environment(\.snapshotStartsTheater, output.screen.startsTheater)
+            .environment(\.snapshotSelectsFirstTranscriptHit, output.screen.selectsFirstTranscriptHit)
             .environment(\.snapshotShowsLandingDetails, output.screen.showsLandingDetails)
             .environment(\.showsReviewInline, true)
             .environment(\.showsPDFPreviewInline, output.screen.showsPDFPreviewInline)
