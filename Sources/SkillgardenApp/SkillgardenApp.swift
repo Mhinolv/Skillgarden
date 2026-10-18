@@ -200,7 +200,9 @@ struct ContentView: View {
                     downloads: library.downloads(forLecture: lecture.id),
                     sources: library.selectedSources,
                     // A quiz has its own primary action, so each screen keeps one accent button.
-                    completeIsPrimary: lecture.type != .quiz
+                    completeIsPrimary: lecture.type != .quiz,
+                    // A video has the complete control in its controls row, under the player.
+                    showsCompleteRow: lecture.type != .video || library.selectedQuizAttempt != nil
                 ) {
                     if let attempt = library.selectedQuizAttempt {
                         QuizView(attempt: attempt) { library.performQuizAction($0) }
@@ -218,7 +220,9 @@ struct ContentView: View {
                                              },
                                              saveResumePosition: { [library] in library.saveResumePosition($0, lectureID: lecture.id) },
                                              showsTranscript: $showsTranscript,
-                                             seekRequest: library.transcriptSeek.flatMap { $0.lectureID == lecture.id ? $0 : nil })
+                                             seekRequest: library.transcriptSeek.flatMap { $0.lectureID == lecture.id ? $0 : nil },
+                                             completed: library.isComplete(lecture.id),
+                                             toggleComplete: { Task { await library.toggleSelectedLectureComplete() } })
                         case .interactive:
                             InteractiveLectureView(lecture: lecture, module: library.selectedInteractive,
                                                    result: library.selectedInteractiveResult) {
