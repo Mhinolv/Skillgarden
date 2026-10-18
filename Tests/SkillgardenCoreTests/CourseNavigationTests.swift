@@ -49,28 +49,15 @@ private func navigationCourse() -> Course {
     #expect(Course(id: "empty", title: "Empty").adjacentLecture(to: "x", offset: 1) == nil)
 }
 
-@Test func nudgeUsesRecommendedNextThenFallsBackToUpNext() {
+@Test func recommendedNextDoesNotChangeTheOutlineOrder() {
     let course = navigationCourse()
-    // recommended_next set and visible: the target, also in another section.
-    #expect(course.nudge(for: "a2") == LectureNudge(kind: .recommended, sectionID: "b", lecture: lecture("b2", 1, next: "missing")))
-    #expect(course.nudge(for: "a2")?.destination == .lecture(sectionID: "b", lectureID: "b2"))
-    // recommended_next absent or empty: the next lecture in order, across sections.
-    #expect(course.nudge(for: "a1")?.kind == .upNext)
-    #expect(course.nudge(for: "a1")?.lecture.id == "a2")
-    #expect(course.nudge(for: "b1")?.kind == .upNext)
-    #expect(course.nudge(for: "b1")?.lecture.id == "b2")
-    // Missing, draft or self targets hide the card.
-    #expect(course.nudge(for: "b2") == nil)
-    #expect(course.nudge(for: "b3") == nil)
-    #expect(course.nudge(for: "b4") == nil)
-    // The last lecture has no up-next lecture. A blank recommended_next counts as empty.
-    #expect(course.nudge(for: "b5") == nil)
-    // A lecture that the learner cannot see has no nudge.
-    #expect(course.nudge(for: "a3") == nil)
-    #expect(course.nudge(for: "d1") == nil)
+    // a2 recommends b2, but Next still opens b1. The app ignores recommended_next.
+    #expect(course.sections[0].lectures.map(\.recommendedNext) == [nil, "b2", nil])
+    #expect(course.adjacentLecture(to: "a2", offset: 1) == .lecture(sectionID: "b", lectureID: "b1"))
+    #expect(course.adjacentLecture(to: "b2", offset: 1) == .lecture(sectionID: "b", lectureID: "b3"))
 }
 
-@MainActor @Test func libraryNavigatesSectionsLecturesAndTheNudge() async throws {
+@MainActor @Test func libraryNavigatesSectionsAndLectures() async throws {
     let root = FileManager.default.temporaryDirectory.appending(path: "NavigationTests-\(UUID())")
     defer { try? FileManager.default.removeItem(at: root) }
     var course = navigationCourse()
@@ -84,7 +71,7 @@ private func navigationCourse() -> Course {
     #expect(library.destination == .section(sectionID: "a"))
     #expect(library.selectedSection?.objective == "Section A")
     #expect(library.selectedLecture == nil)
-    #expect(library.previousLecture == nil && library.nextLecture == nil && library.nudge == nil)
+    #expect(library.previousLecture == nil && library.nextLecture == nil)
     library.selectDestination(.section(sectionID: "draft"))
     #expect(library.destination == .section(sectionID: "a"))
     library.selectDestination(.lecture(sectionID: "a", lectureID: "a3"))
@@ -98,14 +85,10 @@ private func navigationCourse() -> Course {
     #expect(library.destination == .lecture(sectionID: "a", lectureID: "a1"))
     library.goToNextLecture()
     #expect(library.destination == .lecture(sectionID: "a", lectureID: "a2"))
-    #expect(library.nudge?.kind == .recommended)
-    library.goToNudge()
-    #expect(library.destination == .lecture(sectionID: "b", lectureID: "b2"))
-    #expect(library.nudge == nil)
-    library.goToNudge()
-    #expect(library.destination == .lecture(sectionID: "b", lectureID: "b2"))
-    library.goToPreviousLecture()
+    library.goToNextLecture()
     #expect(library.destination == .lecture(sectionID: "b", lectureID: "b1"))
+    library.goToPreviousLecture()
+    #expect(library.destination == .lecture(sectionID: "a", lectureID: "a2"))
     library.selectDestination(.lecture(sectionID: "b", lectureID: "b5"))
     library.goToNextLecture()
     #expect(library.destination == .lecture(sectionID: "b", lectureID: "b5"))
@@ -154,10 +137,10 @@ private func navigationCourse() -> Course {
     #expect(image.url.lastPathComponent == "section.svg")
     #expect(FileManager.default.fileExists(atPath: image.url.path))
 
+    // "welcome" sets recommended_next. The course still publishes and loads, and Next follows the outline.
+    #expect(course.learnerSections[1].lectures[0].recommendedNext == "read")
     library.selectDestination(.lecture(sectionID: "plan", lectureID: "welcome"))
-    #expect(library.nudge == LectureNudge(kind: .recommended, sectionID: "plan", lecture: course.learnerSections[1].lectures[1]))
-    library.goToNudge()
+    library.goToNextLecture()
     #expect(library.selectedLecture?.id == "read")
-    #expect(library.nudge == nil)
     #expect(library.nextLecture == nil)
 }

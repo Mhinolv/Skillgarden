@@ -1,21 +1,5 @@
 import Foundation
 
-/// The lecture that the nudge card offers after the current lecture.
-public struct LectureNudge: Equatable, Sendable {
-    public enum Kind: Equatable, Sendable {
-        /// The lecture's `recommended_next` target.
-        case recommended
-        /// The next lecture in outline order, used when `recommended_next` is empty.
-        case upNext
-    }
-
-    public let kind: Kind
-    public let sectionID: String
-    public let lecture: Lecture
-
-    public var destination: CourseDestination { .lecture(sectionID: sectionID, lectureID: lecture.id) }
-}
-
 /// The header image of a section, resolved inside the installed course snapshot.
 public struct SectionHeaderImage: Equatable, Sendable {
     public let url: URL
@@ -59,20 +43,5 @@ extension Course {
               lectures.indices.contains(index + offset) else { return nil }
         let target = lectures[index + offset]
         return .lecture(sectionID: target.sectionID, lectureID: target.lecture.id)
-    }
-
-    /// The `recommended_next` target, or the next lecture if that field is empty.
-    /// Returns nil if the target is missing, draft or the current lecture, or if no lecture follows.
-    public func nudge(for lectureID: String) -> LectureNudge? {
-        let lectures = learnerLectures
-        guard let index = lectures.firstIndex(where: { $0.lecture.id == lectureID }) else { return nil }
-        let recommended = lectures[index].lecture.recommendedNext?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if recommended.isEmpty {
-            guard lectures.indices.contains(index + 1) else { return nil }
-            let next = lectures[index + 1]
-            return LectureNudge(kind: .upNext, sectionID: next.sectionID, lecture: next.lecture)
-        }
-        guard recommended != lectureID, let target = lectures.first(where: { $0.lecture.id == recommended }) else { return nil }
-        return LectureNudge(kind: .recommended, sectionID: target.sectionID, lecture: target.lecture)
     }
 }
