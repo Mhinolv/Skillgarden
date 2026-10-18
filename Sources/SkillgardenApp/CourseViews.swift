@@ -98,7 +98,7 @@ struct CourseOutlineView: View {
     @Environment(\.gardenPalette) private var palette
 
     /// The height of one outline row, from the Quiet Garden mockup.
-    static let rowHeight: CGFloat = 26
+    nonisolated static let rowHeight: CGFloat = 26
 
     private var sections: [CourseSection] { course.learnerSections }
 
