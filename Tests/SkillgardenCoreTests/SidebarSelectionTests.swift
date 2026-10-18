@@ -31,7 +31,7 @@ func sidebarSelectionKeepsInkReadable(appearance: CourseAppearance, hex: String)
 }
 
 /// #89: the selected outline row shows the quiet accent tint, not the system selection fill.
-/// The test renders the selected lecture (light theme) and the selected overview (dark theme) with the snapshot harness,
+/// The test renders the selected lecture (light theme) and the selected overview (dark theme) in each app appearance,
 /// then counts the pixels with the selection color in one column of the sidebar.
 @Test func selectedOutlineRowUsesTheAccentTint() throws {
     // `swift test` builds the app next to the test bundle.
@@ -63,16 +63,16 @@ func sidebarSelectionKeepsInkReadable(appearance: CourseAppearance, hex: String)
 
     let lightAccent = ThemeColor(hex: "#286644")!
     let darkAccent = ThemeColor(hex: SnapshotPlan.darkThemeAccent)!
-    let lightSelection = bytes(SidebarSelection.color(accent: lightAccent, appearance: .light))
-    let darkSelection = bytes(SidebarSelection.color(accent: darkAccent, appearance: .dark))
+    // #93: the app setting (the capture appearance) wins over the theme appearance. The theme keeps its accent.
+    let cases: [(name: String, accent: ThemeColor, appearance: CourseAppearance)] = [
+        ("lecture-light", lightAccent, .light), ("lecture-dark", lightAccent, .dark),
+        ("course-landing-dark-theme-light", darkAccent, .light), ("course-landing-dark-theme-dark", darkAccent, .dark),
+    ]
     // One 26 pt row is 52 pixels. Allow a few pixels for the rounded corners and antialiasing.
-    for name in ["lecture-light", "lecture-dark"] {
-        let count = selectionPixels(name, lightSelection)
-        #expect(count >= 40, "\(name): \(count) pixels with the selection tint \(lightSelection)")
-    }
-    for name in ["course-landing-dark-theme-light", "course-landing-dark-theme-dark"] {
-        let count = selectionPixels(name, darkSelection)
-        #expect(count >= 40, "\(name): \(count) pixels with the selection tint \(darkSelection)")
+    for item in cases {
+        let selection = bytes(SidebarSelection.color(accent: item.accent, appearance: item.appearance))
+        let count = selectionPixels(item.name, selection)
+        #expect(count >= 40, "\(item.name): \(count) pixels with the selection tint \(selection)")
     }
 }
 

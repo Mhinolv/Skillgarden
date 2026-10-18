@@ -16,7 +16,7 @@ struct SkillgardenApp: App {
     var body: some Scene {
         WindowGroup("Skillgarden") {
             ContentView(appearance: appearance)
-                // The app appearance colors every window, its menus and sheets. A course theme still overrides it.
+                // The app appearance colors every window, its menus and sheets. A course theme applies only in System (#93).
                 .onChange(of: appearance, initial: true) { NSApp.appearance = appearance.nsAppearance }
         }
         // The toolbar shares the row of the window buttons and shows no title. The snapshot window copies this style.
@@ -99,7 +99,7 @@ struct ContentView: View {
     private let reloadsOnAppear: Bool
     /// The library folder to show under "No courses yet". It is nil for the default folder.
     private let customRootPath: String?
-    /// The app appearance. A course theme overrides it in the course workspace.
+    /// The app appearance. Dark and Light also apply in the course workspace (#93).
     private let appearance: AppAppearance
     @Environment(\.showsReviewInline) private var showsReviewInline
     @Environment(\.showsPDFPreviewInline) private var showsPDFPreviewInline
@@ -153,7 +153,7 @@ struct ContentView: View {
             }
         }
         // The course theme colors the whole window: sidebar, toolbar and content.
-        .gardenTheme(ignoresCourseTheme ? nil : library.selectedLanding?.theme, appearance: appearance.courseAppearance)
+        .gardenTheme(ignoresCourseTheme ? nil : library.selectedLanding?.theme, appearance: appearance)
         .frame(minWidth: 900, minHeight: 600)
         .focusedSceneValue(\.library, library)
         .task { if reloadsOnAppear { await library.reload() } }

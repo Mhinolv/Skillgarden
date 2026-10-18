@@ -95,7 +95,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     public var selectsCourse: Bool { self != .library && self != .libraryEmpty && self != .libraryEmptyCustomFolder }
 
     /// True when the harness also writes `<screen>-unthemed-dark.png`: the course screen with no course theme, in dark (#82).
-    /// The fixture theme is light, so the `-dark` capture stays light like the app. The dark-theme screen is dark already.
+    /// The `-dark` capture uses the Dark setting, which wins over the light fixture theme (#93). The dark-theme screen gets no unthemed capture.
     public var hasUnthemedCapture: Bool { selectsCourse && self != .courseLandingDarkTheme }
 
     /// True when the harness selects the first transcript search result (#90). The selection does not open the result.

@@ -58,7 +58,7 @@ public enum Skillgarden {
     }
 }
 
-/// The app appearance of the View menu (#83). A course manifest appearance still applies to its course.
+/// The app appearance of the View menu (#83). Dark and Light win over a course manifest appearance (#93).
 public enum AppAppearance: String, CaseIterable, Identifiable, Sendable {
     // The menu order of the owner: Dark, Light, System.
     case dark, light, system
@@ -80,6 +80,12 @@ public enum AppAppearance: String, CaseIterable, Identifiable, Sendable {
         case .light: .light
         case .system: nil
         }
+    }
+
+    /// The appearance of a window with this setting (#93 owner decision). Dark and Light always win.
+    /// System uses the course manifest appearance. Nil means the macOS appearance.
+    public func resolved(course: CourseAppearance?) -> CourseAppearance? {
+        courseAppearance ?? course
     }
 
     /// A missing or unknown saved value is Dark.
