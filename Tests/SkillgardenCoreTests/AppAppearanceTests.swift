@@ -25,6 +25,15 @@ import Testing
     #expect(AppAppearance.system.courseAppearance == nil)
 }
 
+/// #93: Dark and Light win over the course. System uses the course, then macOS (nil).
+@Test func appAppearanceWinsOverTheCourseAppearance() {
+    for course in [CourseAppearance.light, .dark, nil] {
+        #expect(AppAppearance.dark.resolved(course: course) == .dark)
+        #expect(AppAppearance.light.resolved(course: course) == .light)
+        #expect(AppAppearance.system.resolved(course: course) == course)
+    }
+}
+
 @Test func appAppearanceUsesTheAppDefaultsDomain() {
     #expect(Skillgarden.appearanceKey == "Appearance")
     #expect(Skillgarden.defaultsDomain == "dev.skillgarden.app")

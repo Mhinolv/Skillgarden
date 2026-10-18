@@ -162,9 +162,9 @@ enum GardenColumnKind {
 
 extension View {
     /// Apply at the window root. A course theme sets the accent and the light or dark look of the whole window.
-    /// Without a theme (Library) the window uses the system accent and the app `appearance`.
-    /// A nil `appearance` (System) uses the system color scheme.
-    func gardenTheme(_ theme: CourseTheme?, appearance: CourseAppearance? = nil) -> some View {
+    /// Without a theme (Library) the window uses the system accent. `appearance` is the app setting.
+    /// Dark and Light win over the theme appearance (#93). System uses the theme, then the system color scheme.
+    func gardenTheme(_ theme: CourseTheme?, appearance: AppAppearance = .system) -> some View {
         modifier(GardenTheme(theme: theme, appearance: appearance))
     }
 
@@ -186,17 +186,18 @@ extension View {
 
 private struct GardenTheme: ViewModifier {
     let theme: CourseTheme?
-    let appearance: CourseAppearance?
+    let appearance: AppAppearance
     @Environment(\.colorScheme) private var systemColorScheme
 
     func body(content: Content) -> some View {
-        let colorScheme = (theme?.appearance ?? appearance)?.colorScheme ?? systemColorScheme
+        let resolved = appearance.resolved(course: theme?.appearance)
+        let colorScheme = resolved?.colorScheme ?? systemColorScheme
         let palette = GardenPalette(accent: theme?.accent, colorScheme: colorScheme, isCourseThemed: theme != nil)
         content
             .tint(palette.accent)
             .environment(\.gardenPalette, palette)
             .environment(\.colorScheme, colorScheme)
-            .preferredColorScheme(theme?.appearance.colorScheme)
+            .preferredColorScheme(theme == nil ? nil : resolved?.colorScheme)
             // Hide the toolbar material, so the page colors of the Library home and the columns show below the toolbar.
             .toolbarBackground(.hidden, for: .windowToolbar)
             .background(TransparentTitlebar(isTransparent: true))
