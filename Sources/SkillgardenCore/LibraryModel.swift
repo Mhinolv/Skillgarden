@@ -170,6 +170,13 @@ public final class LibraryModel {
         return course.learnerSections.first?.id
     }
 
+    /// The section header that the outline rings (#77): the section that the course card stone marks next.
+    /// The selection does not change it. Nil with no course or if all sections are done.
+    public var outlineNextSectionID: String? {
+        guard let course = selectedCourse else { return nil }
+        return SectionStone.nextSectionID(course: course, progress: progress[course.id] ?? [:])
+    }
+
     // MARK: Library home
 
     /// The tile progress of any course in the library. It does not need a selected course.

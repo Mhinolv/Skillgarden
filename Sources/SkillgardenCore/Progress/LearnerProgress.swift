@@ -61,13 +61,19 @@ public struct SectionStone: Equatable, Sendable {
 
     /// One stone per learner section with at least one learner lecture, in outline order.
     public static func stones(course: Course, progress: [String: LectureProgress]) -> [SectionStone] {
-        var foundNext = false
+        let nextID = nextSectionID(course: course, progress: progress)
         return course.learnerSections.filter { !$0.lectures.isEmpty }.map { section in
             let completed = section.lectures.filter { progress[$0.id]?.completed == true }.count
-            let isNext = !foundNext && completed < section.lectures.count
-            if isNext { foundNext = true }
-            return SectionStone(completed: completed, total: section.lectures.count, isNext: isNext)
+            return SectionStone(completed: completed, total: section.lectures.count, isNext: section.id == nextID)
         }
+    }
+
+    /// The ID of the section whose stone is `isNext`: the first learner section with a lecture that is not done.
+    /// Nil if all sections are done.
+    public static func nextSectionID(course: Course, progress: [String: LectureProgress]) -> String? {
+        course.learnerSections.first { section in
+            section.lectures.contains { progress[$0.id]?.completed != true }
+        }?.id
     }
 
     /// The count next to the stones, for example "2 of 22 done". Lectures count, not sections.

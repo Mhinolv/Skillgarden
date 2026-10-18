@@ -139,6 +139,12 @@ enum SnapshotRenderer {
             guard hasLayerContents(pdfView.documentView?.layer) else { throw SnapshotError.pdfView(output.url.lastPathComponent) }
         }
 
+        if output.screen.selectsCourse, output.screen.transcriptQuery == nil {
+            for pitch in outlineRowPitches(in: frameView) where abs(pitch - CourseOutlineView.rowHeight) > 0.5 {
+                throw SnapshotError.outlineRowPitch(output.url.lastPathComponent, pitch)
+            }
+        }
+
         let png = try image(of: frameView, appearance: appearance)
         try png.write(to: output.url, options: .atomic)
         // The title bar and the toolbar are the part of the window above the content layout rect.
@@ -160,6 +166,22 @@ enum SnapshotRenderer {
         while !done(), Date() < end {
             RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
         }
+    }
+
+    /// The distance from the top of one outline row to the top of the next row, for each row after the course card.
+    /// The outline is the table view nearest to the left edge of the window.
+    private static func outlineRowPitches(in view: NSView) -> [CGFloat] {
+        func tableViews(in view: NSView) -> [NSTableView] {
+            ((view as? NSTableView).map { [$0] } ?? []) + view.subviews.flatMap(tableViews(in:))
+        }
+        guard let outline = tableViews(in: view).min(by: {
+            $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX
+        }) else { return [] }
+        // The course card is the tallest row. The rows after it are "Course Overview", the sections, the lectures and "Credits".
+        let rows = 0..<outline.numberOfRows
+        guard let card = rows.max(by: { outline.rect(ofRow: $0).height < outline.rect(ofRow: $1).height }),
+              card + 2 < outline.numberOfRows else { return [] }
+        return (card + 1..<outline.numberOfRows - 1).map { outline.rect(ofRow: $0 + 1).minY - outline.rect(ofRow: $0).minY }
     }
 
     /// Scrolls the scroll view with the most hidden content (the lecture page) to its end.
@@ -246,6 +268,7 @@ enum SnapshotError: Error, CustomStringConvertible {
     case videoOverTitlebar(String, Int)
     case pdfView(String)
     case tallToolbar(String, CGFloat)
+    case outlineRowPitch(String, CGFloat)
 
     var description: String {
         switch self {
@@ -255,6 +278,7 @@ enum SnapshotError: Error, CustomStringConvertible {
         case let .videoOverTitlebar(name, count): "\(name): the video draws \(count) black pixels over the title bar"
         case let .pdfView(name): "\(name): the PDF preview sheet has no PDFKit view with a drawn page"
         case let .tallToolbar(name, height): "\(name): the toolbar row is \(Int(height)) pt high, not the compact row"
+        case let .outlineRowPitch(name, pitch): "\(name): the outline rows are \(pitch) pt apart, not \(CourseOutlineView.rowHeight) pt"
         }
     }
 }

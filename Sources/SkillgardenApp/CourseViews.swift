@@ -104,6 +104,7 @@ struct CourseOutlineView: View {
 
     var body: some View {
         let openSectionID = library.outlineOpenSectionID
+        let nextSectionID = library.outlineNextSectionID
         List(selection: $selection) {
             OutlineCourseCard(course: course, root: library.root, summary: library.summary(of: course))
                 .listRowSeparator(.hidden)
@@ -115,7 +116,8 @@ struct CourseOutlineView: View {
             ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
                 let isOpen = section.id == openSectionID
                 // The section header is a row, so a click selects it, opens the section page and opens the section.
-                SectionHeaderRow(section: section, number: index + 1, progress: library.sectionProgress(section), isOpen: isOpen)
+                SectionHeaderRow(section: section, number: index + 1, progress: library.sectionProgress(section), isOpen: isOpen,
+                                 isNext: section.id == nextSectionID)
                     .tag(CourseDestination.section(sectionID: section.id))
                 if isOpen {
                     ForEach(section.lectures, id: \.id) { lecture in
@@ -136,12 +138,14 @@ struct CourseOutlineView: View {
                     .tag(CourseDestination.credits)
             }
         }
+        // The medium sidebar row size keeps rows at least 28 pt apart. The small size lets the 26 pt rows set the pitch (#77).
+        .environment(\.sidebarRowSize, .small)
         .environment(\.defaultMinListRowHeight, Self.rowHeight)
     }
 }
 
 extension View {
-    /// A one-line outline row with no list insets. The macOS sidebar list keeps rows at least 28 pt apart.
+    /// A one-line outline row with no list insets.
     func outlineRow() -> some View {
         frame(height: CourseOutlineView.rowHeight)
             .listRowInsets(EdgeInsets())
@@ -179,11 +183,13 @@ struct OutlineCourseCard: View {
 
 /// One 26 pt row: the open or closed chevron, the muted section number, the title on one line and the percent of
 /// complete lectures. The percent is hidden if the section has no lectures. The tooltip shows the full title.
+/// On the section of the next lecture, an accent ring wraps the number, like the `.next` stone of `SectionStones` (#77).
 struct SectionHeaderRow: View {
     let section: CourseSection
     let number: Int
     let progress: SectionProgress
     let isOpen: Bool
+    var isNext = false
     @Environment(\.gardenPalette) private var palette
 
     var body: some View {
@@ -195,14 +201,18 @@ struct SectionHeaderRow: View {
                 .accessibilityHidden(true)
             Text("\(number)")
                 .font(GardenFont.small).monospacedDigit()
-                .foregroundStyle(palette.muted)
-                .frame(width: 14, alignment: .trailing)
+                .foregroundStyle(isNext ? palette.accentInk : palette.muted)
+                .frame(width: 18, height: 18)
+                .overlay {
+                    if isNext { Circle().strokeBorder(palette.accent, lineWidth: 1.5) }
+                }
                 .accessibilityHidden(true)
             Text(section.title)
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(palette.ink)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .accessibilityLabel(isNext ? "\(section.title), next" : section.title)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)
             if let percent = progress.percent {
@@ -240,7 +250,7 @@ struct OutlineLectureRow: View {
             Spacer(minLength: 0)
         }
         // The lecture icon lines up under the section title, like the mockup.
-        .padding(.leading, 22)
+        .padding(.leading, 26)
         .outlineRow()
         .help(lecture.title)
         .accessibilityElement(children: .ignore)
