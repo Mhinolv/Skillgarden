@@ -3,7 +3,7 @@ import SQLite3
 
 /// A synchronous local store. The lock protects the connection and each complete operation.
 public final class CourseStore: @unchecked Sendable {
-    public static let currentSchemaVersion = 9
+    public static let currentSchemaVersion = 10
     public let databaseURL: URL
     private let database: SQLiteDatabase
     private let lock = NSLock()
@@ -236,6 +236,7 @@ public final class CourseStore: @unchecked Sendable {
     }
 
     /// Learner data has no foreign key to outline rows, so a republish keeps it.
+    /// It writes the complete flag and the resume position. It keeps the saved `autoCompleteOff`.
     public func saveProgress(_ progress: LectureProgress, courseID: String, lectureID: String) throws {
         try lock.withLock {
             try database.execute("""
@@ -247,9 +248,11 @@ public final class CourseStore: @unchecked Sendable {
 
     public func progress(courseID: String, lectureID: String) throws -> LectureProgress? {
         try lock.withLock {
-            try database.query("SELECT completed, resume_seconds FROM lecture_progress WHERE course_id = ? AND lecture_id = ?",
-                               [courseID, lectureID]) {
-                LectureProgress(completed: sqlite3_column_int64($0, 0) != 0, resumeSeconds: sqlite3_column_double($0, 1))
+            try database.query("""
+                SELECT completed, resume_seconds, auto_complete_off FROM lecture_progress WHERE course_id = ? AND lecture_id = ?
+                """, [courseID, lectureID]) {
+                LectureProgress(completed: sqlite3_column_int64($0, 0) != 0, resumeSeconds: sqlite3_column_double($0, 1),
+                                autoCompleteOff: sqlite3_column_int64($0, 2) != 0)
             }.first
         }
     }
@@ -261,6 +264,17 @@ public final class CourseStore: @unchecked Sendable {
                 INSERT INTO lecture_progress (course_id, lecture_id, completed) VALUES (?, ?, ?)
                 ON CONFLICT(course_id, lecture_id) DO UPDATE SET completed=excluded.completed
                 """, [courseID, lectureID, completed ? "1" : "0"])
+        }
+    }
+
+    /// The learner clicks the complete control: sets the complete flag and keeps the saved resume position.
+    /// Incomplete turns off the automatic complete of the lecture. Complete turns it on again (#79).
+    public func setCompletedByHand(_ completed: Bool, courseID: String, lectureID: String) throws {
+        try lock.withLock {
+            try database.execute("""
+                INSERT INTO lecture_progress (course_id, lecture_id, completed, auto_complete_off) VALUES (?, ?, ?, ?)
+                ON CONFLICT(course_id, lecture_id) DO UPDATE SET completed=excluded.completed, auto_complete_off=excluded.auto_complete_off
+                """, [courseID, lectureID, completed ? "1" : "0", completed ? "0" : "1"])
         }
     }
 
@@ -278,9 +292,10 @@ public final class CourseStore: @unchecked Sendable {
     public func allProgress() throws -> [String: [String: LectureProgress]] {
         try lock.withLock {
             var result: [String: [String: LectureProgress]] = [:]
-            try database.query("SELECT course_id, lecture_id, completed, resume_seconds FROM lecture_progress") {
+            try database.query("SELECT course_id, lecture_id, completed, resume_seconds, auto_complete_off FROM lecture_progress") {
                 result[SQLiteDatabase.text($0, 0), default: [:]][SQLiteDatabase.text($0, 1)] =
-                    LectureProgress(completed: sqlite3_column_int64($0, 2) != 0, resumeSeconds: sqlite3_column_double($0, 3))
+                    LectureProgress(completed: sqlite3_column_int64($0, 2) != 0, resumeSeconds: sqlite3_column_double($0, 3),
+                                    autoCompleteOff: sqlite3_column_int64($0, 4) != 0)
             }
             return result
         }
@@ -480,5 +495,9 @@ public final class CourseStore: @unchecked Sendable {
         """,
         // Publications saved before this version have no index. The next publish writes it.
         "ALTER TABLE course_publications ADD COLUMN transcripts_indexed INTEGER NOT NULL DEFAULT 0",
+    ], [
+        // 1 after the learner marks a lecture incomplete by hand: the video does not complete it again (#79).
+        // Progress saved before this version keeps the automatic complete on.
+        "ALTER TABLE lecture_progress ADD COLUMN auto_complete_off INTEGER NOT NULL DEFAULT 0 CHECK(auto_complete_off IN (0, 1))",
     ]]
 }

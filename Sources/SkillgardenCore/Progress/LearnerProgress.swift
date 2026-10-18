@@ -105,3 +105,29 @@ public enum PlaybackResume {
         return saved
     }
 }
+
+/// Finds the play tick that passes 90% of a video, so the lecture completes automatically (#79).
+/// Only a tick of continuous play counts. A seek past the mark does not complete the lecture.
+public struct VideoAutoComplete: Equatable, Sendable {
+    /// The part of the video length that the learner must play past.
+    public static let threshold = 0.9
+    /// The largest forward step between two play ticks that counts as play. A larger step is a seek.
+    public static let maxPlayStep: Double = 2
+    private var lastSeconds: Double?
+
+    public init() {}
+
+    /// Returns true when this play tick passes `threshold` of `duration` from the previous play tick.
+    /// A tick that does not play, for example during a seek, starts the count again.
+    public mutating func tick(seconds: Double, duration: Double?, isPlaying: Bool) -> Bool {
+        let last = lastSeconds
+        lastSeconds = isPlaying && seconds.isFinite ? seconds : nil
+        guard isPlaying, let last, seconds.isFinite, let duration, duration.isFinite, duration > 0 else { return false }
+        let mark = duration * Self.threshold
+        let step = seconds - last
+        return last < mark && seconds >= mark && step > 0 && step <= Self.maxPlayStep
+    }
+
+    /// Forgets the previous tick. A seek calls this.
+    public mutating func reset() { lastSeconds = nil }
+}
