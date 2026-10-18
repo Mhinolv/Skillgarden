@@ -105,10 +105,6 @@ public final class LibraryModel {
         selectedLecture.flatMap { selectedCourse?.adjacentLecture(to: $0.id, offset: 1) }
     }
 
-    public var nudge: LectureNudge? {
-        selectedLecture.flatMap { selectedCourse?.nudge(for: $0.id) }
-    }
-
     public var selectedLanding: CourseLanding? {
         selectedCourseID.flatMap { landings[$0] }
     }
@@ -139,7 +135,6 @@ public final class LibraryModel {
 
     public func goToPreviousLecture() { if let previousLecture { open(previousLecture) } }
     public func goToNextLecture() { if let nextLecture { open(nextLecture) } }
-    public func goToNudge() { if let nudge { open(nudge.destination) } }
 
     // MARK: Progress
 

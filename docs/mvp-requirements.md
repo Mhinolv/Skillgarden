@@ -17,7 +17,7 @@ Compiled from the Course Studio team (Udemy Course Developer, L&D Agent, Graphic
 - Course > sections > lectures, in a set order.
 - Section header image at 1920x1080.
 - Objective shown at the top of every section and lecture.
-- A "recommended next" nudge (sequencing locks come after the MVP).
+- Lecture pages show only Previous and Next. The manifest accepts `recommended_next`, and the app ignores it (#87). Sequencing locks come after the MVP.
 
 ## 4. Lecture types
 - **Video:** MP4 player, .vtt captions, duration, poster frame. The manifest accepts a `free_preview` flag, and the app ignores it (#66).

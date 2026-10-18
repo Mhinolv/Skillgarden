@@ -128,19 +128,17 @@ struct SectionPageView: View {
 }
 
 /// Wraps every lecture type: label, title, section stones, objective, content, downloads, the source cards,
-/// then Mark as Complete (not for a video), the nudge and Previous and Next.
+/// then Mark as Complete (not for a video) and Previous and Next.
 struct LectureFrameView<Content: View>: View {
     let sectionTitle: String
     let number: Int
     let lecture: Lecture
     /// The stones of the section of the lecture.
     let stones: [SteppingStone]
-    let nudge: LectureNudge?
     let completed: Bool
     let toggleComplete: () -> Void
     let previous: (() -> Void)?
     let next: (() -> Void)?
-    let openNudge: () -> Void
     /// Interactive modules use a wider column (960 pt).
     var maxWidth: CGFloat = CourseStyle.textWidth
     /// The downloads of the lecture. The block hides when the list is empty.
@@ -181,7 +179,6 @@ struct LectureFrameView<Content: View>: View {
                         MarkCompleteButton(completed: completed, isPrimary: completeIsPrimary, toggle: toggleComplete)
                     }
                 }
-                if let nudge { NudgeCard(nudge: nudge, open: openNudge) }
                 HStack {
                     Button("Previous", systemImage: "chevron.left") { previous?() }
                         .disabled(previous == nil)
@@ -239,46 +236,5 @@ struct MarkCompleteButton: View {
                 .buttonStyle(.garden(isPrimary ? .primary : .bordered))
                 .help(help ?? "")
         }
-    }
-}
-
-/// "Up next" or "Recommended next": a 44 pt bordered row with the lecture type, the title and a plain "Go to Lecture".
-struct NudgeCard: View {
-    let nudge: LectureNudge
-    let open: () -> Void
-    @Environment(\.gardenPalette) private var palette
-
-    private var label: String { nudge.kind == .recommended ? "Recommended next" : "Up next" }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 10) {
-                Text(label)
-                    .font(GardenFont.label)
-                    .foregroundStyle(palette.muted)
-                    .fixedSize()
-                Image(systemName: nudge.lecture.type.symbolName)
-                    .font(.system(size: 12))
-                    .foregroundStyle(palette.muted)
-                Text(nudge.lecture.title)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(palette.ink)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(label): \(nudge.lecture.title)")
-            Button(action: open) {
-                HStack(spacing: 6) { Text("Go to Lecture"); Image(systemName: "chevron.right").imageScale(.small) }
-            }
-            .buttonStyle(.garden(.plain))
-        }
-        .frame(minHeight: 44)
-        .padding(.leading, GardenSpacing.s)
-        .padding(.trailing, 6)
-        .background(palette.card, in: .garden(GardenRadius.card))
-        .overlay { RoundedRectangle.garden(GardenRadius.card).strokeBorder(palette.line, lineWidth: 1) }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(label): \(nudge.lecture.title)")
     }
 }
