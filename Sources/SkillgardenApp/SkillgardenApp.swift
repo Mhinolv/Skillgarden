@@ -85,6 +85,7 @@ struct ContentView: View {
     private let customRootPath: String?
     @Environment(\.showsReviewInline) private var showsReviewInline
     @Environment(\.showsPDFPreviewInline) private var showsPDFPreviewInline
+    @Environment(\.snapshotIgnoresCourseTheme) private var ignoresCourseTheme
 
     /// Uses the data folder that `SKILLGARDEN_DATA_DIR` or the saved `DataDirectory` setting names.
     init() {
@@ -132,7 +133,7 @@ struct ContentView: View {
             }
         }
         // The course theme colors the whole window: sidebar, toolbar and content.
-        .gardenTheme(library.selectedLanding?.theme)
+        .gardenTheme(ignoresCourseTheme ? nil : library.selectedLanding?.theme)
         .frame(minWidth: 900, minHeight: 600)
         .focusedSceneValue(\.library, library)
         .task { if reloadsOnAppear { await library.reload() } }
@@ -272,6 +273,17 @@ extension EnvironmentValues {
         get { self[ShowsReviewInlineKey.self] }
         set { self[ShowsReviewInlineKey.self] = newValue }
     }
+
+    /// The snapshot harness sets this for the `-unthemed-dark` captures (#82). The window then uses no course theme,
+    /// like the Library: the system accent and the system color scheme. The app sets none.
+    var snapshotIgnoresCourseTheme: Bool {
+        get { self[SnapshotIgnoresCourseThemeKey.self] }
+        set { self[SnapshotIgnoresCourseThemeKey.self] = newValue }
+    }
+}
+
+private struct SnapshotIgnoresCourseThemeKey: EnvironmentKey {
+    static let defaultValue = false
 }
 
 /// A 28 pt toolbar button: a muted symbol, radius 6, no border. It shows only the symbol of its label.
