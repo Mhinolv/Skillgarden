@@ -9,6 +9,8 @@ struct QuickCheckCard: View {
     let retry: (Int) -> Void
     /// The header "Close" button hides the card (#99). Nil shows no button.
     var close: (() -> Void)? = nil
+    /// Gets true while a check has focus. The video page then keeps the arrows off the player (#104).
+    var focusChanged: (Bool) -> Void = { _ in }
     /// The check that gets the number keys 1–9.
     @FocusState private var focusedCheck: Int?
 
@@ -34,6 +36,7 @@ struct QuickCheckCard: View {
                 }
             }
         }
+        .onChange(of: focusedCheck) { _, check in focusChanged(check != nil) }
     }
 
     private func checkView(_ check: QuickCheck) -> some View {

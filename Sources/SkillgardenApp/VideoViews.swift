@@ -22,6 +22,8 @@ final class VideoPlayback {
     @ObservationIgnored private var endObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var lastSaved: Double = 0
     @ObservationIgnored private var pendingSeeks = 0
+    /// The time of the last seek. While a seek runs, `currentTime()` can show the old time, so a held arrow key uses this.
+    @ObservationIgnored private var seekTarget: Double = 0
     @ObservationIgnored private var autoCompleteTicks = VideoAutoComplete()
     @ObservationIgnored private let save: @MainActor (Double) -> Void
     @ObservationIgnored private let complete: @MainActor () -> Void
@@ -81,6 +83,7 @@ final class VideoPlayback {
     /// Time ticks during a seek can show the old time, so they do not change the active line until the seek ends.
     func seek(to seconds: Double, plays: Bool = true) {
         pendingSeeks += 1
+        seekTarget = seconds
         autoCompleteTicks.reset()
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             DispatchQueue.main.async {
@@ -89,6 +92,16 @@ final class VideoPlayback {
         }
         update(at: seconds)
         if plays { player.play() } else { player.pause() }
+    }
+
+    /// Moves playback by `delta` seconds, clamped to the video (#104). Left Arrow and Right Arrow call it.
+    /// A skip keeps the play state. `duration` is the manifest length, for the time before the player knows the item duration.
+    func skip(by delta: Double, duration: Double?) {
+        let current = pendingSeeks > 0 ? seekTarget : player.currentTime().seconds
+        let itemDuration = player.currentItem?.duration.seconds
+        let target = VideoSkip.target(current: current, delta: delta,
+                                      duration: itemDuration?.isFinite == true ? itemDuration : duration)
+        seek(to: target, plays: player.rate != 0)
     }
 
     private func update(at seconds: Double) {
@@ -123,6 +136,7 @@ final class VideoPlayback {
 /// Before the first play the poster shows with a play button. The player starts on a click or Space.
 /// The quick-check card is hidden when the lecture opens. It shows at the video end or from the "Quick Check" button.
 /// With Auto-play on, the video end shows the "Up next" overlay on the player (#99). Open quick checks hold it back.
+/// Left Arrow and Right Arrow skip 10 seconds back and forward (#104).
 struct VideoLectureView: View {
     let video: LectureVideo?
     /// Nil when the video has no quick checks.
@@ -172,6 +186,8 @@ struct VideoLectureView: View {
     @State private var transcript: Transcript?
     @State private var playback: VideoPlayback?
     @State private var showsQuickChecks = false
+    /// True while a check of the quick-check card has focus. The arrows then do not skip (#104).
+    @State private var quickCheckFocused = false
     @State private var upNext = UpNextCountdown()
 
     /// The transcript and the quick checks keep this cap in theater.
@@ -196,12 +212,14 @@ struct VideoLectureView: View {
                         .frame(maxWidth: Self.maxWidth)
                 }
                 if showsQuickChecks, let quickChecks {
-                    QuickCheckCard(session: quickChecks, answer: answerQuickCheck, retry: retryQuickCheck, close: closeQuickChecks)
+                    QuickCheckCard(session: quickChecks, answer: answerQuickCheck, retry: retryQuickCheck, close: closeQuickChecks,
+                                   focusChanged: quickCheckFocusChanged)
                         .frame(maxWidth: Self.maxWidth)
                         .id(QuickCheckCard.scrollID)
                 }
             }
         }
+        .background(VideoSkipKeys(skip: skip(by:)))
         .focusedSceneValue(\.showsTranscript, hasCaptions ? $showsTranscript : nil)
         .focusedSceneValue(\.theaterMode, isUnavailable ? nil : $theater)
         .task(id: video) { await load() }
@@ -407,6 +425,25 @@ struct VideoLectureView: View {
         }
     }
 
+    private func quickCheckFocusChanged(_ focused: Bool) {
+        quickCheckFocused = focused
+    }
+
+    /// Left Arrow and Right Arrow (#104). Returns false when the page does not take the key.
+    /// A skip keeps the play state and cancels "Up next". Before the first play, the player opens paused at the resume position ±10 s.
+    private func skip(by delta: Double) -> Bool {
+        guard let video, available == true, !(showsQuickChecks && quickCheckFocused) else { return false }
+        upNext.cancel()
+        if let playback {
+            playback.skip(by: delta, duration: duration)
+        } else {
+            let start = VideoSkip.target(current: snapshotVideoStart ?? startSeconds(), delta: delta, duration: duration)
+            playback = VideoPlayback(url: video.url, start: start, duration: duration, captions: captions, transcript: transcript,
+                                     plays: false, save: saveResumePosition, complete: completeAutomatically)
+        }
+        return true
+    }
+
     /// Checks the video file and reads the poster and the captions off the main actor.
     private func load() async {
         playback?.stop()
@@ -583,6 +620,70 @@ struct PlayerView: NSViewRepresentable {
 
     static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
         view.player = nil
+    }
+}
+
+/// The Left Arrow and Right Arrow skip of a video lecture page (#104).
+/// A local key monitor runs before the first responder, so the AVKit frame step does not run on the page.
+/// The monitor is on while the view is in a window. It returns the event for a text field, the sidebar (any `NSTableView`),
+/// a modifier, a sheet or another key window.
+private struct VideoSkipKeys: NSViewRepresentable {
+    /// Gets −10 or +10. Returns false when the page does not take the key.
+    let skip: @MainActor (Double) -> Bool
+
+    func makeNSView(context: Context) -> MonitorView {
+        let view = MonitorView()
+        view.skip = skip
+        return view
+    }
+
+    /// The closure reads the current page state, so each update replaces it.
+    func updateNSView(_ view: MonitorView, context: Context) {
+        view.skip = skip
+    }
+
+    static func dismantleNSView(_ view: MonitorView, coordinator: ()) {
+        view.stop()
+    }
+
+    final class MonitorView: NSView {
+        var skip: @MainActor (Double) -> Bool = { _ in false }
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            stop()
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                let handled = MainActor.assumeIsolated { self?.handle(event) ?? false }
+                return handled ? nil : event
+            }
+        }
+
+        func stop() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+
+        /// A held key repeats the skip at the system repeat rate.
+        private func handle(_ event: NSEvent) -> Bool {
+            guard let window, event.window === window, window.isKeyWindow, window.attachedSheet == nil else { return false }
+            let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            guard let delta = VideoSkip.delta(keyCode: event.keyCode, hasModifiers: !modifiers.isEmpty),
+                  !Self.keepsArrows(window.firstResponder) else { return false }
+            return skip(delta)
+        }
+
+        /// A text field (its field editor is an `NSText`) and the sidebar outline keep the arrows.
+        private static func keepsArrows(_ responder: NSResponder?) -> Bool {
+            if responder is NSText { return true }
+            var view = responder as? NSView
+            while let current = view {
+                if current is NSTableView { return true }
+                view = current.superview
+            }
+            return false
+        }
     }
 }
 
