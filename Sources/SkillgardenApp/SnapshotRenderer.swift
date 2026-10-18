@@ -163,7 +163,7 @@ enum SnapshotRenderer {
         }
 
         // `cacheDisplay` does not draw the AppKit material, so the capture cannot show it. Check the views (#101).
-        let materials = TitlebarMaterial.visibleViews(in: window)
+        let materials = output.screen.checksToolbarMaterial ? TitlebarMaterial.visibleViews(in: window) : []
         if !materials.isEmpty { throw SnapshotError.toolbarMaterial(output.url.lastPathComponent, materials.count) }
 
         let png = try image(of: frameView, appearance: appearance)

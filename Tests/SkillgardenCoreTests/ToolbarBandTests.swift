@@ -20,14 +20,11 @@ private func matches(_ color: [UInt8]?, _ expected: [UInt8]) -> Bool {
 /// #101: each toolbar band has the solid color of the column below it, so the window is one surface.
 /// The test renders the course screens and the Library home, then reads the toolbar row
 /// over the sidebar and over the page. It compares each pixel with the palette color of the column.
-@Test func toolbarBandsUseTheColumnColors() throws {
+/// Runs the snapshot harness for `screens` into `out`. Returns the exit status and the error text.
+private func runSnapshots(_ screens: [SnapshotScreen], into out: URL) throws -> (status: Int32, errorText: String) {
     // `swift test` builds the app next to the test bundle.
     let app = Bundle(for: TestBundleMarker.self).bundleURL.deletingLastPathComponent().appending(path: "SkillgardenApp")
     try #require(FileManager.default.isExecutableFile(atPath: app.path), "build SkillgardenApp before the tests")
-    let out = FileManager.default.temporaryDirectory.appending(path: "ToolbarBandTests-\(UUID())")
-    defer { try? FileManager.default.removeItem(at: out) }
-
-    let screens: [SnapshotScreen] = [.lecture, .courseLandingDarkTheme, .quizQuestion, .library, .videoTheater]
     let process = Process()
     process.executableURL = app
     process.arguments = ["--snapshot", out.path, "--fixture", repo.appending(path: "Tests/Fixtures/sample-course").path]
@@ -38,9 +35,18 @@ private func matches(_ color: [UInt8]?, _ expected: [UInt8]) -> Bool {
     try process.run()
     let errorText = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     process.waitUntilExit()
+    return (process.terminationStatus, errorText)
+}
+
+@Test func toolbarBandsUseTheColumnColors() throws {
+    let out = FileManager.default.temporaryDirectory.appending(path: "ToolbarBandTests-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: out) }
+
+    let screens: [SnapshotScreen] = [.lecture, .courseLandingDarkTheme, .quizQuestion, .library, .videoTheater]
+    let run = try runSnapshots(screens, into: out)
     // The capture does not draw the AppKit toolbar material, so the harness checks for visible material views.
-    #expect(errorText.isEmpty)
-    #expect(process.terminationStatus == 0)
+    #expect(run.errorText.isEmpty)
+    #expect(run.status == 0)
 
     /// The pixels of the toolbar row at `x` pt that do not have the `expected` color.
     /// The rows from 4 pt to 34 pt are inside the 38 pt compact row (#74), so the toolbar buttons are the only other marks.
@@ -78,5 +84,22 @@ private func matches(_ color: [UInt8]?, _ expected: [UInt8]) -> Bool {
             let sidebarOff = offPixels(png, x: 200, expected)
             #expect(sidebarOff.isEmpty, "\(item.name): the sidebar band has \(sidebarOff.count) pixels not \(expected), first \(sidebarOff.first ?? [])")
         }
+    }
+}
+
+/// #101 QA attempt 1: the Settings screen has no main-window toolbar, so the material check must not fail it.
+@Test func settingsSnapshotSkipsTheToolbarMaterialCheck() throws {
+    let out = FileManager.default.temporaryDirectory.appending(path: "ToolbarBandTests-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: out) }
+    let run = try runSnapshots([.settings], into: out)
+    #expect(run.errorText.isEmpty)
+    #expect(run.status == 0)
+    #expect(FileManager.default.fileExists(atPath: out.appending(path: "settings-light.png").path))
+    #expect(FileManager.default.fileExists(atPath: out.appending(path: "settings-dark.png").path))
+}
+
+@Test func onlyTheSettingsScreenSkipsTheToolbarMaterialCheck() {
+    for screen in SnapshotScreen.allCases {
+        #expect(screen.checksToolbarMaterial == (screen != .settings), "\(screen)")
     }
 }
