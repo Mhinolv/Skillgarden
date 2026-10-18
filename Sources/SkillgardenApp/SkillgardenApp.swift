@@ -34,6 +34,12 @@ struct SkillgardenApp: App {
                 }
                 .keyboardShortcut("t", modifiers: [.option, .command])
                 .disabled(showsTranscript == nil)
+                // AVKit has no public API to start full screen from code, so the player button is the only full-screen control (#85).
+                Button(theaterMode == true ? "Exit Theater Mode" : "Enter Theater Mode", systemImage: "tv") {
+                    theaterMode?.toggle()
+                }
+                .keyboardShortcut("t", modifiers: [.shift, .command])
+                .disabled(theaterMode == nil)
                 Divider()
                 Picker("Appearance", selection: Binding(get: { appearance }, set: { appearance = $0; Skillgarden.saveAppearance($0) })) {
                     ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
@@ -69,6 +75,8 @@ struct SkillgardenApp: App {
     @FocusedValue(\.library) private var focusedLibrary
     /// Nil when no video lecture with captions shows.
     @FocusedBinding(\.showsTranscript) private var showsTranscript
+    /// Nil when no video lecture with an available video shows.
+    @FocusedBinding(\.theaterMode) private var theaterMode
     /// Nil when no course outline shows.
     @FocusedValue(\.searchTranscripts) private var searchTranscripts
 }
@@ -88,6 +96,9 @@ struct ContentView: View {
     @State private var library: LibraryModel
     /// The transcript choice stays for the app session and for all lectures of the window.
     @State private var showsTranscript = true
+    /// Theater hides the sidebar and widens the player (#85). It stays on for video lectures and ends on other pages.
+    @State private var theater = TheaterMode()
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
     private let reloadsOnAppear: Bool
     /// The library folder to show under "No courses yet". It is nil for the default folder.
     private let customRootPath: String?
@@ -96,6 +107,7 @@ struct ContentView: View {
     @Environment(\.showsReviewInline) private var showsReviewInline
     @Environment(\.showsPDFPreviewInline) private var showsPDFPreviewInline
     @Environment(\.snapshotIgnoresCourseTheme) private var ignoresCourseTheme
+    @Environment(\.snapshotStartsTheater) private var snapshotStartsTheater
 
     /// Uses the data folder that `SKILLGARDEN_DATA_DIR` or the saved `DataDirectory` setting names.
     init(appearance: AppAppearance) {
@@ -148,11 +160,28 @@ struct ContentView: View {
         .frame(minWidth: 900, minHeight: 600)
         .focusedSceneValue(\.library, library)
         .task { if reloadsOnAppear { await library.reload() } }
+        .onChange(of: showsVideo) { _, showsVideo in showSidebar(theater.pageChanged(showsVideo: showsVideo)) }
+        .onAppear { if snapshotStartsTheater { setTheater(true) } }
+    }
+
+    /// True while the page is a video lecture. Theater ends on every other page.
+    private var showsVideo: Bool {
+        library.selectedCourse != nil && library.selectedLecture?.type == .video && library.selectedQuizAttempt == nil
+    }
+
+    private func setTheater(_ on: Bool) {
+        showSidebar(theater.set(on, sidebarHidden: columnVisibility == .detailOnly))
+    }
+
+    /// Applies a sidebar state that `TheaterMode` returns. Nil keeps the sidebar as it is.
+    private func showSidebar(_ hidden: Bool?) {
+        guard let hidden else { return }
+        columnVisibility = hidden ? .detailOnly : .all
     }
 
     /// The course workspace: the outline and the selected page.
     private func workspace(_ course: Course) -> some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             CourseSidebar(course: course, library: library)
             .gardenColumn(.sidebar)
             .navigationTitle(course.title)
@@ -170,7 +199,18 @@ struct ContentView: View {
                         inlineSheet { PDFPreviewSheet(download: pdf) }
                     }
                 }
+                .background {
+                    if theater.isOn {
+                        // Escape ends theater. The button has no visible part.
+                        Button("Exit Theater Mode") { showSidebar(theater.end()) }
+                            .keyboardShortcut(.cancelAction)
+                            .opacity(0)
+                            .accessibilityHidden(true)
+                    }
+                }
         }
+        // View > Show Sidebar (⌃⌘S) and the toolbar button end theater.
+        .onChange(of: columnVisibility) { _, visibility in theater.sidebarChanged(hidden: visibility == .detailOnly) }
     }
 
     /// A sheet that the snapshot harness draws in the window. A real sheet is a separate window, so the capture misses it.
@@ -208,7 +248,8 @@ struct ContentView: View {
                     previous: library.previousLecture == nil ? nil : { library.goToPreviousLecture() },
                     next: library.nextLecture == nil ? nil : { library.goToNextLecture() },
                     openNudge: { library.goToNudge() },
-                    maxWidth: lecture.type == .interactive ? InteractiveStyle.maxWidth : CourseStyle.textWidth,
+                    maxWidth: lecture.type == .interactive ? InteractiveStyle.maxWidth
+                        : lecture.type == .video && theater.isOn ? .infinity : CourseStyle.textWidth,
                     downloads: library.downloads(forLecture: lecture.id),
                     sources: library.selectedSources,
                     // A quiz has its own primary action, so each screen keeps one accent button.
@@ -232,6 +273,8 @@ struct ContentView: View {
                                              },
                                              saveResumePosition: { [library] in library.saveResumePosition($0, lectureID: lecture.id) },
                                              showsTranscript: $showsTranscript,
+                                             theater: Binding(get: { theater.isOn }, set: { setTheater($0) }),
+                                             playerMaxWidth: theater.playerMaxWidth,
                                              seekRequest: library.transcriptSeek.flatMap { $0.lectureID == lecture.id ? $0 : nil },
                                              completed: library.isComplete(lecture.id),
                                              toggleComplete: { Task { await library.toggleSelectedLectureComplete() } },
@@ -308,6 +351,18 @@ extension EnvironmentValues {
 
 private struct SnapshotIgnoresCourseThemeKey: EnvironmentKey {
     static let defaultValue = false
+}
+
+private struct SnapshotStartsTheaterKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// The snapshot harness sets this for the `video-theater` screen, so the window opens in theater mode (#85). The app sets none.
+    var snapshotStartsTheater: Bool {
+        get { self[SnapshotStartsTheaterKey.self] }
+        set { self[SnapshotStartsTheaterKey.self] = newValue }
+    }
 }
 
 /// A 28 pt toolbar button: a muted symbol, radius 6, no border. It shows only the symbol of its label.

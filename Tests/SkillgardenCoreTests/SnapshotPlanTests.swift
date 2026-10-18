@@ -32,6 +32,7 @@ private func temporaryFolder() throws -> URL {
         "video-player-light.png", "video-player-dark.png", "video-player-unthemed-dark.png",
         "video-transcript-light.png", "video-transcript-dark.png", "video-transcript-unthemed-dark.png",
         "video-quick-check-light.png", "video-quick-check-dark.png", "video-quick-check-unthemed-dark.png",
+        "video-theater-light.png", "video-theater-dark.png", "video-theater-unthemed-dark.png",
         "section-review-light.png", "section-review-dark.png", "section-review-unthemed-dark.png",
         "course-credits-light.png", "course-credits-dark.png", "course-credits-unthemed-dark.png",
         "assignment-light.png", "assignment-dark.png", "assignment-unthemed-dark.png",
@@ -46,7 +47,7 @@ private func temporaryFolder() throws -> URL {
     // #82: every course screen except the dark-theme screen gets one dark capture with no course theme.
     #expect(SnapshotScreen.allCases.filter { $0.selectsCourse && !$0.hasUnthemedCapture } == [.courseLandingDarkTheme])
     let unthemed = outputs.filter(\.ignoresCourseTheme)
-    #expect(unthemed.count == 22)
+    #expect(unthemed.count == 23)
     #expect(unthemed.allSatisfy { $0.appearance == .dark && $0.screen.hasUnthemedCapture })
     #expect(unthemed.allSatisfy { $0.url.lastPathComponent == "\($0.screen.rawValue)-unthemed-dark.png" })
     #expect(outputs.filter { !$0.ignoresCourseTheme }.map(\.url.lastPathComponent) == SnapshotScreen.allCases.flatMap { screen in
@@ -56,13 +57,13 @@ private func temporaryFolder() throws -> URL {
     #expect(SnapshotScreen.allCases.filter(\.showsReviewInline) == [.sectionReview])
     #expect(SnapshotScreen.allCases.filter(\.showsPDFPreviewInline) == [.pdfPreview])
     #expect(SnapshotScreen.allCases.filter(\.showsLandingDetails) == [.courseLandingDetails])
-    #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer, .videoTranscript, .videoQuickCheck])
+    #expect(SnapshotScreen.allCases.filter(\.opensVideoPlayer) == [.videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater])
     #expect(SnapshotScreen.allCases.filter { $0.videoStartSeconds != nil } == [.videoTranscript])
     #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [
-        .courseLandingDetails, .videoTranscript, .videoQuickCheck, .lectureDownloads, .pdfPreview, .lectureSources,
+        .courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureDownloads, .pdfPreview, .lectureSources,
     ])
     #expect(SnapshotScreen.allCases.filter(\.showsQuickChecks) == [.videoQuickCheck])
-    #expect(SnapshotScreen.allCases.filter(\.checksTitlebarForVideo) == [.videoPlayer, .videoTranscript, .videoQuickCheck])
+    #expect(SnapshotScreen.allCases.filter(\.checksTitlebarForVideo) == [.videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater])
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: [.videoTranscript, .library]).map(\.url.lastPathComponent) == [
         "library-light.png", "library-dark.png",
         "video-transcript-light.png", "video-transcript-dark.png", "video-transcript-unthemed-dark.png",
@@ -196,7 +197,7 @@ private func temporaryFolder() throws -> URL {
                 #expect(attempt.result.weakSkills == ["Read a course outline", "Order course sections"])
                 await library.waitForWrites()
             }
-        case .videoPlayer:
+        case .videoPlayer, .videoTheater:
             #expect(courseID == "sample-course")
             library.selectCourse(courseID)
             library.selectDestination(SnapshotPlan.destination(for: screen))

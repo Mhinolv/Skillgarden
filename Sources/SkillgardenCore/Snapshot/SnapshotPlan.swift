@@ -33,6 +33,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The video lecture with its quick-check card open and scrolled into view.
     /// Two checks: the first is unanswered, the second is answered wrong and shows its explanation.
     case videoQuickCheck = "video-quick-check"
+    /// The video lecture in theater mode (#85): no sidebar, and the paused player fills the page column.
+    /// The page scrolls to the end, so the "Theater" pill (on) and the 960 pt transcript show.
+    case videoTheater = "video-theater"
     /// The spaced review sheet of the "plan" section, after the quiz section moved first.
     /// Two questions: one unanswered, one answered correctly.
     case sectionReview = "section-review"
@@ -56,14 +59,18 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case lectureSources = "lecture-sources"
 
     /// True when the harness opens the player of the video lecture before the capture.
-    public var opensVideoPlayer: Bool { self == .videoPlayer || self == .videoTranscript || self == .videoQuickCheck }
+    public var opensVideoPlayer: Bool { [.videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater].contains(self) }
+
+    /// True when the harness starts theater mode on the video lecture (#85).
+    public var startsTheater: Bool { self == .videoTheater }
 
     /// The paused player opens at this time instead of the saved position. 3 s is in the second fixture cue (2–4 s).
     public var videoStartSeconds: Double? { self == .videoTranscript ? 3 : nil }
 
     /// True when the harness scrolls the lecture page, or the course landing with "Details" open, to the end.
     public var scrollsLectureToEnd: Bool {
-        [.courseLandingDetails, .videoTranscript, .videoQuickCheck, .lectureSources, .lectureDownloads, .pdfPreview].contains(self)
+        [.courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureSources, .lectureDownloads, .pdfPreview]
+            .contains(self)
     }
 
     /// True when the harness opens the quick-check card of the video lecture.
@@ -147,7 +154,7 @@ public enum SnapshotPlan {
             _ = try CourseStore(root: root)
             return nil
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
-             .videoQuickCheck, .lectureSources:
+             .videoQuickCheck, .videoTheater, .lectureSources:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -333,7 +340,8 @@ public enum SnapshotPlan {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library: nil
         case .section, .sectionReview: .section(sectionID: "plan")
-        case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck: .lecture(sectionID: "plan", lectureID: "welcome")
+        case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater:
+            .lecture(sectionID: "plan", lectureID: "welcome")
         case .article, .lectureSources, .lectureDownloads, .pdfPreview: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme, .courseLandingDetails, .transcriptSearch, .transcriptSearchNoResults: .overview
         case .courseCredits: .credits
