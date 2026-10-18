@@ -75,3 +75,36 @@ func sidebarSelectionKeepsInkReadable(appearance: CourseAppearance, hex: String)
         #expect(count >= 40, "\(name): \(count) pixels with the selection tint \(darkSelection)")
     }
 }
+
+/// #90: the selected transcript search result shows the quiet accent tint, not the system selection fill.
+/// The test renders `transcript-search-selected` with the first result selected, then counts the pixels with the
+/// selection color in one column of the sidebar, right of the snippet text.
+@Test func selectedTranscriptHitUsesTheAccentTint() throws {
+    let app = Bundle(for: TestBundleMarker.self).bundleURL.deletingLastPathComponent().appending(path: "SkillgardenApp")
+    try #require(FileManager.default.isExecutableFile(atPath: app.path), "build SkillgardenApp before the tests")
+    let out = FileManager.default.temporaryDirectory.appending(path: "SidebarSelectionTests-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: out) }
+
+    let process = Process()
+    process.executableURL = app
+    process.arguments = ["--snapshot", out.path, "--fixture", repo.appending(path: "Tests/Fixtures/sample-course").path,
+                         "--screen", SnapshotScreen.transcriptSearchSelected.rawValue]
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    try process.run()
+    process.waitUntilExit()
+    #expect(process.terminationStatus == 0)
+
+    // The first result row is at about 140–165 pt. The column at x = 270 pt is in the row fill, right of the snippet.
+    let selection = bytes(SidebarSelection.color(accent: ThemeColor(hex: "#286644")!, appearance: .light))
+    for name in ["transcript-search-selected-light", "transcript-search-selected-dark"] {
+        let png = try #require(try? Data(contentsOf: out.appending(path: "\(name).png")))
+        let x = 270 * SnapshotPlan.scale
+        let count = (100 * SnapshotPlan.scale..<220 * SnapshotPlan.scale).filter { y in
+            guard let color = SnapshotCheck.color(png: png, x: x, y: y) else { return false }
+            return zip(color, selection).allSatisfy { abs(Int($0) - Int($1)) <= 3 }
+        }.count
+        // The row is about 33 pt, so about 66 pixels. Allow a few pixels for the rounded corners and antialiasing.
+        #expect(count >= 50, "\(name): \(count) pixels with the selection tint \(selection)")
+    }
+}

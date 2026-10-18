@@ -153,7 +153,7 @@ extension View {
             .listRowInsets(EdgeInsets())
     }
 
-    /// The quiet selection fill of an outline row (#89): `palette.selection` in the row shape, in place of the system blue.
+    /// The quiet selection fill of an outline row (#89) or a transcript search result (#90): `palette.selection` in the row shape, in place of the system blue.
     func outlineSelection(_ isSelected: Bool) -> some View {
         modifier(OutlineSelection(isSelected: isSelected))
     }
@@ -172,7 +172,7 @@ private struct OutlineSelection: ViewModifier {
     }
 }
 
-/// Turns off the AppKit selection highlight of the enclosing outline table (#89). The selection and the arrow keys stay.
+/// Turns off the AppKit selection highlight of the enclosing outline or search results table (#89, #90). The selection and the arrow keys stay.
 /// `OutlineSelection` draws the quiet fill in its place.
 struct SystemSelectionHighlightOff: NSViewRepresentable {
     final class Probe: NSView {

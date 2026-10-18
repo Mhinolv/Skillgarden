@@ -7,12 +7,13 @@ struct CourseSidebar: View {
     let course: Course
     @Bindable var library: LibraryModel
     @FocusState private var searchFocused: Bool
+    @Environment(\.snapshotSelectsFirstTranscriptHit) private var selectsFirstHit
 
     var body: some View {
         Group {
             if let results = library.transcriptResults {
-                TranscriptResultsView(results: results, open: { library.openTranscriptHit($0) },
-                                      clear: { library.clearTranscriptSearch() })
+                TranscriptResultsView(results: results, initialSelection: selectsFirstHit ? results.hits.first?.id : nil,
+                                      open: { library.openTranscriptHit($0) }, clear: { library.clearTranscriptSearch() })
             } else {
                 CourseOutlineView(course: course, library: library, selection: Binding(
                     get: { library.destination }, set: { library.selectDestination($0) }
@@ -38,12 +39,22 @@ struct CourseSidebar: View {
 
 /// The results of a transcript search, grouped by lecture in course order.
 /// A click, or the arrow keys, select a result. Return selects the result again.
+/// The selected result has the quiet outline fill, not the system blue (#90).
 struct TranscriptResultsView: View {
     let results: TranscriptSearchResults
     let open: (TranscriptHit) -> Void
     let clear: () -> Void
     @State private var selection: String?
     @Environment(\.gardenPalette) private var palette
+
+    /// `initialSelection` selects a result and does not open it. Only the snapshot harness sets it (#90).
+    init(results: TranscriptSearchResults, initialSelection: String? = nil,
+         open: @escaping (TranscriptHit) -> Void, clear: @escaping () -> Void) {
+        self.results = results
+        self.open = open
+        self.clear = clear
+        _selection = State(initialValue: initialSelection)
+    }
 
     var body: some View {
         // The empty states draw over an empty list. The sidebar search field shows only above a list.
@@ -69,10 +80,13 @@ struct TranscriptResultsView: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
                 .selectionDisabled()
+                .background(SystemSelectionHighlightOff())
             ForEach(results.groups) { group in
                 Section {
                     ForEach(group.hits) { hit in
-                        TranscriptHitRow(hit: hit).tag(hit.id)
+                        TranscriptHitRow(hit: hit)
+                            .outlineSelection(selection == hit.id)
+                            .tag(hit.id)
                     }
                 } header: {
                     VStack(alignment: .leading, spacing: 2) {
@@ -138,5 +152,17 @@ extension FocusedValues {
     var searchTranscripts: (() -> Void)? {
         get { self[SearchTranscriptsFocusKey.self] }
         set { self[SearchTranscriptsFocusKey.self] = newValue }
+    }
+}
+
+private struct SnapshotSelectsFirstTranscriptHitKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// The snapshot harness sets this for the `transcript-search-selected` screen (#90). The app sets none.
+    var snapshotSelectsFirstTranscriptHit: Bool {
+        get { self[SnapshotSelectsFirstTranscriptHitKey.self] }
+        set { self[SnapshotSelectsFirstTranscriptHitKey.self] = newValue }
     }
 }
