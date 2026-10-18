@@ -93,7 +93,12 @@ public enum CoursePublisher {
 
     /// Runs every publish-time check and writes nothing. The library root is not used.
     public static func validate(courseFolder: URL) throws -> ValidationResult {
-        let manifest = try check(courseFolder: courseFolder, library: nil).manifest
+        try validate(courseFolder: courseFolder, library: nil)
+    }
+
+    /// Also checks that `library` is outside the course folder, like publish does. It writes nothing.
+    static func validate(courseFolder: URL, library: URL?) throws -> ValidationResult {
+        let manifest = try check(courseFolder: courseFolder, library: library).manifest
         return ValidationResult(title: manifest.title, id: manifest.id, state: manifest.state, sections: manifest.sections.count,
                                 lectures: manifest.sections.reduce(0) { $0 + $1.lectures.count })
     }

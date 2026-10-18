@@ -23,12 +23,20 @@ struct SkillgardenApp: App {
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .commands {
             SidebarCommands()
+            CommandGroup(after: .newItem) {
+                Button("Import Course…", systemImage: "square.and.arrow.down") {
+                    if let focusedLibrary { CourseImporter.start(focusedLibrary) }
+                }
+                .keyboardShortcut("i", modifiers: [.shift, .command])
+                .disabled(focusedLibrary?.canImport != true)
+            }
             CommandGroup(after: .sidebar) {
                 Button("Reload Library", systemImage: "arrow.clockwise") {
                     Task { await focusedLibrary?.reload() }
                 }
                 .keyboardShortcut("r", modifiers: .command)
-                .disabled(focusedLibrary == nil || focusedLibrary?.isLoading == true)
+                // A reload during an import could skip the reload after the publish (#111).
+                .disabled(focusedLibrary == nil || focusedLibrary?.isLoading == true || focusedLibrary?.isImporting == true)
                 Button(showsTranscript == true ? "Hide Transcript" : "Show Transcript", systemImage: "text.quote") {
                     showsTranscript?.toggle()
                 }
@@ -175,8 +183,11 @@ struct ContentView: View {
                 }
                 .buttonStyle(GardenToolbarButtonStyle())
                 .help("Reload Library (⌘R)")
-                .disabled(library.isLoading)
+                .disabled(library.isLoading || library.isImporting)
             }
+        }
+        .sheet(item: Binding(get: { library.importingTitle.map(ImportingCourse.init) }, set: { _ in })) {
+            ImportProgressSheet(title: $0.title)
         }
         // The course theme colors the whole window: sidebar, toolbar and content.
         .gardenTheme(ignoresCourseTheme ? nil : library.selectedLanding?.theme, appearance: appearance)
