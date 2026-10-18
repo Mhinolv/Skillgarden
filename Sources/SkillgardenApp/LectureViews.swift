@@ -128,7 +128,7 @@ struct SectionPageView: View {
 }
 
 /// Wraps every lecture type: label, title, section stones, objective, content, downloads, the source cards,
-/// then Mark as Complete, the nudge and Previous and Next.
+/// then Mark as Complete (not for a video), the nudge and Previous and Next.
 struct LectureFrameView<Content: View>: View {
     let sectionTitle: String
     let number: Int
@@ -149,6 +149,8 @@ struct LectureFrameView<Content: View>: View {
     var sources: [LectureSource] = []
     /// False makes "Mark as Complete" a bordered button, because the page has its own primary action (a quiz).
     var completeIsPrimary = true
+    /// False hides the complete row below the sources, because the content has its own complete control (a video).
+    var showsCompleteRow = true
     @ViewBuilder let content: Content
     @State private var visibleTop: CGFloat?
 
@@ -173,9 +175,11 @@ struct LectureFrameView<Content: View>: View {
                 content
                 DownloadsBlock(downloads: downloads)
                 SourcesSection(sources: sources)
-                HStack {
-                    Spacer()
-                    MarkCompleteButton(completed: completed, isPrimary: completeIsPrimary, toggle: toggleComplete)
+                if showsCompleteRow {
+                    HStack {
+                        Spacer()
+                        MarkCompleteButton(completed: completed, isPrimary: completeIsPrimary, toggle: toggleComplete)
+                    }
                 }
                 if let nudge { NudgeCard(nudge: nudge, open: openNudge) }
                 HStack {

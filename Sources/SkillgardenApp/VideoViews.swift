@@ -99,7 +99,8 @@ final class VideoPlayback {
     }
 }
 
-/// The content block of a video lecture: the metadata row, the player, the controls row, the transcript and the quick checks.
+/// The content block of a video lecture: the metadata row, the player, the controls row with the complete control,
+/// the transcript and the quick checks.
 /// Before the first play the poster shows with a play button. The player starts on a click or Space.
 /// The quick-check card is hidden when the lecture opens. It shows at the video end or from the "Quick Check" button.
 struct VideoLectureView: View {
@@ -115,6 +116,10 @@ struct VideoLectureView: View {
     @Binding var showsTranscript: Bool
     /// A transcript search result of this lecture (#18). The player seeks to the cue and stays paused.
     var seekRequest: TranscriptSeek? = nil
+    /// The complete control sits at the right end of the controls row (#78).
+    let completed: Bool
+    let toggleComplete: () -> Void
+    var completeIsPrimary = true
     @Environment(\.imageLoads) private var imageLoads
     @Environment(\.opensVideoPlayer) private var opensVideoPlayer
     @Environment(\.snapshotVideoStart) private var snapshotVideoStart
@@ -137,30 +142,13 @@ struct VideoLectureView: View {
                 Label(video.metadataLabel, systemImage: LectureType.video.symbolName)
                     .gardenText(.meta)
             }
-            if available == false || video == nil {
+            if isUnavailable {
                 ContentUnavailableView("Video unavailable", systemImage: "exclamationmark.triangle",
                                        description: Text("Publish the course again to restore this file."))
+                controlsRow
             } else {
                 player
-                if hasCaptions || quickChecks != nil {
-                    HStack(spacing: GardenSpacing.xs) {
-                        if hasCaptions {
-                            Group {
-                                Toggle(isOn: $showsCaptions) { Label("Captions", systemImage: "captions.bubble") }
-                                Toggle(isOn: $showsTranscript) { Label("Transcript", systemImage: "text.quote") }
-                                    .help(showsTranscript ? "Hide Transcript (⌥⌘T)" : "Show Transcript (⌥⌘T)")
-                            }
-                            .toggleStyle(GardenPillToggleStyle())
-                            .disabled(captions == nil)
-                        }
-                        Spacer()
-                        if let quickChecks {
-                            Button(action: openQuickChecks) { Label(quickChecks.buttonTitle, systemImage: "checkmark.bubble") }
-                                .buttonStyle(.garden(.bordered))
-                        }
-                    }
-                    .frame(maxWidth: Self.maxWidth)
-                }
+                controlsRow
                 if hasCaptions, showsTranscript, let transcript {
                     TranscriptPanel(transcript: transcript, activeLine: playback?.activeLine, seek: seek)
                         .frame(maxWidth: Self.maxWidth)
@@ -191,8 +179,43 @@ struct VideoLectureView: View {
         }
     }
 
+    /// True shows "Video unavailable" and a controls row with the complete control only.
+    private var isUnavailable: Bool { available == false || video == nil }
+
     /// False hides the Captions and Transcript toggles and the transcript.
     private var hasCaptions: Bool { video?.captionsURL != nil && available != false }
+
+    /// Captions, Transcript, Quick Check, then the complete control at the right edge.
+    /// If the row is too narrow, Captions and Transcript become icon-only. The complete label stays.
+    private var controlsRow: some View {
+        ViewThatFits(in: .horizontal) {
+            controls(iconOnly: false)
+            controls(iconOnly: true)
+        }
+        .frame(maxWidth: Self.maxWidth)
+    }
+
+    private func controls(iconOnly: Bool) -> some View {
+        HStack(spacing: GardenSpacing.xs) {
+            if hasCaptions {
+                Group {
+                    Toggle(isOn: $showsCaptions) { Label("Captions", systemImage: "captions.bubble") }
+                        .help(showsCaptions ? "Hide Captions" : "Show Captions")
+                    Toggle(isOn: $showsTranscript) { Label("Transcript", systemImage: "text.quote") }
+                        .help(showsTranscript ? "Hide Transcript (⌥⌘T)" : "Show Transcript (⌥⌘T)")
+                }
+                .toggleStyle(GardenPillToggleStyle())
+                .labelStyle(ToolbarLabelStyle(iconOnly: iconOnly))
+                .disabled(captions == nil)
+            }
+            Spacer()
+            if let quickChecks, !isUnavailable {
+                Button(action: openQuickChecks) { Label(quickChecks.buttonTitle, systemImage: "checkmark.bubble") }
+                    .buttonStyle(.garden(.bordered))
+            }
+            MarkCompleteButton(completed: completed, isPrimary: completeIsPrimary, toggle: toggleComplete)
+        }
+    }
 
     private var player: some View {
         Color.black
@@ -375,6 +398,19 @@ struct GardenPillToggleStyle: ToggleStyle {
         Button { configuration.isOn.toggle() } label: { configuration.label }
             .buttonStyle(GardenButtonStyle(.bordered, isOn: configuration.isOn))
             .accessibilityValue(configuration.isOn ? "On" : "Off")
+    }
+}
+
+/// Title and icon, or the icon only for a narrow row. The icon-only form keeps the title as the accessibility label.
+struct ToolbarLabelStyle: LabelStyle {
+    let iconOnly: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        if iconOnly {
+            Label(configuration).labelStyle(.iconOnly)
+        } else {
+            Label(configuration).labelStyle(.titleAndIcon)
+        }
     }
 }
 
