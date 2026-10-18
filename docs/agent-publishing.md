@@ -111,6 +111,8 @@ defaults delete dev.skillgarden.app DataDirectory
 
 If the library is empty and the folder is not Application Support, the app shows `Library: <path>` under "No courses yet".
 
+If the agent cannot write to the library, the agent builds the course folder in its workspace. The owner then uses File > `Import Course…` (⇧⌘I) in the app. The app runs the `validate` checks, asks before it replaces a course with the same ID, and publishes. Validation errors use the CLI error text, and `Copy Errors` copies them for the agent.
+
 ## 3. Course folder layout
 
 A course folder holds one manifest (`skillgarden.yaml` or `skillgarden.json`, not both) and the files that it names:

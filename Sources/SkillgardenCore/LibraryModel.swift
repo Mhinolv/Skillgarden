@@ -514,6 +514,41 @@ public final class LibraryModel {
         if let value { open(value) } else { destination = nil }
     }
 
+    // MARK: Import
+
+    /// True while an import checks or publishes a course folder (#111).
+    public private(set) var isImporting = false
+    /// The title of the course that an import publishes now. The progress sheet shows it. Nil when no publish runs.
+    public private(set) var importingTitle: String?
+
+    /// False while the library loads, while an import runs or when the data folder setting is bad.
+    public var canImport: Bool { !isLoading && !isImporting && rootError == nil }
+
+    /// Checks a course folder off the main actor. It writes nothing to the library.
+    public func checkImport(folder: URL) async throws -> CourseImportCheck {
+        isImporting = true
+        defer { isImporting = false }
+        let root = root
+        return try await Task.detached { try CourseImport.check(folder: folder, root: root) }.value
+    }
+
+    /// Publishes a checked course folder off the main actor, then reloads the library.
+    /// A published course then opens at its landing page. A draft course does not show, so nothing opens.
+    public func importCourse(folder: URL, title: String) async throws -> PublishResult {
+        isImporting = true
+        importingTitle = title
+        defer { isImporting = false; importingTitle = nil }
+        let root = root
+        let result = try await Task.detached { try CoursePublisher.publish(courseFolder: folder, root: root) }.value
+        // Reload is disabled while an import runs, so this reload is not skipped.
+        await reload()
+        if result.state == .published {
+            selectCourse(result.id)
+            if selectedCourseID == result.id { selectDestination(.overview) }
+        }
+        return result
+    }
+
     public func reload() async {
         guard !isLoading else { return }
         isLoading = true
