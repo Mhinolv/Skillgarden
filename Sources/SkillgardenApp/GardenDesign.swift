@@ -158,9 +158,10 @@ enum GardenColumnKind {
 
 extension View {
     /// Apply at the window root. A course theme sets the accent and the light or dark look of the whole window.
-    /// Without a theme (Library) the window uses the system accent and color scheme.
-    func gardenTheme(_ theme: CourseTheme?) -> some View {
-        modifier(GardenTheme(theme: theme))
+    /// Without a theme (Library) the window uses the system accent and the app `appearance`.
+    /// A nil `appearance` (System) uses the system color scheme.
+    func gardenTheme(_ theme: CourseTheme?, appearance: CourseAppearance? = nil) -> some View {
+        modifier(GardenTheme(theme: theme, appearance: appearance))
     }
 
     /// Fills a split view column with the sidebar or the page color.
@@ -181,10 +182,11 @@ extension View {
 
 private struct GardenTheme: ViewModifier {
     let theme: CourseTheme?
+    let appearance: CourseAppearance?
     @Environment(\.colorScheme) private var systemColorScheme
 
     func body(content: Content) -> some View {
-        let colorScheme = theme?.appearance.colorScheme ?? systemColorScheme
+        let colorScheme = (theme?.appearance ?? appearance)?.colorScheme ?? systemColorScheme
         let palette = GardenPalette(accent: theme?.accent, colorScheme: colorScheme, isCourseThemed: theme != nil)
         content
             .tint(palette.accent)
