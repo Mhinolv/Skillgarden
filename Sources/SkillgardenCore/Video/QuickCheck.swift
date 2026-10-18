@@ -51,6 +51,9 @@ public struct QuickCheckSession: Equatable, Sendable {
         answers[checkID] = choiceID
     }
 
+    /// True when each check has an answer. Auto-play waits for it (#99).
+    public var isAnswered: Bool { checks.allSatisfy { answers[$0.id] != nil } }
+
     /// "Try Again" clears the answer of one check only.
     public mutating func tryAgain(checkID: Int) {
         answers[checkID] = nil

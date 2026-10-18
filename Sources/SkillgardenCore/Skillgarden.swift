@@ -68,6 +68,24 @@ public enum Skillgarden {
         }
         CFPreferencesAppSynchronize(defaultsDomain as CFString)
     }
+
+    /// The key of the Settings "Auto-play next lecture" choice in the `dev.skillgarden.app` domain (#99).
+    public static let autoPlayKey = "AutoPlay"
+
+    /// A missing value or a value that is not a Boolean is on.
+    public static func autoPlay(savedValue: Any?) -> Bool {
+        savedValue as? Bool ?? true
+    }
+
+    /// The saved Settings "Auto-play next lecture" choice (#99).
+    public static func savedAutoPlay() -> Bool {
+        autoPlay(savedValue: CFPreferencesCopyAppValue(autoPlayKey as CFString, defaultsDomain as CFString))
+    }
+
+    public static func saveAutoPlay(_ on: Bool) {
+        CFPreferencesSetAppValue(autoPlayKey as CFString, on ? kCFBooleanTrue : kCFBooleanFalse, defaultsDomain as CFString)
+        CFPreferencesAppSynchronize(defaultsDomain as CFString)
+    }
 }
 
 /// The app appearance of the View menu (#83). Dark and Light win over a course manifest appearance (#93).

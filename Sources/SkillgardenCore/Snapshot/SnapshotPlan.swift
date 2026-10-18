@@ -59,12 +59,23 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The article lecture scrolled to the end, so its three source cards show:
     /// a full time range with a URL, a start only with a URL, and no URL.
     case lectureSources = "lecture-sources"
+    /// The video lecture after its end with Auto-play on (#99): the "Up next" overlay on the player shows "Starts in 5".
+    case videoUpNext = "video-up-next"
+    /// The same overlay in theater mode.
+    case videoUpNextTheater = "video-up-next-theater"
+    /// The Settings window (⌘,) with "Auto-play next lecture" on (#99). The harness draws it in place of the main window.
+    case settings
 
     /// True when the harness opens the player of the video lecture before the capture.
-    public var opensVideoPlayer: Bool { [.videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater].contains(self) }
+    public var opensVideoPlayer: Bool {
+        [.videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext, .videoUpNextTheater].contains(self)
+    }
 
     /// True when the harness starts theater mode on the video lecture (#85).
-    public var startsTheater: Bool { self == .videoTheater }
+    public var startsTheater: Bool { self == .videoTheater || self == .videoUpNextTheater }
+
+    /// True when the harness shows the "Up next" overlay at 5 after the load. The countdown does not run (#99).
+    public var showsUpNext: Bool { self == .videoUpNext || self == .videoUpNextTheater }
 
     /// The paused player opens at this time instead of the saved position. 3 s is in the second fixture cue (2–4 s).
     public var videoStartSeconds: Double? { self == .videoTranscript ? 3 : nil }
@@ -92,7 +103,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     public var showsPDFPreviewInline: Bool { self == .pdfPreview }
 
     /// True when the harness selects the seeded course. The Library screens show the Library home, so they select none.
-    public var selectsCourse: Bool { self != .library && self != .libraryEmpty && self != .libraryEmptyCustomFolder }
+    public var selectsCourse: Bool { ![.library, .libraryEmpty, .libraryEmptyCustomFolder, .settings].contains(self) }
 
     /// True when the harness also writes `<screen>-unthemed-dark.png`: the course screen with no course theme, in dark (#82).
     /// The `-dark` capture uses the Dark setting, which wins over the light fixture theme (#93). The dark-theme screen gets no unthemed capture.
@@ -155,11 +166,11 @@ public enum SnapshotPlan {
     /// Writes the store that a screen needs into `root` and returns the course to select, if any.
     public static func seedStore(for screen: SnapshotScreen, root: URL, fixture: URL) throws -> String? {
         switch screen {
-        case .libraryEmpty, .libraryEmptyCustomFolder:
+        case .libraryEmpty, .libraryEmptyCustomFolder, .settings:
             _ = try CourseStore(root: root)
             return nil
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
-             .videoQuickCheck, .videoTheater, .lectureSources:
+             .videoQuickCheck, .videoTheater, .lectureSources, .videoUpNext, .videoUpNextTheater:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -333,7 +344,7 @@ public enum SnapshotPlan {
     /// then the question image or the assignment brief or the PDF thumbnail.
     public static func imageLoads(for screen: SnapshotScreen) -> Int {
         switch screen {
-        case .libraryEmpty, .libraryEmptyCustomFolder: 0
+        case .libraryEmpty, .libraryEmptyCustomFolder, .settings: 0
         case .library: 3
         case .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads, .pdfPreview: 2
         default: 1
@@ -343,9 +354,10 @@ public enum SnapshotPlan {
     /// The page to open after the course is selected.
     public static func destination(for screen: SnapshotScreen) -> CourseDestination? {
         switch screen {
-        case .libraryEmpty, .libraryEmptyCustomFolder, .library: nil
+        case .libraryEmpty, .libraryEmptyCustomFolder, .library, .settings: nil
         case .section, .sectionReview: .section(sectionID: "plan")
-        case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater:
+        case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
+             .videoUpNextTheater:
             .lecture(sectionID: "plan", lectureID: "welcome")
         case .article, .lectureSources, .lectureDownloads, .pdfPreview: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme, .courseLandingDetails, .transcriptSearch, .transcriptSearchSelected,

@@ -7,6 +7,8 @@ struct QuickCheckCard: View {
     let session: QuickCheckSession
     let answer: (Int, String) -> Void
     let retry: (Int) -> Void
+    /// The header "Close" button hides the card (#99). Nil shows no button.
+    var close: (() -> Void)? = nil
     /// The check that gets the number keys 1–9.
     @FocusState private var focusedCheck: Int?
 
@@ -24,6 +26,12 @@ struct QuickCheckCard: View {
                 Label("Check your understanding", systemImage: "checkmark.bubble")
                 Spacer()
                 Text("Not graded").font(.caption).foregroundStyle(.secondary)
+                if let close {
+                    Button("Close", systemImage: "xmark", action: close)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .help("Close Quick Check")
+                }
             }
         }
     }

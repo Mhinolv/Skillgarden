@@ -13,6 +13,8 @@ final class VideoPlayback {
     private(set) var activeLine: Int?
     /// Goes up by one each time playback reaches the end of the video.
     private(set) var endCount = 0
+    /// Goes up by one each time the player starts to play. A play stops the "Up next" countdown (#99).
+    private(set) var playCount = 0
     @ObservationIgnored private let captions: WebVTT?
     @ObservationIgnored private let transcript: Transcript?
     @ObservationIgnored private var observer: Any?
@@ -55,8 +57,12 @@ final class VideoPlayback {
         statusObserver = player.observe(\.timeControlStatus) { [weak self] player, _ in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self, player.timeControlStatus == .paused else { return }
-                    self.saveCurrentTime()
+                    guard let self else { return }
+                    switch player.timeControlStatus {
+                    case .paused: self.saveCurrentTime()
+                    case .playing: self.playCount += 1
+                    default: break
+                    }
                 }
             }
         }
@@ -116,6 +122,7 @@ final class VideoPlayback {
 /// the transcript and the quick checks.
 /// Before the first play the poster shows with a play button. The player starts on a click or Space.
 /// The quick-check card is hidden when the lecture opens. It shows at the video end or from the "Quick Check" button.
+/// With Auto-play on, the video end shows the "Up next" overlay on the player (#99). Open quick checks hold it back.
 struct VideoLectureView: View {
     let video: LectureVideo?
     /// Nil when the video has no quick checks.
@@ -143,21 +150,33 @@ struct VideoLectureView: View {
     var autoCompletes = false
     /// Play past 90% or to the end calls this. It returns true if the lecture changes to complete.
     var autoComplete: @MainActor () -> Bool = { false }
+    /// The title of the next outline lecture (#99). Nil when Auto-play is off or no next lecture exists, so no overlay shows.
+    var upNextTitle: String? = nil
+    /// Opens the next lecture. The countdown end and "Play Now" call it.
+    var playNext: () -> Void = {}
+    /// True starts the player after the load. The page that auto-play opens gets true one time only.
+    var startsPlaying: @MainActor () -> Bool = { false }
+    /// Gets true while the "Up next" overlay shows, so Escape cancels the countdown and does not end theater.
+    var upNextShowsChanged: (Bool) -> Void = { _ in }
     @Environment(\.imageLoads) private var imageLoads
     @Environment(\.opensVideoPlayer) private var opensVideoPlayer
     @Environment(\.snapshotVideoStart) private var snapshotVideoStart
     @Environment(\.snapshotShowsQuickChecks) private var snapshotShowsQuickChecks
     @Environment(\.lectureScrollProxy) private var scrollProxy
     @Environment(\.pageVisibleTop) private var pageVisibleTop
+    @Environment(\.snapshotShowsUpNext) private var snapshotShowsUpNext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var poster: NSImage?
     @State private var available: Bool?
     @State private var captions: WebVTT?
     @State private var transcript: Transcript?
     @State private var playback: VideoPlayback?
     @State private var showsQuickChecks = false
+    @State private var upNext = UpNextCountdown()
 
     /// The transcript and the quick checks keep this cap in theater.
     private static let maxWidth = TheaterMode.videoWidth
+    private static let playerScrollID = "video-player"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -177,7 +196,7 @@ struct VideoLectureView: View {
                         .frame(maxWidth: Self.maxWidth)
                 }
                 if showsQuickChecks, let quickChecks {
-                    QuickCheckCard(session: quickChecks, answer: answerQuickCheck, retry: retryQuickCheck)
+                    QuickCheckCard(session: quickChecks, answer: answerQuickCheck, retry: retryQuickCheck, close: closeQuickChecks)
                         .frame(maxWidth: Self.maxWidth)
                         .id(QuickCheckCard.scrollID)
                 }
@@ -188,9 +207,34 @@ struct VideoLectureView: View {
         .task(id: video) { await load() }
         .onChange(of: seekRequest) { applySeekRequest() }
         .onChange(of: playback?.endCount) { _, count in
-            if let count, count > 0 { openQuickChecks() }
+            if let count, count > 0 { videoEnded() }
         }
-        .onDisappear { playback?.stop() }
+        .modifier(UpNextEvents(view: self))
+        .onDisappear {
+            playback?.stop()
+            if upNext.showsOverlay { upNextShowsChanged(false) }
+        }
+    }
+
+    /// The "Up next" countdown steps and the events that start or stop it (#99).
+    private struct UpNextEvents: ViewModifier {
+        let view: VideoLectureView
+
+        func body(content: Content) -> some View {
+            content
+                .task(id: view.upNext.secondsLeft) { await view.countDown() }
+                // A new player starts at 0, so only a count that goes up is a play.
+                .onChange(of: view.playback?.playCount) { old, new in
+                    if let old, let new, new > old { view.upNext.cancel() }
+                }
+                .onChange(of: view.quickChecks?.isAnswered) { _, answered in
+                    if answered == true, view.upNext.quickChecksDone() { view.scrollToPlayer() }
+                }
+                .onChange(of: view.upNext.showsOverlay) { _, shows in
+                    view.upNextShowsChanged(shows)
+                    if shows, let title = view.upNextTitle { AccessibilityNotification.Announcement("Up next: \(title)").post() }
+                }
+        }
     }
 
     /// Shows the quick-check card and scrolls it into view after the next layout.
@@ -201,6 +245,41 @@ struct VideoLectureView: View {
         DispatchQueue.main.async {
             withAnimation { proxy?.scrollTo(QuickCheckCard.scrollID, anchor: .bottom) }
         }
+    }
+
+    /// The card "Close" button. If auto-play waits for the checks, the countdown starts.
+    private func closeQuickChecks() {
+        showsQuickChecks = false
+        if upNext.quickChecksDone() { scrollToPlayer() }
+    }
+
+    /// The overlay shows on the player, so the page scrolls back to it after the quick checks.
+    private func scrollToPlayer() {
+        let proxy = scrollProxy
+        DispatchQueue.main.async {
+            withAnimation { proxy?.scrollTo(Self.playerScrollID, anchor: .center) }
+        }
+    }
+
+    /// Open quick checks with an unanswered check hold the countdown back (#99 owner decision).
+    /// If the learner answered all checks before, the card does not open again and the countdown starts.
+    private func videoEnded() {
+        let waits = quickChecks.map { !$0.isAnswered } ?? false
+        upNext.videoEnded(autoPlays: upNextTitle != nil, waitsForQuickChecks: waits)
+        if waits || upNextTitle == nil { openQuickChecks() }
+    }
+
+    /// One step of the countdown. Each new value of `secondsLeft` starts a new step, and a cancel ends it.
+    /// The snapshot harness keeps the overlay at 5.
+    private func countDown() async {
+        guard upNext.showsOverlay, !snapshotShowsUpNext else { return }
+        try? await Task.sleep(for: .seconds(1))
+        guard !Task.isCancelled else { return }
+        if upNext.tick() { playNext() }
+    }
+
+    private func playNow() {
+        if upNext.playNow() { playNext() }
     }
 
     /// True shows "Video unavailable" and a controls row with the complete control only.
@@ -261,9 +340,17 @@ struct VideoLectureView: View {
                     posterView
                 }
             }
+            .overlay {
+                if let upNextTitle, let secondsLeft = upNext.secondsLeft {
+                    UpNextOverlay(title: upNextTitle, secondsLeft: secondsLeft, cancel: { upNext.cancel() }, playNow: playNow)
+                        .transition(.opacity)
+                }
+            }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: upNext.showsOverlay)
             .clipShape(.garden(GardenRadius.card))
             .mask { PageTopClip(visibleTop: pageVisibleTop) }
             .frame(maxWidth: playerMaxWidth)
+            .id(Self.playerScrollID)
     }
 
     private var posterView: some View {
@@ -311,6 +398,7 @@ struct VideoLectureView: View {
 
     /// Seeks to the start of the line and plays. Before the first play, the player starts at the line.
     private func seek(_ line: Transcript.Line) {
+        upNext.cancel()
         if let playback {
             playback.seek(to: line.start)
         } else if let video, available == true {
@@ -323,6 +411,7 @@ struct VideoLectureView: View {
     private func load() async {
         playback?.stop()
         playback = nil
+        upNext.cancel()
         poster = nil
         captions = nil
         transcript = nil
@@ -338,9 +427,11 @@ struct VideoLectureView: View {
         captions = cues
         transcript = cues.map(Transcript.init(captions:))
         available = exists
-        if exists && opensVideoPlayer { play() }
+        // The page that auto-play opens starts its player at once (#99).
+        if exists && (opensVideoPlayer || startsPlaying()) { play() }
         applySeekRequest()
         if snapshotShowsQuickChecks { showsQuickChecks = true }
+        if snapshotShowsUpNext { upNext.videoEnded(autoPlays: upNextTitle != nil, waitsForQuickChecks: false) }
         imageLoads?.finish(loaded: exists)
     }
 
@@ -378,6 +469,66 @@ extension EnvironmentValues {
 
 private struct SnapshotVideoStartKey: EnvironmentKey {
     static let defaultValue: Double? = nil
+}
+
+private struct SnapshotShowsUpNextKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// The snapshot harness sets this, so the "Up next" overlay shows after the load and stays at 5 (#99). The app sets none.
+    var snapshotShowsUpNext: Bool {
+        get { self[SnapshotShowsUpNextKey.self] }
+        set { self[SnapshotShowsUpNextKey.self] = newValue }
+    }
+}
+
+/// The "Up next" overlay on the player after the video ends (#99): the next lecture title and a 5-second countdown.
+/// Cancel (Escape) hides it and keeps the page. Play Now (Return) opens the next lecture at once.
+struct UpNextOverlay: View {
+    let title: String
+    let secondsLeft: Int
+    let cancel: () -> Void
+    let playNow: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.6)
+            VStack(spacing: GardenSpacing.xs) {
+                Text("Up next")
+                    .font(GardenFont.meta)
+                    .foregroundStyle(.white.opacity(0.7))
+                Text(title)
+                    .font(GardenFont.heading)
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                Text("Starts in \(secondsLeft)")
+                    .font(GardenFont.meta.monospacedDigit())
+                    .foregroundStyle(.white)
+                HStack(spacing: GardenSpacing.xs) {
+                    Button("Cancel", action: cancel)
+                        .buttonStyle(.garden(.bordered))
+                        .keyboardShortcut(.cancelAction)
+                    Button("Play Now", action: playNow)
+                        .buttonStyle(.garden(.primary))
+                        .keyboardShortcut(.defaultAction)
+                }
+                .padding(.top, GardenSpacing.xxs)
+            }
+            .padding(GardenSpacing.l)
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+struct UpNextOverlay_Previews: PreviewProvider {
+    static var previews: some View {
+        UpNextOverlay(title: "Read the plan", secondsLeft: 5, cancel: {}, playNow: {})
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .frame(width: 640)
+            .background(.gray)
+    }
 }
 
 private struct PageVisibleTopKey: EnvironmentKey {

@@ -78,8 +78,12 @@ enum SnapshotRenderer {
 
         let imageLoads = ImageLoadTracker()
         let appearance = NSAppearance(named: output.appearance == .dark ? .darkAqua : .aqua)!
-        let content = ContentView(library: library, reloadsOnAppear: false, customRootPath: output.screen.customRootPath,
-                                  appearance: output.appearance == .dark ? .dark : .light)
+        // The Settings screen draws the Settings form at the top of the window. The real Settings window is separate.
+        let screenView = output.screen == .settings
+            ? AnyView(SettingsView(autoPlays: .constant(true)).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top))
+            : AnyView(ContentView(library: library, reloadsOnAppear: false, customRootPath: output.screen.customRootPath,
+                                  appearance: output.appearance == .dark ? .dark : .light))
+        let content = screenView
             // The system color scheme of the capture. `GardenTheme` reads it when the window has no course theme (#82).
             // The harness sets it on the content too, so the capture does not depend on the window appearance only.
             .environment(\.colorScheme, output.appearance == .dark ? .dark : .light)
@@ -90,6 +94,7 @@ enum SnapshotRenderer {
             .environment(\.opensVideoPlayer, output.screen.opensVideoPlayer)
             .environment(\.snapshotVideoStart, output.screen.videoStartSeconds)
             .environment(\.snapshotShowsQuickChecks, output.screen.showsQuickChecks)
+            .environment(\.snapshotShowsUpNext, output.screen.showsUpNext)
             .environment(\.snapshotStartsTheater, output.screen.startsTheater)
             .environment(\.snapshotSelectsFirstTranscriptHit, output.screen.selectsFirstTranscriptHit)
             .environment(\.snapshotShowsLandingDetails, output.screen.showsLandingDetails)
