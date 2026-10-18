@@ -1,4 +1,5 @@
 import AppKit
+import AVKit
 import PDFKit
 import SwiftUI
 import SkillgardenCore
@@ -89,6 +90,7 @@ enum SnapshotRenderer {
             .environment(\.opensVideoPlayer, output.screen.opensVideoPlayer)
             .environment(\.snapshotVideoStart, output.screen.videoStartSeconds)
             .environment(\.snapshotShowsQuickChecks, output.screen.showsQuickChecks)
+            .environment(\.snapshotStartsTheater, output.screen.startsTheater)
             .environment(\.snapshotShowsLandingDetails, output.screen.showsLandingDetails)
             .environment(\.showsReviewInline, true)
             .environment(\.showsPDFPreviewInline, output.screen.showsPDFPreviewInline)
@@ -145,7 +147,10 @@ enum SnapshotRenderer {
             guard hasLayerContents(pdfView.documentView?.layer) else { throw SnapshotError.pdfView(output.url.lastPathComponent) }
         }
 
-        if output.screen.selectsCourse, output.screen.transcriptQuery == nil {
+        if output.screen.opensVideoPlayer { try checkPlayers(in: frameView, output: output) }
+
+        // Theater hides the sidebar, so the outline has no rows to check.
+        if output.screen.selectsCourse, output.screen.transcriptQuery == nil, !output.screen.startsTheater {
             for pitch in outlineRowPitches(in: frameView) where abs(pitch - CourseOutlineView.rowHeight) > 0.5 {
                 throw SnapshotError.outlineRowPitch(output.url.lastPathComponent, pitch)
             }
@@ -161,6 +166,22 @@ enum SnapshotRenderer {
             let black = SnapshotCheck.blackPixels(png: png, topRows: rows) ?? 0
             if black > 0 { throw SnapshotError.videoOverTitlebar(output.url.lastPathComponent, black) }
         }
+    }
+
+    /// Every player shows the AVKit full-screen button (#85). In theater, the sidebar is hidden and the player is wider than 960 pt.
+    private static func checkPlayers(in view: NSView, output: SnapshotPlan.Output) throws {
+        func players(in view: NSView) -> [AVPlayerView] {
+            ((view as? AVPlayerView).map { [$0] } ?? []) + view.subviews.flatMap(players(in:))
+        }
+        let name = output.url.lastPathComponent
+        let found = players(in: view)
+        // A page that scrolls the player out of view can have no player view.
+        guard found.allSatisfy(\.showsFullScreenToggleButton) else { throw SnapshotError.fullScreenButton(name) }
+        guard output.screen.startsTheater else { return }
+        guard let player = found.first else { throw SnapshotError.theaterPlayer(name, .zero) }
+        let frame = player.convert(player.bounds, to: nil)
+        // The narrowest sidebar is 260 pt, so a player that starts left of it has no sidebar next to it.
+        if frame.width <= TheaterMode.videoWidth || frame.minX >= 260 { throw SnapshotError.theaterPlayer(name, frame) }
     }
 
     /// The compact toolbar row is about 38 pt. The default style makes a 52 pt row below the window buttons.
@@ -275,6 +296,8 @@ enum SnapshotError: Error, CustomStringConvertible {
     case pdfView(String)
     case tallToolbar(String, CGFloat)
     case outlineRowPitch(String, CGFloat)
+    case fullScreenButton(String)
+    case theaterPlayer(String, NSRect)
 
     var description: String {
         switch self {
@@ -285,6 +308,8 @@ enum SnapshotError: Error, CustomStringConvertible {
         case let .pdfView(name): "\(name): the PDF preview sheet has no PDFKit view with a drawn page"
         case let .tallToolbar(name, height): "\(name): the toolbar row is \(Int(height)) pt high, not the compact row"
         case let .outlineRowPitch(name, pitch): "\(name): the outline rows are \(pitch) pt apart, not \(CourseOutlineView.rowHeight) pt"
+        case let .fullScreenButton(name): "\(name): a video player has no full-screen button"
+        case let .theaterPlayer(name, frame): "\(name): the theater player frame is \(frame), not wider than 960 pt next to the window edge"
         }
     }
 }

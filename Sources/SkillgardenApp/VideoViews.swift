@@ -127,6 +127,10 @@ struct VideoLectureView: View {
     let saveResumePosition: @MainActor @Sendable (Double) -> Void
     /// The window keeps this choice for all lectures. View > Show Transcript changes it too.
     @Binding var showsTranscript: Bool
+    /// The theater mode of the window (#85). View > Enter Theater Mode and Escape change it too.
+    @Binding var theater: Bool
+    /// The width cap of the player and the controls row. Nil in theater, so the player fills the page column.
+    var playerMaxWidth: CGFloat? = TheaterMode.videoWidth
     /// A transcript search result of this lecture (#18). The player seeks to the cue and stays paused.
     var seekRequest: TranscriptSeek? = nil
     /// The complete control sits at the right end of the controls row (#78).
@@ -151,7 +155,8 @@ struct VideoLectureView: View {
     @State private var showsCaptions = true
     @State private var showsQuickChecks = false
 
-    private static let maxWidth: CGFloat = 960
+    /// The transcript and the quick checks keep this cap in theater.
+    private static let maxWidth = TheaterMode.videoWidth
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -178,6 +183,7 @@ struct VideoLectureView: View {
             }
         }
         .focusedSceneValue(\.showsTranscript, hasCaptions ? $showsTranscript : nil)
+        .focusedSceneValue(\.theaterMode, isUnavailable ? nil : $theater)
         .task(id: video) { await load() }
         .onChange(of: seekRequest) { applySeekRequest() }
         .onChange(of: playback?.endCount) { _, count in
@@ -202,14 +208,14 @@ struct VideoLectureView: View {
     /// False hides the Captions and Transcript toggles and the transcript.
     private var hasCaptions: Bool { video?.captionsURL != nil && available != false }
 
-    /// Captions, Transcript, Quick Check, then the complete control at the right edge.
-    /// If the row is too narrow, Captions and Transcript become icon-only. The complete label stays.
+    /// Captions, Transcript, Theater, Quick Check, then the complete control at the right edge.
+    /// If the row is too narrow, Captions, Transcript and Theater become icon-only. The complete label stays.
     private var controlsRow: some View {
         ViewThatFits(in: .horizontal) {
             controls(iconOnly: false)
             controls(iconOnly: true)
         }
-        .frame(maxWidth: Self.maxWidth)
+        .frame(maxWidth: playerMaxWidth)
     }
 
     private func controls(iconOnly: Bool) -> some View {
@@ -224,6 +230,12 @@ struct VideoLectureView: View {
                 .toggleStyle(GardenPillToggleStyle())
                 .labelStyle(ToolbarLabelStyle(iconOnly: iconOnly))
                 .disabled(captions == nil)
+            }
+            if !isUnavailable {
+                Toggle(isOn: $theater) { Label("Theater", systemImage: "tv") }
+                    .help(theater ? "Exit Theater Mode (⇧⌘T)" : "Enter Theater Mode (⇧⌘T)")
+                    .toggleStyle(GardenPillToggleStyle())
+                    .labelStyle(ToolbarLabelStyle(iconOnly: iconOnly))
             }
             Spacer()
             if let quickChecks, !isUnavailable {
@@ -250,7 +262,7 @@ struct VideoLectureView: View {
             }
             .clipShape(.garden(GardenRadius.card))
             .mask { PageTopClip(visibleTop: pageVisibleTop) }
-            .frame(maxWidth: Self.maxWidth)
+            .frame(maxWidth: playerMaxWidth)
     }
 
     private var posterView: some View {
@@ -398,7 +410,8 @@ private struct PageTopClip: View {
     }
 }
 
-/// The AVKit player view with inline controls.
+/// The AVKit player view with inline controls and the full-screen button (#85).
+/// AVKit has no public API to start full screen from code, so only this button starts it.
 /// SwiftUI `VideoPlayer` crashes on macOS 15 when the app is built with the macOS 26 SDK (#42), so do not use it.
 struct PlayerView: NSViewRepresentable {
     let player: AVPlayer
@@ -406,6 +419,7 @@ struct PlayerView: NSViewRepresentable {
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
         view.controlsStyle = .inline
+        view.showsFullScreenToggleButton = true
         view.videoGravity = .resizeAspect
         view.player = player
         return view
@@ -591,4 +605,14 @@ extension FocusedValues {
         get { self[ShowsTranscriptFocusKey.self] }
         set { self[ShowsTranscriptFocusKey.self] = newValue }
     }
+
+    /// Set while a video lecture with an available video shows. View > Enter Theater Mode uses it (#85).
+    var theaterMode: Binding<Bool>? {
+        get { self[TheaterModeFocusKey.self] }
+        set { self[TheaterModeFocusKey.self] = newValue }
+    }
+}
+
+private struct TheaterModeFocusKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
 }
