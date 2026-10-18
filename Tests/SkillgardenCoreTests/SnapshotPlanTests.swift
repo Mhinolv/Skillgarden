@@ -127,8 +127,7 @@ private func temporaryFolder() throws -> URL {
             library.selectCourse(courseID)
             library.selectDestination(SnapshotPlan.destination(for: screen))
             #expect(library.selectedLecture?.id == "welcome")
-            #expect(library.nudge?.kind == .recommended)
-            #expect(library.nudge?.lecture.id == "read")
+            #expect(library.nextLecture == .lecture(sectionID: "plan", lectureID: "read"))
             #expect(!library.isSelectedLectureComplete)
             // The video lecture shows its poster.
             #expect(library.selectedLecture?.type == .video)

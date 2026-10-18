@@ -134,7 +134,7 @@ See `Tests/Fixtures/sample-course/skillgarden.yaml` for a full example.
 | `id`, `title`, `objective` | yes | Ids are unique in the manifest. |
 | `type` | yes | `video`, `article`, `quiz`, `assignment` or `interactive`. |
 | `state`, `order` | yes | Same as for a section. The lectures of a section have unique `order` values. |
-| `recommended_next` | no | The id of a lecture in the same course. |
+| `recommended_next` | no | The id of a lecture in the same course. The app does not use it now (#87). |
 | `video`, `article`, `quiz`, `assignment`, `interactive` | for that type | Give only the field that matches `type`. |
 | `downloads` | no | Files for the learner to save, in display order. Each has `path` and `title`. `description` is optional. Any lecture type. |
 | `sources` | no | "Sources and further watching" cards. Each card has `title` and `channel`. Optional: `url` (http or https), `timestamp_start`, `timestamp_end` (integer seconds, end after start). |

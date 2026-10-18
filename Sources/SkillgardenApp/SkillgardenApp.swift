@@ -57,9 +57,6 @@ struct SkillgardenApp: App {
                 Button("Next Lecture") { focusedLibrary?.goToNextLecture() }
                     .keyboardShortcut(.rightArrow, modifiers: [.option, .command])
                     .disabled(focusedLibrary?.nextLecture == nil)
-                Button("Recommended Next") { focusedLibrary?.goToNudge() }
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(focusedLibrary?.nudge == nil)
                 Divider()
                 Button(focusedLibrary?.isSelectedLectureComplete == true ? "Mark as Incomplete" : "Mark as Complete") {
                     Task { await focusedLibrary?.toggleSelectedLectureComplete() }
@@ -242,12 +239,10 @@ struct ContentView: View {
                 LectureFrameView(
                     sectionTitle: section.title, number: course.lectureNumber(of: lecture.id) ?? 1, lecture: lecture,
                     stones: library.steppingStones(in: section),
-                    nudge: library.nudge,
                     completed: library.isComplete(lecture.id),
                     toggleComplete: { Task { await library.toggleSelectedLectureComplete() } },
                     previous: library.previousLecture == nil ? nil : { library.goToPreviousLecture() },
                     next: library.nextLecture == nil ? nil : { library.goToNextLecture() },
-                    openNudge: { library.goToNudge() },
                     maxWidth: lecture.type == .interactive ? InteractiveStyle.maxWidth
                         : lecture.type == .video && theater.isOn ? .infinity : CourseStyle.textWidth,
                     downloads: library.downloads(forLecture: lecture.id),
