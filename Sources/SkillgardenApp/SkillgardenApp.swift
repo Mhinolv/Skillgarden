@@ -223,7 +223,9 @@ struct ContentView: View {
                                              showsTranscript: $showsTranscript,
                                              seekRequest: library.transcriptSeek.flatMap { $0.lectureID == lecture.id ? $0 : nil },
                                              completed: library.isComplete(lecture.id),
-                                             toggleComplete: { Task { await library.toggleSelectedLectureComplete() } })
+                                             toggleComplete: { Task { await library.toggleSelectedLectureComplete() } },
+                                             autoCompletes: library.autoCompletes(lecture.id),
+                                             autoComplete: { [library] in library.autoCompleteVideo(lectureID: lecture.id) })
                         case .interactive:
                             InteractiveLectureView(lecture: lecture, module: library.selectedInteractive,
                                                    result: library.selectedInteractiveResult) {

@@ -170,6 +170,13 @@ public final class LibraryModel {
         return course.learnerSections.first?.id
     }
 
+    /// The section header that the outline rings (#77): the section that the course card stone marks next.
+    /// The selection does not change it. Nil with no course or if all sections are done.
+    public var outlineNextSectionID: String? {
+        guard let course = selectedCourse else { return nil }
+        return SectionStone.nextSectionID(course: course, progress: progress[course.id] ?? [:])
+    }
+
     // MARK: Library home
 
     /// The tile progress of any course in the library. It does not need a selected course.
@@ -201,14 +208,35 @@ public final class LibraryModel {
     }
 
     /// Marks the selected lecture complete or incomplete. If the write fails, the state goes back.
+    /// Incomplete by hand turns off the automatic complete of a video. Complete by hand turns it on again (#79).
     public func toggleSelectedLectureComplete() async {
         guard let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return }
         let completed = !isComplete(lectureID)
+        let wasOff = progress[courseID]?[lectureID]?.autoCompleteOff ?? false
         progress[courseID, default: [:]][lectureID, default: LectureProgress()].completed = completed
-        let saved = await enqueueWrite { try $0.setCompleted(completed, courseID: courseID, lectureID: lectureID) }.value
+        progress[courseID, default: [:]][lectureID, default: LectureProgress()].autoCompleteOff = !completed
+        let saved = await enqueueWrite { try $0.setCompletedByHand(completed, courseID: courseID, lectureID: lectureID) }.value
         if !saved, progress[courseID]?[lectureID]?.completed == completed {
             progress[courseID]?[lectureID]?.completed = !completed
+            progress[courseID]?[lectureID]?.autoCompleteOff = wasOff
         }
+    }
+
+    /// True if the video of `lectureID` completes the lecture at 90% or at the end (#79).
+    /// False after the learner marks the lecture incomplete by hand.
+    public func autoCompletes(_ lectureID: String) -> Bool {
+        !(selectedCourseID.flatMap { progress[$0]?[lectureID]?.autoCompleteOff } ?? false)
+    }
+
+    /// The video player calls this when play passes 90% of the video or reaches the end (#79).
+    /// Returns true if the lecture changes to complete. A lecture that is not the selected video does not change.
+    @discardableResult
+    public func autoCompleteVideo(lectureID: String) -> Bool {
+        guard let courseID = selectedCourseID, let lecture = selectedLecture, lecture.id == lectureID, lecture.type == .video,
+              !isComplete(lectureID), autoCompletes(lectureID) else { return false }
+        progress[courseID, default: [:]][lectureID, default: LectureProgress()].completed = true
+        enqueueWrite { try $0.setCompleted(true, courseID: courseID, lectureID: lectureID) }
+        return true
     }
 
     /// The time to seek to when the video of a lecture in the selected course opens.

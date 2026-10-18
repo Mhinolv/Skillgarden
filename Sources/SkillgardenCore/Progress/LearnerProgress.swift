@@ -61,13 +61,19 @@ public struct SectionStone: Equatable, Sendable {
 
     /// One stone per learner section with at least one learner lecture, in outline order.
     public static func stones(course: Course, progress: [String: LectureProgress]) -> [SectionStone] {
-        var foundNext = false
+        let nextID = nextSectionID(course: course, progress: progress)
         return course.learnerSections.filter { !$0.lectures.isEmpty }.map { section in
             let completed = section.lectures.filter { progress[$0.id]?.completed == true }.count
-            let isNext = !foundNext && completed < section.lectures.count
-            if isNext { foundNext = true }
-            return SectionStone(completed: completed, total: section.lectures.count, isNext: isNext)
+            return SectionStone(completed: completed, total: section.lectures.count, isNext: section.id == nextID)
         }
+    }
+
+    /// The ID of the section whose stone is `isNext`: the first learner section with a lecture that is not done.
+    /// Nil if all sections are done.
+    public static func nextSectionID(course: Course, progress: [String: LectureProgress]) -> String? {
+        course.learnerSections.first { section in
+            section.lectures.contains { progress[$0.id]?.completed != true }
+        }?.id
     }
 
     /// The count next to the stones, for example "2 of 22 done". Lectures count, not sections.
@@ -98,4 +104,30 @@ public enum PlaybackResume {
         if let duration, duration.isFinite, saved > duration - margin { return 0 }
         return saved
     }
+}
+
+/// Finds the play tick that passes 90% of a video, so the lecture completes automatically (#79).
+/// Only a tick of continuous play counts. A seek past the mark does not complete the lecture.
+public struct VideoAutoComplete: Equatable, Sendable {
+    /// The part of the video length that the learner must play past.
+    public static let threshold = 0.9
+    /// The largest forward step between two play ticks that counts as play. A larger step is a seek.
+    public static let maxPlayStep: Double = 2
+    private var lastSeconds: Double?
+
+    public init() {}
+
+    /// Returns true when this play tick passes `threshold` of `duration` from the previous play tick.
+    /// A tick that does not play, for example during a seek, starts the count again.
+    public mutating func tick(seconds: Double, duration: Double?, isPlaying: Bool) -> Bool {
+        let last = lastSeconds
+        lastSeconds = isPlaying && seconds.isFinite ? seconds : nil
+        guard isPlaying, let last, seconds.isFinite, let duration, duration.isFinite, duration > 0 else { return false }
+        let mark = duration * Self.threshold
+        let step = seconds - last
+        return last < mark && seconds >= mark && step > 0 && step <= Self.maxPlayStep
+    }
+
+    /// Forgets the previous tick. A seek calls this.
+    public mutating func reset() { lastSeconds = nil }
 }

@@ -150,6 +150,43 @@ private let course = Course(id: "c", title: "Course", state: .published, section
     }
 }
 
+/// #77: the outline rings the header of the section that the course card stone marks next. The selection does not move it.
+@MainActor @Test func outlineRingsTheHeaderOfTheNextSectionOnly() async throws {
+    try await withRoot { root in
+        let four = Course(id: "f", title: "Four", state: .published, sections: [
+            CourseSection(id: "s1", title: "One", order: 0, state: .published, lectures: [lecture("a", order: 0)]),
+            CourseSection(id: "empty", title: "Empty", order: 1, state: .published, lectures: [lecture("x", order: 0, state: .draft)]),
+            CourseSection(id: "s2", title: "Two", order: 2, state: .published, lectures: [lecture("b", order: 0), lecture("c", order: 1)]),
+            CourseSection(id: "s3", title: "Three", order: 3, state: .published, lectures: [lecture("d", order: 0)]),
+        ])
+        try CourseStore(root: root).saveCourse(four)
+        let library = LibraryModel(root: root)
+        await library.reload()
+        #expect(library.outlineNextSectionID == nil)
+        library.selectCourse("f")
+        #expect(library.outlineNextSectionID == "s1")
+
+        library.selectDestination(.lecture(sectionID: "s1", lectureID: "a"))
+        await library.toggleSelectedLectureComplete()
+        // The empty section has no stone, so the ring skips it. The selection of a done section does not move the ring.
+        #expect(library.outlineNextSectionID == "s2")
+        library.selectDestination(.lecture(sectionID: "s3", lectureID: "d"))
+        await library.toggleSelectedLectureComplete()
+        #expect(library.outlineNextSectionID == "s2")
+        let course = try #require(library.selectedCourse)
+        let stones = library.summary(of: course).stones
+        let stoneSections = course.learnerSections.filter { !$0.lectures.isEmpty }.map(\.id)
+        #expect(stones.indices.filter { stones[$0].isNext }.map { stoneSections[$0] } == ["s2"])
+
+        // If all sections are done, no header has the ring.
+        for id in ["b", "c"] {
+            library.selectDestination(.lecture(sectionID: "s2", lectureID: id))
+            await library.toggleSelectedLectureComplete()
+        }
+        #expect(library.outlineNextSectionID == nil)
+    }
+}
+
 @Test func resumeStartIgnoresTheFirstAndLastFiveSeconds() {
     #expect(PlaybackResume.startSeconds(saved: 0, duration: 120) == 0)
     #expect(PlaybackResume.startSeconds(saved: 4.9, duration: 120) == 0)
@@ -252,7 +289,7 @@ private let course = Course(id: "c", title: "Course", state: .published, section
 
     let upgraded = try CourseStore(root: root)
     #expect(try upgraded.schemaVersion == CourseStore.currentSchemaVersion)
-    #expect(CourseStore.currentSchemaVersion == 9)
+    #expect(CourseStore.currentSchemaVersion == 10)
     #expect(try upgraded.loadCourse(id: "c", includeDrafts: true) == course)
     #expect(try upgraded.allProgress() == ["c": ["a": LectureProgress(completed: true, resumeSeconds: 12)]])
     #expect(try upgraded.lastOpenedLectures().isEmpty)
