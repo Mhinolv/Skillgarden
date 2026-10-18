@@ -20,16 +20,20 @@ final class VideoPlayback {
     @ObservationIgnored private var endObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var lastSaved: Double = 0
     @ObservationIgnored private var pendingSeeks = 0
+    @ObservationIgnored private var autoCompleteTicks = VideoAutoComplete()
     @ObservationIgnored private let save: @MainActor (Double) -> Void
+    @ObservationIgnored private let complete: @MainActor () -> Void
 
     /// `save` gets the position every `PlaybackResume.saveInterval` seconds, on pause and on `stop()`.
+    /// `complete` runs when play passes 90% of `duration` or reaches the end (#79). The item duration replaces `duration` when it is known.
     /// If `plays` is false, the player opens paused (the snapshot harness).
-    init(url: URL, start: Double, captions: WebVTT?, transcript: Transcript?, plays: Bool = true,
-         save: @escaping @MainActor (Double) -> Void) {
+    init(url: URL, start: Double, duration: Double?, captions: WebVTT?, transcript: Transcript?, plays: Bool = true,
+         save: @escaping @MainActor (Double) -> Void, complete: @escaping @MainActor () -> Void) {
         player = AVPlayer(url: url)
         self.captions = captions
         self.transcript = transcript
         self.save = save
+        self.complete = complete
         lastSaved = start
         if start > 0 { player.seek(to: CMTime(seconds: start, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
         update(at: start)
@@ -37,6 +41,11 @@ final class VideoPlayback {
             MainActor.assumeIsolated {
                 guard let self, time.seconds.isFinite else { return }
                 if self.pendingSeeks == 0 { self.update(at: time.seconds) }
+                let itemDuration = self.player.currentItem?.duration.seconds
+                if self.autoCompleteTicks.tick(seconds: time.seconds, duration: itemDuration?.isFinite == true ? itemDuration : duration,
+                                               isPlaying: self.pendingSeeks == 0 && self.player.timeControlStatus == .playing) {
+                    self.complete()
+                }
                 if abs(time.seconds - self.lastSaved) >= PlaybackResume.saveInterval {
                     self.lastSaved = time.seconds
                     self.save(time.seconds)
@@ -53,7 +62,10 @@ final class VideoPlayback {
         }
         endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
                                                              object: player.currentItem, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.endCount += 1 }
+            MainActor.assumeIsolated {
+                self?.endCount += 1
+                self?.complete()
+            }
         }
         if plays { player.play() }
     }
@@ -63,6 +75,7 @@ final class VideoPlayback {
     /// Time ticks during a seek can show the old time, so they do not change the active line until the seek ends.
     func seek(to seconds: Double, plays: Bool = true) {
         pendingSeeks += 1
+        autoCompleteTicks.reset()
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.pendingSeeks -= 1 }
@@ -120,6 +133,10 @@ struct VideoLectureView: View {
     let completed: Bool
     let toggleComplete: () -> Void
     var completeIsPrimary = true
+    /// False after the learner marks the lecture incomplete by hand (#79).
+    var autoCompletes = false
+    /// Play past 90% or to the end calls this. It returns true if the lecture changes to complete.
+    var autoComplete: @MainActor () -> Bool = { false }
     @Environment(\.imageLoads) private var imageLoads
     @Environment(\.opensVideoPlayer) private var opensVideoPlayer
     @Environment(\.snapshotVideoStart) private var snapshotVideoStart
@@ -213,7 +230,8 @@ struct VideoLectureView: View {
                 Button(action: openQuickChecks) { Label(quickChecks.buttonTitle, systemImage: "checkmark.bubble") }
                     .buttonStyle(.garden(.bordered))
             }
-            MarkCompleteButton(completed: completed, isPrimary: completeIsPrimary, toggle: toggleComplete)
+            MarkCompleteButton(completed: completed, isPrimary: completeIsPrimary,
+                               help: autoCompletes ? "Completes when you watch 90% of the video" : nil, toggle: toggleComplete)
         }
     }
 
@@ -262,10 +280,20 @@ struct VideoLectureView: View {
         }
     }
 
+    /// The manifest length, for the time before the player knows the item duration.
+    private var duration: Double? { video.map { Double($0.durationSeconds) } }
+
+    /// The button changes to "Completed". VoiceOver hears "Lecture complete". Nothing else shows (#79).
+    private func completeAutomatically() {
+        guard autoComplete() else { return }
+        AccessibilityNotification.Announcement("Lecture complete").post()
+    }
+
     private func play() {
         guard let video, playback == nil else { return }
-        playback = VideoPlayback(url: video.url, start: snapshotVideoStart ?? startSeconds(), captions: captions, transcript: transcript,
-                                 plays: !opensVideoPlayer, save: saveResumePosition)
+        playback = VideoPlayback(url: video.url, start: snapshotVideoStart ?? startSeconds(), duration: duration,
+                                 captions: captions, transcript: transcript, plays: !opensVideoPlayer, save: saveResumePosition,
+                                 complete: completeAutomatically)
     }
 
     /// Seeks to the start of the line and plays. Before the first play, the player starts at the line.
@@ -273,8 +301,8 @@ struct VideoLectureView: View {
         if let playback {
             playback.seek(to: line.start)
         } else if let video, available == true {
-            playback = VideoPlayback(url: video.url, start: line.start, captions: captions, transcript: transcript,
-                                     save: saveResumePosition)
+            playback = VideoPlayback(url: video.url, start: line.start, duration: duration, captions: captions,
+                                     transcript: transcript, save: saveResumePosition, complete: completeAutomatically)
         }
     }
 
@@ -311,8 +339,8 @@ struct VideoLectureView: View {
         if let playback {
             playback.seek(to: seekRequest.seconds, plays: false)
         } else {
-            playback = VideoPlayback(url: video.url, start: seekRequest.seconds, captions: captions, transcript: transcript,
-                                     plays: false, save: saveResumePosition)
+            playback = VideoPlayback(url: video.url, start: seekRequest.seconds, duration: duration, captions: captions,
+                                     transcript: transcript, plays: false, save: saveResumePosition, complete: completeAutomatically)
         }
     }
 }
