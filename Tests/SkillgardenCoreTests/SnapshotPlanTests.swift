@@ -18,22 +18,40 @@ private func temporaryFolder() throws -> URL {
     #expect(outputs.map(\.url.lastPathComponent) == [
         "library-empty-light.png", "library-empty-dark.png",
         "library-empty-custom-folder-light.png", "library-empty-custom-folder-dark.png", "library-light.png", "library-dark.png",
-        "section-light.png", "section-dark.png", "lecture-light.png", "lecture-dark.png",
-        "lecture-complete-light.png", "lecture-complete-dark.png", "article-light.png", "article-dark.png",
-        "course-landing-light.png", "course-landing-dark.png",
+        "section-light.png", "section-dark.png", "section-unthemed-dark.png",
+        "lecture-light.png", "lecture-dark.png", "lecture-unthemed-dark.png",
+        "lecture-complete-light.png", "lecture-complete-dark.png", "lecture-complete-unthemed-dark.png",
+        "article-light.png", "article-dark.png", "article-unthemed-dark.png",
+        "course-landing-light.png", "course-landing-dark.png", "course-landing-unthemed-dark.png",
         "course-landing-dark-theme-light.png", "course-landing-dark-theme-dark.png",
-        "course-landing-details-light.png", "course-landing-details-dark.png",
-        "quiz-question-light.png", "quiz-question-dark.png", "quiz-wrong-answer-light.png", "quiz-wrong-answer-dark.png",
-        "quiz-results-light.png", "quiz-results-dark.png", "interactive-result-light.png", "interactive-result-dark.png",
-        "video-player-light.png", "video-player-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
-        "video-quick-check-light.png", "video-quick-check-dark.png",
-        "section-review-light.png", "section-review-dark.png", "course-credits-light.png", "course-credits-dark.png",
-        "assignment-light.png", "assignment-dark.png", "assignment-complete-light.png", "assignment-complete-dark.png",
-        "lecture-downloads-light.png", "lecture-downloads-dark.png", "pdf-preview-light.png", "pdf-preview-dark.png",
-        "transcript-search-light.png", "transcript-search-dark.png",
+        "course-landing-details-light.png", "course-landing-details-dark.png", "course-landing-details-unthemed-dark.png",
+        "quiz-question-light.png", "quiz-question-dark.png", "quiz-question-unthemed-dark.png",
+        "quiz-wrong-answer-light.png", "quiz-wrong-answer-dark.png", "quiz-wrong-answer-unthemed-dark.png",
+        "quiz-results-light.png", "quiz-results-dark.png", "quiz-results-unthemed-dark.png",
+        "interactive-result-light.png", "interactive-result-dark.png", "interactive-result-unthemed-dark.png",
+        "video-player-light.png", "video-player-dark.png", "video-player-unthemed-dark.png",
+        "video-transcript-light.png", "video-transcript-dark.png", "video-transcript-unthemed-dark.png",
+        "video-quick-check-light.png", "video-quick-check-dark.png", "video-quick-check-unthemed-dark.png",
+        "section-review-light.png", "section-review-dark.png", "section-review-unthemed-dark.png",
+        "course-credits-light.png", "course-credits-dark.png", "course-credits-unthemed-dark.png",
+        "assignment-light.png", "assignment-dark.png", "assignment-unthemed-dark.png",
+        "assignment-complete-light.png", "assignment-complete-dark.png", "assignment-complete-unthemed-dark.png",
+        "lecture-downloads-light.png", "lecture-downloads-dark.png", "lecture-downloads-unthemed-dark.png",
+        "pdf-preview-light.png", "pdf-preview-dark.png", "pdf-preview-unthemed-dark.png",
+        "transcript-search-light.png", "transcript-search-dark.png", "transcript-search-unthemed-dark.png",
         "transcript-search-no-results-light.png", "transcript-search-no-results-dark.png",
-        "lecture-sources-light.png", "lecture-sources-dark.png",
+        "transcript-search-no-results-unthemed-dark.png",
+        "lecture-sources-light.png", "lecture-sources-dark.png", "lecture-sources-unthemed-dark.png",
     ])
+    // #82: every course screen except the dark-theme screen gets one dark capture with no course theme.
+    #expect(SnapshotScreen.allCases.filter { $0.selectsCourse && !$0.hasUnthemedCapture } == [.courseLandingDarkTheme])
+    let unthemed = outputs.filter(\.ignoresCourseTheme)
+    #expect(unthemed.count == 22)
+    #expect(unthemed.allSatisfy { $0.appearance == .dark && $0.screen.hasUnthemedCapture })
+    #expect(unthemed.allSatisfy { $0.url.lastPathComponent == "\($0.screen.rawValue)-unthemed-dark.png" })
+    #expect(outputs.filter { !$0.ignoresCourseTheme }.map(\.url.lastPathComponent) == SnapshotScreen.allCases.flatMap { screen in
+        SnapshotAppearance.allCases.map { "\(screen.rawValue)-\($0.rawValue).png" }
+    })
     #expect(SnapshotScreen.allCases.filter { $0.transcriptQuery != nil } == [.transcriptSearch, .transcriptSearchNoResults])
     #expect(SnapshotScreen.allCases.filter(\.showsReviewInline) == [.sectionReview])
     #expect(SnapshotScreen.allCases.filter(\.showsPDFPreviewInline) == [.pdfPreview])
@@ -46,7 +64,8 @@ private func temporaryFolder() throws -> URL {
     #expect(SnapshotScreen.allCases.filter(\.showsQuickChecks) == [.videoQuickCheck])
     #expect(SnapshotScreen.allCases.filter(\.checksTitlebarForVideo) == [.videoPlayer, .videoTranscript, .videoQuickCheck])
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: [.videoTranscript, .library]).map(\.url.lastPathComponent) == [
-        "library-light.png", "library-dark.png", "video-transcript-light.png", "video-transcript-dark.png",
+        "library-light.png", "library-dark.png",
+        "video-transcript-light.png", "video-transcript-dark.png", "video-transcript-unthemed-dark.png",
     ])
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: []).isEmpty)
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: nil) == outputs)
@@ -54,7 +73,7 @@ private func temporaryFolder() throws -> URL {
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
-    #expect(Set(outputs.map(\.url)).count == SnapshotScreen.allCases.count * SnapshotAppearance.allCases.count)
+    #expect(Set(outputs.map(\.url)).count == SnapshotScreen.allCases.count * SnapshotAppearance.allCases.count + unthemed.count)
     #expect(SnapshotPlan.width == 1280 && SnapshotPlan.height == 800 && SnapshotPlan.scale == 2)
 }
 

@@ -1,6 +1,7 @@
 import Foundation
 
 /// Screens that `scripts/snapshot.sh` renders for QA. Add new screens here with the same name rule.
+/// Course screens other than the dark-theme screen also get a dark capture with no course theme: `<screen>-unthemed-dark.png`.
 public enum SnapshotScreen: String, CaseIterable, Sendable {
     case libraryEmpty = "library-empty"
     /// The empty library in a data folder that is not the default. The "Library: <path>" line shows.
@@ -84,6 +85,10 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// True when the harness selects the seeded course. The Library screens show the Library home, so they select none.
     public var selectsCourse: Bool { self != .library && self != .libraryEmpty && self != .libraryEmptyCustomFolder }
 
+    /// True when the harness also writes `<screen>-unthemed-dark.png`: the course screen with no course theme, in dark (#82).
+    /// The fixture theme is light, so the `-dark` capture stays light like the app. The dark-theme screen is dark already.
+    public var hasUnthemedCapture: Bool { selectsCourse && self != .courseLandingDarkTheme }
+
     /// The fixed library path that the harness shows. The real temporary root changes on each run.
     public var customRootPath: String? { self == .libraryEmptyCustomFolder ? "/Users/agent/skillgarden-library" : nil }
 
@@ -113,16 +118,22 @@ public enum SnapshotPlan {
         public let screen: SnapshotScreen
         public let appearance: SnapshotAppearance
         public let url: URL
+        /// True when the window uses no course theme, so the system color scheme and the system accent show.
+        public let ignoresCourseTheme: Bool
     }
 
     /// One output per screen and appearance, in a fixed order: `<out-dir>/<screen>-<light|dark>.png`.
+    /// Then `<out-dir>/<screen>-unthemed-dark.png` for each screen with `hasUnthemedCapture`.
     /// `screens` limits the outputs to these screens. The order stays the same.
     public static func outputs(outDirectory: URL, screens: Set<SnapshotScreen>? = nil) -> [Output] {
         SnapshotScreen.allCases.filter { screens?.contains($0) ?? true }.flatMap { screen in
-            SnapshotAppearance.allCases.map { appearance in
+            let themed = SnapshotAppearance.allCases.map { appearance in
                 Output(screen: screen, appearance: appearance,
-                       url: outDirectory.appending(path: "\(screen.rawValue)-\(appearance.rawValue).png"))
+                       url: outDirectory.appending(path: "\(screen.rawValue)-\(appearance.rawValue).png"), ignoresCourseTheme: false)
             }
+            guard screen.hasUnthemedCapture else { return themed }
+            return themed + [Output(screen: screen, appearance: .dark,
+                                    url: outDirectory.appending(path: "\(screen.rawValue)-unthemed-dark.png"), ignoresCourseTheme: true)]
         }
     }
 

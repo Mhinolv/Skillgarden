@@ -38,7 +38,8 @@ private let toolbarBottom: CGFloat = 52
 }
 
 /// A PNG of `width` × `height` pixels in `fill`, with the top `blackRows` rows in pure black.
-private func png(width: Int, height: Int, blackRows: Int, fill: CGColor) throws -> Data {
+/// `blackColumns` adds a full-height black line at these columns, like the dark split view divider.
+private func png(width: Int, height: Int, blackRows: Int, fill: CGColor, blackColumns: Range<Int>? = nil) throws -> Data {
     let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                          space: CGColorSpaceCreateDeviceRGB(),
                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
@@ -47,6 +48,9 @@ private func png(width: Int, height: Int, blackRows: Int, fill: CGColor) throws 
     context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
     // CGContext coordinates go up, so the top rows are at the end of the y range.
     context.fill(CGRect(x: 0, y: height - blackRows, width: width, height: blackRows))
+    if let blackColumns {
+        context.fill(CGRect(x: blackColumns.lowerBound, y: 0, width: blackColumns.count, height: height))
+    }
     let image = try #require(context.makeImage())
     let data = NSMutableData()
     let destination = try #require(CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil))
@@ -75,6 +79,19 @@ private func png(width: Int, height: Int, blackRows: Int, fill: CGColor) throws 
     #expect(SnapshotCheck.blackPixels(png: Data("not an image".utf8), topRows: 20) == nil)
 }
 
+/// #82: in dark mode the split view divider is a 1 pt black line through the title bar. It is not video.
+@Test func blackPixelsIgnoreTheDarkDividerLine() throws {
+    let dark = CGColor(red: 0.12, green: 0.12, blue: 0.13, alpha: 1)
+    // A 2-pixel line (1 pt at scale 2) does not count. A line at the left or right edge does not count.
+    #expect(SnapshotCheck.blackPixels(png: try png(width: 10, height: 20, blackRows: 0, fill: dark, blackColumns: 4..<6), topRows: 20) == 0)
+    #expect(SnapshotCheck.blackPixels(png: try png(width: 10, height: 20, blackRows: 0, fill: dark, blackColumns: 0..<1), topRows: 20) == 0)
+    #expect(SnapshotCheck.blackPixels(png: try png(width: 10, height: 20, blackRows: 0, fill: dark, blackColumns: 8..<10), topRows: 20) == 0)
+    // A wider black area is video: 3 columns in 5 rows.
+    #expect(SnapshotCheck.blackPixels(png: try png(width: 10, height: 20, blackRows: 0, fill: dark, blackColumns: 4..<7), topRows: 5) == 15)
+    // Black rows across the line count as one run.
+    #expect(SnapshotCheck.blackPixels(png: try png(width: 10, height: 20, blackRows: 2, fill: dark, blackColumns: 4..<6), topRows: 5) == 20)
+}
+
 private final class TestBundleMarker {}
 
 /// #55: the lecture page scrolls under the transparent title bar. The AVKit player must not draw over the window title.
@@ -101,8 +118,9 @@ private final class TestBundleMarker {}
 
     // The compact toolbar row (#74) is 38 pt high.
     let rows = 38 * SnapshotPlan.scale
-    for appearance in SnapshotAppearance.allCases {
-        let capture = try Data(contentsOf: out.appending(path: "video-transcript-\(appearance.rawValue).png"))
-        #expect(SnapshotCheck.blackPixels(png: capture, topRows: rows) == 0, "\(appearance.rawValue)")
+    // The unthemed capture is the only real dark one: the fixture theme is light (#82).
+    for name in ["light", "dark", "unthemed-dark"] {
+        let capture = try Data(contentsOf: out.appending(path: "video-transcript-\(name).png"))
+        #expect(SnapshotCheck.blackPixels(png: capture, topRows: rows) == 0, "\(name)")
     }
 }
