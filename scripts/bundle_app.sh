@@ -1,11 +1,15 @@
 #!/bin/zsh
 # Build SkillgardenApp and wrap it in build/Skillgarden.app so it launches as a normal Mac app.
+# The skillgarden CLI goes in Contents/Helpers: Contents/MacOS/skillgarden would collide with
+# Contents/MacOS/Skillgarden on a case-insensitive volume.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ./scripts/build.sh --product SkillgardenApp
+./scripts/build.sh --product skillgarden
 APP=build/Skillgarden.app
-rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp ".build/debug/SkillgardenApp" "$APP/Contents/MacOS/Skillgarden"
+cp ".build/debug/skillgarden" "$APP/Contents/Helpers/skillgarden"
 cp assets/AppIcon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

@@ -5,15 +5,25 @@ The example course is `Tests/Fixtures/sample-course`.
 
 ## 1. Quick start
 
-1. Install the CLI from the repository root:
+1. Use the CLI that the app bundle holds. You do not need a Swift toolchain or an install step:
 
    ```sh
-   ./scripts/install_cli.sh
+   /Applications/Skillgarden.app/Contents/Helpers/skillgarden validate <course-folder>
    ```
 
-   The script builds the release CLI and copies it to `~/.local/bin/skillgarden`.
-   If `~/.local/bin` is missing, the script creates it.
-   If `~/.local/bin` is not on `PATH`, the script prints the `export PATH=...` line to add.
+   A repository build has the same CLI at `build/Skillgarden.app/Contents/Helpers/skillgarden` (`./scripts/build.sh app`).
+   To put a copy in your workspace, run the install script with a destination:
+
+   ```sh
+   scripts/install_cli.sh ./bin
+   ./bin/skillgarden --help
+   ```
+
+   ```
+   Installed skillgarden <version> to /path/to/workspace/bin/skillgarden (from /Applications/Skillgarden.app)
+   ```
+
+   The steps below write `skillgarden` for the CLI. Use the full path or the workspace copy in its place.
 
 2. Check the course folder. This command writes nothing:
 
@@ -37,6 +47,34 @@ The example course is `Tests/Fixtures/sample-course`.
    ```
 
 Publish is idempotent. If you publish the same folder again, the counts show `unchanged`.
+
+### Install script
+
+`scripts/install_cli.sh [--app <Skillgarden.app>] [<destination>]`
+
+| Call | Result |
+|---|---|
+| No arguments | Builds the CLI from source and copies it to `~/.local/bin/skillgarden`. |
+| `<destination>` is a folder | Copies the CLI to `<destination>/skillgarden`. An existing folder, a path that ends in `/`, or a new path whose name does not start with `skillgarden` is a folder. |
+| `<destination>` is another path | Copies the CLI to that file path, such as `tools/skillgarden-dev`. |
+| `--app <path>` | Copies `<path>/Contents/Helpers/skillgarden`. If that file is missing, the script stops with `error:` and exit code 1. |
+| No `--app` | Looks for `build/Skillgarden.app`, then `/Applications/Skillgarden.app`. If neither holds the CLI, the script builds from source. |
+
+- The script makes missing folders and replaces an earlier copy.
+- The script prints `Installed skillgarden <version> to <absolute path> (from <app path>)`. A source build prints `(built from source)`.
+- If the copy fails, the script prints `error: <description>` on stderr and stops with exit code 1.
+
+### Build from source (optional)
+
+If you have a Swift toolchain, build the release CLI from the repository root:
+
+```sh
+./scripts/install_cli.sh
+```
+
+The script builds the release CLI and copies it to `~/.local/bin/skillgarden`.
+If `~/.local/bin` is missing, the script creates it.
+If `~/.local/bin` is not on `PATH`, the script prints the `export PATH=...` line to add.
 
 ## 2. Data folder
 
@@ -164,6 +202,8 @@ skillgarden internal list sample-course
 ```
 
 ## 7. Commands and exit codes
+
+The app bundle holds the CLI at `Skillgarden.app/Contents/Helpers/skillgarden`. The commands are the same for each copy.
 
 | Command | Output on success |
 |---|---|
