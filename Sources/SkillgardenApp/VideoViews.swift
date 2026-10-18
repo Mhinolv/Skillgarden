@@ -125,7 +125,9 @@ struct VideoLectureView: View {
     /// The seek time for the first play.
     let startSeconds: @MainActor () -> Double
     let saveResumePosition: @MainActor @Sendable (Double) -> Void
-    /// The window keeps this choice for all lectures. View > Show Transcript changes it too.
+    /// The saved choice for all video lectures (#97).
+    @Binding var showsCaptions: Bool
+    /// The saved choice for all video lectures (#97). View > Show Transcript and a transcript search result change it too.
     @Binding var showsTranscript: Bool
     /// The theater mode of the window (#85). View > Enter Theater Mode and Escape change it too.
     @Binding var theater: Bool
@@ -152,7 +154,6 @@ struct VideoLectureView: View {
     @State private var captions: WebVTT?
     @State private var transcript: Transcript?
     @State private var playback: VideoPlayback?
-    @State private var showsCaptions = true
     @State private var showsQuickChecks = false
 
     /// The transcript and the quick checks keep this cap in theater.
