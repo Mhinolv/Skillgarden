@@ -96,8 +96,11 @@ func sidebarSelectionKeepsInkReadable(appearance: CourseAppearance, hex: String)
     #expect(process.terminationStatus == 0)
 
     // The first result row is at about 140–165 pt. The column at x = 270 pt is in the row fill, right of the snippet.
-    let selection = bytes(SidebarSelection.color(accent: ThemeColor(hex: "#286644")!, appearance: .light))
-    for name in ["transcript-search-selected-light", "transcript-search-selected-dark"] {
+    // #93: the app setting (the capture appearance) wins over the theme appearance. The theme keeps its accent.
+    let accent = ThemeColor(hex: "#286644")!
+    for (name, appearance) in [("transcript-search-selected-light", CourseAppearance.light),
+                               ("transcript-search-selected-dark", .dark)] {
+        let selection = bytes(SidebarSelection.color(accent: accent, appearance: appearance))
         let png = try #require(try? Data(contentsOf: out.appending(path: "\(name).png")))
         let x = 270 * SnapshotPlan.scale
         let count = (100 * SnapshotPlan.scale..<220 * SnapshotPlan.scale).filter { y in
