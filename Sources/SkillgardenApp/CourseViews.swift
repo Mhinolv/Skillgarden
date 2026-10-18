@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import SkillgardenCore
 
@@ -108,22 +109,25 @@ struct CourseOutlineView: View {
         List(selection: $selection) {
             OutlineCourseCard(course: course, root: library.root, summary: library.summary(of: course))
                 .listRowSeparator(.hidden)
-            Label("Course Overview", systemImage: "info.circle")
-                .font(.system(size: 12.5))
-                .foregroundStyle(palette.ink)
-                .outlineRow()
+                .background(SystemSelectionHighlightOff())
+            OutlineLinkRow(title: "Course Overview", systemImage: "info.circle", isSelected: selection == .overview)
+                .outlineSelection(selection == .overview)
                 .tag(CourseDestination.overview)
             ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
                 let isOpen = section.id == openSectionID
+                let destination = CourseDestination.section(sectionID: section.id)
                 // The section header is a row, so a click selects it, opens the section page and opens the section.
                 SectionHeaderRow(section: section, number: index + 1, progress: library.sectionProgress(section), isOpen: isOpen,
-                                 isNext: section.id == nextSectionID)
-                    .tag(CourseDestination.section(sectionID: section.id))
+                                 isNext: section.id == nextSectionID, isSelected: selection == destination)
+                    .outlineSelection(selection == destination)
+                    .tag(destination)
                 if isOpen {
                     ForEach(section.lectures, id: \.id) { lecture in
+                        let destination = CourseDestination.lecture(sectionID: section.id, lectureID: lecture.id)
                         OutlineLectureRow(lecture: lecture, isDone: library.isComplete(lecture.id),
                                           isCurrent: library.selectedLecture?.id == lecture.id)
-                            .tag(CourseDestination.lecture(sectionID: section.id, lectureID: lecture.id))
+                            .outlineSelection(selection == destination)
+                            .tag(destination)
                     }
                 }
             }
@@ -131,10 +135,8 @@ struct CourseOutlineView: View {
                 ContentUnavailableView("No lectures yet", systemImage: "list.bullet")
             }
             if !library.selectedCredits.isEmpty {
-                Label("Credits", systemImage: "person.2")
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(palette.ink)
-                    .outlineRow()
+                OutlineLinkRow(title: "Credits", systemImage: "person.2", isSelected: selection == .credits)
+                    .outlineSelection(selection == .credits)
                     .tag(CourseDestination.credits)
             }
         }
@@ -149,6 +151,61 @@ extension View {
     func outlineRow() -> some View {
         frame(height: CourseOutlineView.rowHeight)
             .listRowInsets(EdgeInsets())
+    }
+
+    /// The quiet selection fill of an outline row (#89): `palette.selection` in the row shape, in place of the system blue.
+    func outlineSelection(_ isSelected: Bool) -> some View {
+        modifier(OutlineSelection(isSelected: isSelected))
+    }
+}
+
+private struct OutlineSelection: ViewModifier {
+    let isSelected: Bool
+    @Environment(\.gardenPalette) private var palette
+
+    func body(content: Content) -> some View {
+        content.listRowBackground(
+            RoundedRectangle.garden(GardenRadius.row)
+                .fill(isSelected ? palette.selection : .clear)
+                .padding(.horizontal, 10)
+        )
+    }
+}
+
+/// Turns off the AppKit selection highlight of the enclosing outline table (#89). The selection and the arrow keys stay.
+/// `OutlineSelection` draws the quiet fill in its place.
+struct SystemSelectionHighlightOff: NSViewRepresentable {
+    final class Probe: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            var view = superview
+            while let current = view, !(current is NSTableView) { view = current.superview }
+            if let table = view as? NSTableView, table.selectionHighlightStyle != .none {
+                table.selectionHighlightStyle = .none
+            }
+        }
+    }
+
+    func makeNSView(context: Context) -> Probe { Probe() }
+
+    func updateNSView(_ view: Probe, context: Context) {}
+}
+
+/// "Course Overview" or "Credits": an icon and the title. The selected row has the `accentInk` icon.
+struct OutlineLinkRow: View {
+    let title: String
+    let systemImage: String
+    let isSelected: Bool
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        Label {
+            Text(title).foregroundStyle(palette.ink)
+        } icon: {
+            Image(systemName: systemImage).foregroundStyle(isSelected ? palette.accentInk : palette.ink)
+        }
+        .font(.system(size: 12.5))
+        .outlineRow()
     }
 }
 
@@ -190,13 +247,14 @@ struct SectionHeaderRow: View {
     let progress: SectionProgress
     let isOpen: Bool
     var isNext = false
+    var isSelected = false
     @Environment(\.gardenPalette) private var palette
 
     var body: some View {
         HStack(spacing: GardenSpacing.xs) {
             Image(systemName: isOpen ? "chevron.down" : "chevron.right")
                 .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(palette.muted)
+                .foregroundStyle(isSelected ? palette.accentInk : palette.muted)
                 .frame(width: 10)
                 .accessibilityHidden(true)
             Text("\(number)")
