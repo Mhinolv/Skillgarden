@@ -124,8 +124,8 @@ struct CourseOutlineView: View {
                 if isOpen {
                     ForEach(section.lectures, id: \.id) { lecture in
                         let destination = CourseDestination.lecture(sectionID: section.id, lectureID: lecture.id)
-                        OutlineLectureRow(lecture: lecture, isDone: library.isComplete(lecture.id),
-                                          isCurrent: library.selectedLecture?.id == lecture.id)
+                        OutlineLectureRow(lecture: lecture, video: library.video(forLecture: lecture.id),
+                                          isDone: library.isComplete(lecture.id), isCurrent: library.selectedLecture?.id == lecture.id)
                             .outlineSelection(selection == destination)
                             .tag(destination)
                     }
@@ -286,13 +286,16 @@ struct SectionHeaderRow: View {
     }
 }
 
-/// A lecture row of the open section: a checkmark or the lecture type icon, then the title on one line.
-/// The tooltip shows the full title.
+/// A lecture row of the open section: a checkmark or the lecture type icon, the title on one line and,
+/// for a video, the muted length (#103). The title truncates first. The tooltip shows the full title.
 struct OutlineLectureRow: View {
     let lecture: Lecture
+    /// The resolved video of a video lecture. Nil for other types or if the snapshot has no video.
+    let video: LectureVideo?
     let isDone: Bool
     let isCurrent: Bool
     @Environment(\.gardenPalette) private var palette
+    @Environment(\.locale) private var locale
 
     var body: some View {
         HStack(spacing: GardenSpacing.xs) {
@@ -305,14 +308,22 @@ struct OutlineLectureRow: View {
                 .foregroundStyle(isDone ? palette.muted : palette.ink)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Spacer(minLength: 0)
+            Spacer(minLength: GardenSpacing.xs)
+            // The length lines up with the section percent, in the same style.
+            if let duration = LectureVideo.outlineDurationLabel(type: lecture.type, video: video) {
+                Text(duration)
+                    .font(GardenFont.small.monospacedDigit())
+                    .foregroundStyle(palette.muted)
+                    .fixedSize()
+                    .layoutPriority(1)
+            }
         }
         // The lecture icon lines up under the section title, like the mockup.
         .padding(.leading, 26)
         .outlineRow()
         .help(lecture.title)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(lecture.title), \(lecture.type.rawValue)\(isDone ? ", Completed" : "")")
+        .accessibilityLabel(LectureVideo.outlineAccessibilityLabel(lecture: lecture, video: video, isDone: isDone, locale: locale))
     }
 }
 

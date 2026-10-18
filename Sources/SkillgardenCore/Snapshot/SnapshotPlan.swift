@@ -63,6 +63,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case videoUpNext = "video-up-next"
     /// The same overlay in theater mode.
     case videoUpNextTheater = "video-up-next-theater"
+    /// The sidebar lengths of video lectures (#103). The open section has a done video, an article and a selected video
+    /// with a long title, so the title truncates and the length stays.
+    case outlineDurations = "outline-durations"
     /// The Settings window (⌘,) with "Auto-play next lecture" on (#99). The harness draws it in place of the main window.
     case settings
 
@@ -222,6 +225,10 @@ public enum SnapshotPlan {
             return id
         case .transcriptSearch, .transcriptSearchSelected, .transcriptSearchNoResults:
             return try publishCopy(of: fixture, root: root, replacing: searchCourse)
+        case .outlineDurations:
+            let id = try publishCopy(of: fixture, root: root, replacing: outlineDurationsCourse)
+            try CourseStore(root: root).setCompleted(true, courseID: id, lectureID: "welcome")
+            return id
         }
     }
 
@@ -289,6 +296,25 @@ public enum SnapshotPlan {
                   duration_seconds: 4
                   captions:
                     path: content/welcome.vtt
+          - id: practice
+
+        """),
+    ]
+
+    /// The replacement for the `outline-durations` course: a second video lecture with a long title after "read".
+    /// Publish checks `duration_seconds` against the file, so the lecture uses the 4 s welcome video.
+    static let outlineDurationsCourse = [
+        ("\n  - id: practice\n", """
+
+              - id: recap
+                title: Recap the plan and check each section before you publish the course
+                type: video
+                objective: Review the course plan
+                state: published
+                order: 2
+                video:
+                  path: content/welcome.mp4
+                  duration_seconds: 4
           - id: practice
 
         """),
@@ -370,6 +396,7 @@ public enum SnapshotPlan {
         case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")
         case .interactiveResult: .lecture(sectionID: "practice", lectureID: "order-steps")
         case .assignment, .assignmentComplete: .lecture(sectionID: "practice", lectureID: "apply")
+        case .outlineDurations: .lecture(sectionID: "plan", lectureID: "recap")
         }
     }
 }

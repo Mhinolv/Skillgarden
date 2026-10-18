@@ -265,6 +265,54 @@ func durationLabelUsesMinutesOrHours(seconds: Int, label: String) {
     #expect(LectureVideo.durationLabel(seconds: seconds) == label)
 }
 
+// MARK: Sidebar outline duration (#103)
+
+private func outlineVideo(seconds: Int) -> LectureVideo? {
+    LectureVideo(folder: URL(fileURLWithPath: "/tmp/snapshot"), video: ManifestVideo(path: "a.mp4", durationSeconds: seconds))
+}
+
+@Test(arguments: [(4, "0:04"), (272, "4:32"), (3599, "59:59"), (3900, "1:05:00"), (36_000, "10:00:00")])
+func outlineDurationShowsOnVideoRows(seconds: Int, label: String) {
+    #expect(LectureVideo.outlineDurationLabel(type: .video, video: outlineVideo(seconds: seconds)) == label)
+}
+
+@Test func outlineDurationHidesOnOtherTypesAndMissingVideos() {
+    let video = outlineVideo(seconds: 272)
+    for type in LectureType.allCases where type != .video {
+        #expect(LectureVideo.outlineDurationLabel(type: type, video: video) == nil)
+    }
+    #expect(LectureVideo.outlineDurationLabel(type: .video, video: nil) == nil)
+}
+
+@Test func outlineAccessibilityLabelSpeaksTheFullDuration() {
+    let english = Locale(identifier: "en_US")
+    let video = Lecture(id: "bed", title: "Set up the garden bed", type: .video, order: 0)
+    #expect(LectureVideo.outlineAccessibilityLabel(lecture: video, video: outlineVideo(seconds: 272), isDone: true, locale: english)
+        == "Set up the garden bed, video, 4 minutes, 32 seconds, Completed")
+    #expect(LectureVideo.outlineAccessibilityLabel(lecture: video, video: outlineVideo(seconds: 3900), isDone: false, locale: english)
+        == "Set up the garden bed, video, 1 hour, 5 minutes")
+    #expect(LectureVideo.outlineAccessibilityLabel(lecture: video, video: nil, isDone: false, locale: english)
+        == "Set up the garden bed, video")
+    let article = Lecture(id: "read", title: "Read the plan", type: .article, order: 1)
+    #expect(LectureVideo.outlineAccessibilityLabel(lecture: article, video: outlineVideo(seconds: 272), isDone: true, locale: english)
+        == "Read the plan, article, Completed")
+    #expect(LectureVideo.spokenDuration(seconds: 0, locale: english) == "0 seconds")
+    #expect(LectureVideo.spokenDuration(seconds: -5, locale: english) == "0 seconds")
+}
+
+@MainActor @Test func outlineDurationUsesThePublishedVideo() async throws {
+    try await withCourseAsync { folder, root in
+        let id = try CoursePublisher.publish(courseFolder: folder, root: root).id
+        let library = LibraryModel(root: root)
+        await library.reload()
+        library.selectCourse(id)
+        let lectures = try #require(library.selectedCourse?.learnerSections.first?.lectures)
+        #expect(lectures.map(\.type) == [.video, .article])
+        #expect(lectures.map { LectureVideo.outlineDurationLabel(type: $0.type, video: library.video(forLecture: $0.id)) }
+            == ["0:04", nil])
+    }
+}
+
 // MARK: WebVTT
 
 @Test func webVTTParsesCuesSettingsAndTags() throws {
