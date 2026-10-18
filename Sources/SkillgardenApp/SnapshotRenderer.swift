@@ -162,6 +162,10 @@ enum SnapshotRenderer {
             }
         }
 
+        // `cacheDisplay` does not draw the AppKit material, so the capture cannot show it. Check the views (#101).
+        let materials = output.screen.checksToolbarMaterial ? TitlebarMaterial.visibleViews(in: window) : []
+        if !materials.isEmpty { throw SnapshotError.toolbarMaterial(output.url.lastPathComponent, materials.count) }
+
         let png = try image(of: frameView, appearance: appearance)
         try png.write(to: output.url, options: .atomic)
         // The title bar and the toolbar are the part of the window above the content layout rect.
@@ -301,6 +305,7 @@ enum SnapshotError: Error, CustomStringConvertible {
     case videoOverTitlebar(String, Int)
     case pdfView(String)
     case tallToolbar(String, CGFloat)
+    case toolbarMaterial(String, Int)
     case outlineRowPitch(String, CGFloat)
     case fullScreenButton(String)
     case theaterPlayer(String, NSRect)
@@ -313,6 +318,8 @@ enum SnapshotError: Error, CustomStringConvertible {
         case let .videoOverTitlebar(name, count): "\(name): the video draws \(count) black pixels over the title bar"
         case let .pdfView(name): "\(name): the PDF preview sheet has no PDFKit view with a drawn page"
         case let .tallToolbar(name, height): "\(name): the toolbar row is \(Int(height)) pt high, not the compact row"
+        case let .toolbarMaterial(name, count):
+            "\(name): \(count) toolbar material views cover the column colors in the toolbar row"
         case let .outlineRowPitch(name, pitch): "\(name): the outline rows are \(pitch) pt apart, not \(CourseOutlineView.rowHeight) pt"
         case let .fullScreenButton(name): "\(name): a video player has no full-screen button"
         case let .theaterPlayer(name, frame): "\(name): the theater player frame is \(frame), not wider than 960 pt next to the window edge"

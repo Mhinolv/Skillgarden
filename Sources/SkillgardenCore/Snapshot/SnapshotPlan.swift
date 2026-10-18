@@ -92,6 +92,10 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// True when the harness fails if the capture has black video pixels in the title bar and the toolbar (#55).
     public var checksTitlebarForVideo: Bool { opensVideoPlayer }
 
+    /// True when the harness fails if a toolbar material view covers the column colors (#101).
+    /// The Settings screen draws no main-window toolbar, so the harness does not check it.
+    public var checksToolbarMaterial: Bool { self != .settings }
+
     /// True when the harness opens "Details" on the course landing.
     public var showsLandingDetails: Bool { self == .courseLandingDetails }
 

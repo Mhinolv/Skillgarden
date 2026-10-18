@@ -205,7 +205,7 @@ private struct GardenTheme: ViewModifier {
 }
 
 /// Makes the window titlebar transparent. The Library home and the columns fill below the toolbar,
-/// so the toolbar shows the page color.
+/// so each toolbar band shows the solid color of its column (#101).
 private struct TransparentTitlebar: NSViewRepresentable {
     let isTransparent: Bool
 
@@ -214,8 +214,66 @@ private struct TransparentTitlebar: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {
         // The view gets its window after SwiftUI adds it to the hierarchy.
         DispatchQueue.main.async { [isTransparent] in
-            view.window?.titlebarAppearsTransparent = isTransparent
+            guard let window = view.window else { return }
+            window.titlebarAppearsTransparent = isTransparent
+            context.coordinator.observe(window)
         }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    /// Hides the titlebar material again when AppKit lays out the toolbar sections:
+    /// a window resize, a sidebar toggle or a divider drag.
+    @MainActor
+    final class Coordinator {
+        private weak var window: NSWindow?
+        nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+
+        func observe(_ window: NSWindow) {
+            TitlebarMaterial.hide(in: window)
+            guard window !== self.window else { return }
+            self.window = window
+            observers.forEach(NotificationCenter.default.removeObserver)
+            let center = NotificationCenter.default
+            observers = [
+                center.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { [weak window] _ in
+                    MainActor.assumeIsolated { if let window { TitlebarMaterial.hide(in: window) } }
+                },
+                // The split view of any window posts it. Only the split view of this window counts.
+                center.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: .main) { [weak window] note in
+                    let splitView = note.object as? NSView
+                    MainActor.assumeIsolated {
+                        guard let window, splitView?.window === window else { return }
+                        TitlebarMaterial.hide(in: window)
+                    }
+                },
+            ]
+        }
+
+        deinit {
+            observers.forEach(NotificationCenter.default.removeObserver)
+        }
+    }
+}
+
+/// The AppKit material of the toolbar row (#101). The unified toolbar puts one material view over the sidebar
+/// and one over the page. Each one tints and lightens its band, so the toolbar does not match the columns.
+@MainActor
+enum TitlebarMaterial {
+    /// The visible material views in the titlebar of `window`.
+    static func visibleViews(in window: NSWindow) -> [NSVisualEffectView] {
+        materialViews(in: window).filter { !$0.isHiddenOrHasHiddenAncestor && $0.alphaValue > 0 }
+    }
+
+    /// Hides the material views, so the solid column fills show through the transparent titlebar.
+    static func hide(in window: NSWindow) {
+        for view in materialViews(in: window) where !view.isHidden { view.isHidden = true }
+    }
+
+    /// The material views in the titlebar view: the view of the window buttons, below the toolbar items.
+    private static func materialViews(in window: NSWindow) -> [NSVisualEffectView] {
+        guard let titlebar = window.standardWindowButton(.closeButton)?.superview else { return [] }
+        return titlebar.subviews.compactMap { $0 as? NSVisualEffectView }
     }
 }
 
