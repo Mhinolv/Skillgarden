@@ -21,7 +21,10 @@ struct LibraryHomeView: View {
                 ProgressView("Load Library")
             } else if library.courses.isEmpty {
                 LibraryStateCard(symbol: "books.vertical", title: "No courses yet",
-                                 message: "Publish a course with the skillgarden CLI.") {
+                                 message: "Publish a course with the skillgarden CLI, or import a course folder.") {
+                    Button("Import Course…") { CourseImporter.start(library) }
+                        .buttonStyle(.garden())
+                        .disabled(!library.canImport)
                     if let customRootPath {
                         Text("Library: \(customRootPath)")
                             .gardenText(.meta)
