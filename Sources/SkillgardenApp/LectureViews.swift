@@ -225,6 +225,8 @@ struct MarkCompleteButton: View {
     let completed: Bool
     /// False makes "Mark as Complete" bordered, for a page with another primary action.
     var isPrimary = true
+    /// The tooltip of "Mark as Complete". Nil shows none.
+    var help: String? = nil
     let toggle: () -> Void
 
     var body: some View {
@@ -235,6 +237,7 @@ struct MarkCompleteButton: View {
         } else {
             Button("Mark as Complete", systemImage: "checkmark.circle", action: toggle)
                 .buttonStyle(.garden(isPrimary ? .primary : .bordered))
+                .help(help ?? "")
         }
     }
 }

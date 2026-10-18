@@ -127,6 +127,7 @@ private func withCourse(isolation: isolated (any Actor)? = #isolation, _ body: (
             let database = try SQLiteDatabase(url: root.appending(path: "library.sqlite"))
             try database.execute("DROP TABLE transcript_cues")
             try database.execute("ALTER TABLE course_publications DROP COLUMN transcripts_indexed")
+            try database.execute("ALTER TABLE lecture_progress DROP COLUMN auto_complete_off")
             try database.execute("UPDATE schema_version SET version = 8")
         }
         let upgraded = try CourseStore(root: root)
@@ -155,7 +156,7 @@ private func withCourse(isolation: isolated (any Actor)? = #isolation, _ body: (
     #expect(try old.schemaVersion == 8)
     try old.saveCourse(course)
     let store = try CourseStore(root: root)
-    #expect(try store.schemaVersion == 9)
+    #expect(try store.schemaVersion == CourseStore.currentSchemaVersion)
     #expect(try store.loadCourse(id: "c") == course)
     #expect(try store.allTranscriptCues().isEmpty)
 }

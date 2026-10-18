@@ -52,10 +52,23 @@ public struct CourseSection: Identifiable, Codable, Equatable, Sendable {
 public struct LectureProgress: Codable, Equatable, Sendable {
     public var completed: Bool
     public var resumeSeconds: Double
+    /// True after the learner marks the lecture incomplete by hand. Then the video does not complete it again (#79).
+    public var autoCompleteOff: Bool
 
-    public init(completed: Bool = false, resumeSeconds: Double = 0) {
+    public init(completed: Bool = false, resumeSeconds: Double = 0, autoCompleteOff: Bool = false) {
         self.completed = completed
         self.resumeSeconds = resumeSeconds
+        self.autoCompleteOff = autoCompleteOff
+    }
+
+    private enum CodingKeys: String, CodingKey { case completed, resumeSeconds, autoCompleteOff }
+
+    /// Data saved before #79 has no `autoCompleteOff`, so it decodes as false.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        completed = try container.decode(Bool.self, forKey: .completed)
+        resumeSeconds = try container.decode(Double.self, forKey: .resumeSeconds)
+        autoCompleteOff = try container.decodeIfPresent(Bool.self, forKey: .autoCompleteOff) ?? false
     }
 }
 
