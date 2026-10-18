@@ -15,7 +15,7 @@ enum SkillgardenMain {
 struct SkillgardenApp: App {
     var body: some Scene {
         WindowGroup("Skillgarden") {
-            ContentView(appearance: appearance)
+            ContentView(appearance: appearance, autoPlays: autoPlays)
                 // The app appearance colors every window, its menus and sheets. A course theme applies only in System (#93).
                 .onChange(of: appearance, initial: true) { NSApp.appearance = appearance.nsAppearance }
         }
@@ -65,10 +65,16 @@ struct SkillgardenApp: App {
                 .disabled(focusedLibrary?.selectedLecture == nil)
             }
         }
+        // Skillgarden > Settings… (⌘,).
+        Settings {
+            SettingsView(autoPlays: Binding(get: { autoPlays }, set: { autoPlays = $0; Skillgarden.saveAutoPlay($0) }))
+        }
     }
 
     /// The View > Appearance choice. Each change is saved at once.
     @State private var appearance = Skillgarden.savedAppearance()
+    /// The Settings "Auto-play next lecture" choice (#99). Each change is saved at once.
+    @State private var autoPlays = Skillgarden.savedAutoPlay()
     @FocusedValue(\.library) private var focusedLibrary
     /// Nil when no video lecture with captions shows.
     @FocusedBinding(\.showsTranscript) private var showsTranscript
@@ -103,13 +109,17 @@ struct ContentView: View {
     private let customRootPath: String?
     /// The app appearance. Dark and Light also apply in the course workspace (#93).
     private let appearance: AppAppearance
+    /// The Settings "Auto-play next lecture" choice (#99).
+    private let autoPlays: Bool
+    /// True while the "Up next" overlay shows. Escape then cancels the countdown and does not end theater.
+    @State private var upNextShows = false
     @Environment(\.showsReviewInline) private var showsReviewInline
     @Environment(\.showsPDFPreviewInline) private var showsPDFPreviewInline
     @Environment(\.snapshotIgnoresCourseTheme) private var ignoresCourseTheme
     @Environment(\.snapshotStartsTheater) private var snapshotStartsTheater
 
     /// Uses the data folder that `SKILLGARDEN_DATA_DIR` or the saved `DataDirectory` setting names.
-    init(appearance: AppAppearance) {
+    init(appearance: AppAppearance, autoPlays: Bool) {
         let library: LibraryModel
         do {
             library = LibraryModel(root: try Skillgarden.dataDirectory())
@@ -117,18 +127,19 @@ struct ContentView: View {
             library = LibraryModel(rootError: error.localizedDescription)
         }
         self.init(library: library, customRootPath: Skillgarden.customDataDirectoryPath(library.root), appearance: appearance,
-                  videoText: Skillgarden.savedVideoTextChoices(), saveVideoText: Skillgarden.saveVideoTextChoices)
+                  videoText: Skillgarden.savedVideoTextChoices(), saveVideoText: Skillgarden.saveVideoTextChoices, autoPlays: autoPlays)
     }
 
     /// The snapshot harness passes a loaded library and sets `reloadsOnAppear` to false.
     init(library: LibraryModel, reloadsOnAppear: Bool = true, customRootPath: String? = nil, appearance: AppAppearance = .dark,
-         videoText: VideoTextChoices = VideoTextChoices(), saveVideoText: ((VideoTextChoices) -> Void)? = nil) {
+         videoText: VideoTextChoices = VideoTextChoices(), saveVideoText: ((VideoTextChoices) -> Void)? = nil, autoPlays: Bool = true) {
         _library = State(initialValue: library)
         _videoText = State(initialValue: videoText)
         self.saveVideoText = saveVideoText
         self.reloadsOnAppear = reloadsOnAppear
         self.customRootPath = customRootPath
         self.appearance = appearance
+        self.autoPlays = autoPlays
     }
 
     /// A binding to one video text choice that saves the change at once.
@@ -212,8 +223,8 @@ struct ContentView: View {
                     }
                 }
                 .background {
-                    if theater.isOn {
-                        // Escape ends theater. The button has no visible part.
+                    if theater.isOn && !upNextShows {
+                        // Escape ends theater. The button has no visible part. While "Up next" shows, Escape cancels it only (#99).
                         Button("Exit Theater Mode") { showSidebar(theater.end()) }
                             .keyboardShortcut(.cancelAction)
                             .opacity(0)
@@ -290,7 +301,11 @@ struct ContentView: View {
                                              completed: library.isComplete(lecture.id),
                                              toggleComplete: { Task { await library.toggleSelectedLectureComplete() } },
                                              autoCompletes: library.autoCompletes(lecture.id),
-                                             autoComplete: { [library] in library.autoCompleteVideo(lectureID: lecture.id) })
+                                             autoComplete: { [library] in library.autoCompleteVideo(lectureID: lecture.id) },
+                                             upNextTitle: autoPlays ? library.nextLectureTitle : nil,
+                                             playNext: { library.playNextLecture() },
+                                             startsPlaying: { [library] in library.takeAutoPlay(lectureID: lecture.id) },
+                                             upNextShowsChanged: { upNextShows = $0 })
                         case .interactive:
                             InteractiveLectureView(lecture: lecture, module: library.selectedInteractive,
                                                    result: library.selectedInteractiveResult) {
@@ -327,6 +342,26 @@ struct ContentView: View {
                 ContentUnavailableView("Select a lecture", systemImage: "list.bullet")
             }
         }
+    }
+}
+
+/// The Settings window (⌘,). The app saves each change at once (#99).
+struct SettingsView: View {
+    @Binding var autoPlays: Bool
+
+    var body: some View {
+        Form {
+            Toggle("Auto-play next lecture", isOn: $autoPlays)
+        }
+        .formStyle(.grouped)
+        .frame(width: 400)
+        .fixedSize()
+    }
+}
+
+struct SettingsView_Previews: PreviewProvider {
+    static var previews: some View {
+        SettingsView(autoPlays: .constant(true))
     }
 }
 

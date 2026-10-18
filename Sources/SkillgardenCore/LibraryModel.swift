@@ -60,6 +60,8 @@ public final class LibraryModel {
     /// The cue that the video player of the selected lecture must seek to, paused. Nil when no seek waits.
     public private(set) var transcriptSeek: TranscriptSeek?
     @ObservationIgnored private var seekCount = 0
+    /// The lecture whose video starts at once when its page opens (#99). `playNextLecture()` sets it. Each other open clears it.
+    @ObservationIgnored private var autoPlayLectureID: String?
     /// The open spaced review sheet. Nil when no sheet shows.
     public private(set) var sectionReview: SectionReview?
     /// Picks the review questions. Tests and the snapshot harness pass a seeded generator.
@@ -135,6 +137,29 @@ public final class LibraryModel {
 
     public func goToPreviousLecture() { if let previousLecture { open(previousLecture) } }
     public func goToNextLecture() { if let nextLecture { open(nextLecture) } }
+
+    /// The title of `nextLecture`. The "Up next" overlay shows it (#99).
+    public var nextLectureTitle: String? {
+        guard case let .lecture(_, lectureID)? = nextLecture else { return nil }
+        return selectedCourse?.learnerLectures.first { $0.lecture.id == lectureID }?.lecture.title
+    }
+
+    /// Auto-play after a video ends (#99): opens `nextLecture`, the same target as Next and ⌥⌘→.
+    /// If the next lecture is a video, its player starts at once. Returns false if no next lecture exists.
+    @discardableResult
+    public func playNextLecture() -> Bool {
+        guard let nextLecture else { return false }
+        open(nextLecture)
+        if case let .lecture(_, lectureID) = nextLecture, selectedLecture?.type == .video { autoPlayLectureID = lectureID }
+        return true
+    }
+
+    /// The video player of `lectureID` calls this after its load. True starts the player at once, one time only (#99).
+    public func takeAutoPlay(lectureID: String) -> Bool {
+        guard autoPlayLectureID == lectureID else { return false }
+        autoPlayLectureID = nil
+        return true
+    }
 
     // MARK: Progress
 
@@ -447,6 +472,7 @@ public final class LibraryModel {
     private func open(_ value: CourseDestination) {
         destination = value
         transcriptSeek = nil
+        autoPlayLectureID = nil
         switch value {
         case let .section(sectionID), let .lecture(sectionID, _): openReviewIfNeeded(sectionID: sectionID)
         case .overview, .credits: break
@@ -478,6 +504,7 @@ public final class LibraryModel {
         destination = selectedCourseID == nil ? nil : .overview
         sectionReview = nil
         transcriptSeek = nil
+        autoPlayLectureID = nil
         clearTranscriptSearch()
     }
 
