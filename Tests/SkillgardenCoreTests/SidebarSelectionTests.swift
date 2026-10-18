@@ -32,7 +32,7 @@ func sidebarSelectionKeepsInkReadable(appearance: CourseAppearance, hex: String)
 
 /// #89: the selected outline row shows the quiet accent tint, not the system selection fill.
 /// The test renders the selected lecture (light theme) and the selected overview (dark theme) in each app appearance,
-/// then counts the pixels with the selection color in one column of the sidebar.
+/// then counts the pixels with the selection color in one column of the selected row.
 @Test func selectedOutlineRowUsesTheAccentTint() throws {
     // `swift test` builds the app next to the test bundle.
     let app = Bundle(for: TestBundleMarker.self).bundleURL.deletingLastPathComponent().appending(path: "SkillgardenApp")
@@ -51,10 +51,10 @@ func sidebarSelectionKeepsInkReadable(appearance: CourseAppearance, hex: String)
     process.waitUntilExit()
     #expect(process.terminationStatus == 0)
 
-    /// The pixels in the sidebar column at x = 260 pt, from 100 pt to 400 pt, within 3 of `expected` in each channel.
-    func selectionPixels(_ name: String, _ expected: [UInt8]) -> Int {
+    /// The pixels in the sidebar column at `column` pt, from 100 pt to 400 pt, within 3 of `expected` in each channel.
+    func selectionPixels(_ name: String, column: Int, _ expected: [UInt8]) -> Int {
         guard let png = try? Data(contentsOf: out.appending(path: "\(name).png")) else { return 0 }
-        let x = 260 * SnapshotPlan.scale
+        let x = column * SnapshotPlan.scale
         return (100 * SnapshotPlan.scale..<400 * SnapshotPlan.scale).filter { y in
             guard let color = SnapshotCheck.color(png: png, x: x, y: y) else { return false }
             return zip(color, expected).allSatisfy { abs(Int($0) - Int($1)) <= 3 }
@@ -64,14 +64,18 @@ func sidebarSelectionKeepsInkReadable(appearance: CourseAppearance, hex: String)
     let lightAccent = ThemeColor(hex: "#286644")!
     let darkAccent = ThemeColor(hex: SnapshotPlan.darkThemeAccent)!
     // #93: the app setting (the capture appearance) wins over the theme appearance. The theme keeps its accent.
-    let cases: [(name: String, accent: ThemeColor, appearance: CourseAppearance)] = [
-        ("lecture-light", lightAccent, .light), ("lecture-dark", lightAccent, .dark),
-        ("course-landing-dark-theme-light", darkAccent, .light), ("course-landing-dark-theme-dark", darkAccent, .dark),
+    // Each column is in the row fill with no text, icon or duration (#103).
+    // The selected lecture row: x = 30 pt is left of the lecture icon (about 43 pt).
+    // The selected overview row: x = 200 pt is right of the "Course Overview" title (about 136 pt).
+    let cases: [(name: String, column: Int, accent: ThemeColor, appearance: CourseAppearance)] = [
+        ("lecture-light", 30, lightAccent, .light), ("lecture-dark", 30, lightAccent, .dark),
+        ("course-landing-dark-theme-light", 200, darkAccent, .light),
+        ("course-landing-dark-theme-dark", 200, darkAccent, .dark),
     ]
     // One 26 pt row is 52 pixels. Allow a few pixels for the rounded corners and antialiasing.
     for item in cases {
         let selection = bytes(SidebarSelection.color(accent: item.accent, appearance: item.appearance))
-        let count = selectionPixels(item.name, selection)
+        let count = selectionPixels(item.name, column: item.column, selection)
         #expect(count >= 40, "\(item.name): \(count) pixels with the selection tint \(selection)")
     }
 }
