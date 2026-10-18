@@ -43,6 +43,49 @@ public enum Skillgarden {
         let saved = CFPreferencesCopyAppValue(dataDirectoryKey as CFString, defaultsDomain as CFString) as? String
         return try dataDirectory(environment: ProcessInfo.processInfo.environment, savedSetting: saved)
     }
+
+    /// The key of the View > Appearance setting in the `dev.skillgarden.app` domain.
+    public static let appearanceKey = "Appearance"
+
+    /// The saved View > Appearance choice. A missing or unknown value is Dark.
+    public static func savedAppearance() -> AppAppearance {
+        AppAppearance(savedValue: CFPreferencesCopyAppValue(appearanceKey as CFString, defaultsDomain as CFString) as? String)
+    }
+
+    public static func saveAppearance(_ appearance: AppAppearance) {
+        CFPreferencesSetAppValue(appearanceKey as CFString, appearance.rawValue as CFString, defaultsDomain as CFString)
+        CFPreferencesAppSynchronize(defaultsDomain as CFString)
+    }
+}
+
+/// The app appearance of the View menu (#83). A course manifest appearance still applies to its course.
+public enum AppAppearance: String, CaseIterable, Identifiable, Sendable {
+    // The menu order of the owner: Dark, Light, System.
+    case dark, light, system
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .dark: "Dark"
+        case .light: "Light"
+        case .system: "System"
+        }
+    }
+
+    /// The fixed appearance, or nil for System.
+    public var courseAppearance: CourseAppearance? {
+        switch self {
+        case .dark: .dark
+        case .light: .light
+        case .system: nil
+        }
+    }
+
+    /// A missing or unknown saved value is Dark.
+    public init(savedValue: String?) {
+        self = savedValue.flatMap(AppAppearance.init(rawValue:)) ?? .dark
+    }
 }
 
 /// The data folder setting is not an absolute path.
