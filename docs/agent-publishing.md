@@ -103,6 +103,16 @@ The app reads the same folder only if it sees the same setting. The owner sets i
 defaults write dev.skillgarden.app DataDirectory "$HOME/skillgarden-library"
 ```
 
+Check which folder the CLI and the app use:
+
+```sh
+skillgarden doctor
+```
+
+The command prints the library path, its source, the folder state, a write access estimate, the app library and the sandbox state.
+The app library ignores the environment variable. If the two paths differ, the command prints the `defaults write` line to run.
+The command writes nothing. A missing folder is not an error, because publish creates it.
+
 To go back to Application Support, delete the setting:
 
 ```sh
@@ -212,6 +222,7 @@ The app bundle holds the CLI at `Skillgarden.app/Contents/Helpers/skillgarden`. 
 | `skillgarden validate <course-folder>` | `Valid "<title>" (<id>, <state>): <n> sections, <n> lectures` |
 | `skillgarden publish <course-folder>` | `Published "<title>" (<id>, <state>): created <n>, updated <n>, unchanged <n>, removed <n>`, then `Library: <path>` |
 | `skillgarden internal list <course-id>` | One tab-separated row for each internal file |
+| `skillgarden doctor` | Labelled lines: version, CLI, library, source, folder, write access, app library, match, sandbox |
 | `skillgarden --version` | `skillgarden <version>` |
 | `skillgarden --help` | The usage text |
 
@@ -222,7 +233,9 @@ For a draft course, `validate` and `publish` also print `Draft: learners do not 
 | 0 | Success | Results on stdout |
 | 1 | Manifest or file errors | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem. List indexes in `<fieldPath>` start at 0: `sections[0]` is the first section. |
 | 2 | Usage error or bad data folder setting | `error: ...` on stderr. A usage error also prints the usage text. |
-| 3 | I/O or library error. For `validate`, also a missing course folder. | `error: <description>` on stderr |
+| 3 | I/O or library error. For `validate`, also a missing course folder. For `doctor`, a library path that is not a folder. | `error: <description>` on stderr |
+
+`doctor` prints its report on stdout also for exit codes 2 and 3.
 
 ### JSON output
 
@@ -231,10 +244,10 @@ Add `--json` anywhere after the command name, for example `skillgarden validate 
 | Key | Value |
 |---|---|
 | `format_version` | `1`. Later versions add keys only. |
-| `command` | `validate`, `publish`, `internal list`, or `null` for an unknown command |
+| `command` | `validate`, `publish`, `internal list`, `doctor`, or `null` for an unknown command |
 | `ok` | `true` when `exit_code` is 0 |
 | `exit_code` | The process exit code |
-| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`. `internal list`: `files`, each with `title`, `path`, `description`. |
+| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`. `internal list`: `files`, each with `title`, `path`, `description`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
 | `diagnostics` | One object for each problem: `code`, `severity` (`error`), `message`, `file`, `field_path`, `hint`. `file`, `field_path` and `hint` are `null` when unknown. |
 
 The `code` values are stable. New versions add codes, but never rename a code.
@@ -243,6 +256,7 @@ The `code` values are stable. New versions add codes, but never rename a code.
 |---|---|
 | `usage` | The arguments are wrong |
 | `data_dir.relative` | The data folder setting is not an absolute path |
+| `data_dir.not_folder` | `doctor` finds a file, not a folder, at the library path |
 | `course_folder.missing` | The course folder does not exist |
 | `manifest.missing`, `manifest.duplicate`, `manifest.syntax` | No manifest, two manifests, or a manifest that cannot be parsed |
 | `field.required`, `field.type`, `field.choice`, `field.not_allowed` | A field is missing or empty, has the wrong type, has an unknown value, or is not allowed for the lecture type |

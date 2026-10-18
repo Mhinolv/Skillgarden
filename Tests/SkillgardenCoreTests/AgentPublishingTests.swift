@@ -163,7 +163,7 @@ private func contents(of folder: URL) throws -> [String: Data] {
 
 @Test func validateUsage() {
     let root = FileManager.default.temporaryDirectory.appending(path: "SkillgardenUnused-\(UUID())")
-    let usage = "usage: skillgarden publish <course-folder> [--json]\n       skillgarden validate <course-folder> [--json]\n       skillgarden internal list <course-id> [--json]\n"
+    let usage = "usage: skillgarden publish <course-folder> [--json]\n       skillgarden validate <course-folder> [--json]\n       skillgarden internal list <course-id> [--json]\n       skillgarden doctor [--json]\n"
     #expect(SkillgardenCommand.run(arguments: ["validate", "--help"], root: root) == CommandResult(exitCode: 0, stdout: usage, stderr: ""))
     for arguments in [["validate"], ["validate", "a", "b"], ["validate", "--bogus"]] {
         #expect(SkillgardenCommand.run(arguments: arguments, root: root) == CommandResult(

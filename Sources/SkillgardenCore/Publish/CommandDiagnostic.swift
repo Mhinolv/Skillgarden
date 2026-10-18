@@ -24,6 +24,8 @@ public enum DiagnosticCode: String, CaseIterable, Sendable {
     case courseNotFound = "course.not_found"
     case libraryBusy = "library.busy"
     case io
+    /// `doctor` finds a file, not a folder, at the library path (#108).
+    case dataDirectoryNotFolder = "data_dir.not_folder"
 }
 
 /// One problem of a CLI run. Text mode prints `error: <text>`. JSON mode writes each field.
@@ -125,7 +127,8 @@ extension ManifestDiagnostic {
         case .pathNotNormalized:
             guard let range = message.range(of: "use ") else { return nil }
             return "Change \(path) to \(message[range.upperBound...])."
-        case .usage, .dataDirectoryRelative, .courseFolderMissing, .fieldValue, .mediaInvalid, .courseNotFound, .libraryBusy, .io:
+        case .usage, .dataDirectoryRelative, .courseFolderMissing, .fieldValue, .mediaInvalid, .courseNotFound, .libraryBusy, .io,
+             .dataDirectoryNotFolder:
             return nil
         }
     }
