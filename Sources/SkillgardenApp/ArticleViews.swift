@@ -47,8 +47,11 @@ struct RenderedMarkdown: Sendable {
 }
 
 /// The content block of an article lecture: the reading time, then the Markdown in a card.
+/// The Q&A pill is at the right end of the meta row. Its panel is between the meta row and the card (#128).
 struct ArticleLectureView: View {
     let article: LectureArticle?
+    /// The Q&A pill and panel (#128). Nil shows no pill.
+    var qaPanel: LectureQAPanel? = nil
     @Environment(\.imageLoads) private var imageLoads
     @Environment(\.gardenPalette) private var palette
     @State private var content: RenderedMarkdown?
@@ -58,8 +61,13 @@ struct ArticleLectureView: View {
         Group {
             if let content {
                 VStack(alignment: .leading, spacing: 12) {
-                    Label("Article · \(content.readingMinutes) min read", systemImage: LectureType.article.symbolName)
-                        .gardenText(.meta)
+                    HStack {
+                        Label("Article · \(content.readingMinutes) min read", systemImage: LectureType.article.symbolName)
+                            .gardenText(.meta)
+                        Spacer()
+                        qaPanel?.pill()
+                    }
+                    if let qaPanel, qaPanel.isShown { qaPanel.panel() }
                     GardenCard(padding: GardenSpacing.l) { MarkdownBlocksView(markdown: content) }
                 }
             } else if unavailable {
@@ -68,6 +76,7 @@ struct ArticleLectureView: View {
                 ProgressView().frame(maxWidth: .infinity)
             }
         }
+        .focusedSceneValue(\.showsQA, content == nil ? nil : qaPanel?.isOn)
         .task(id: article) {
             content = nil
             unavailable = false

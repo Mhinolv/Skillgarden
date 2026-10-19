@@ -137,6 +137,7 @@ final class VideoPlayback {
 /// The quick-check card is hidden when the lecture opens. It shows at the video end or from the "Quick Check" button.
 /// With Auto-play on, the video end shows the "Up next" overlay on the player (#99). Open quick checks hold it back.
 /// Left Arrow and Right Arrow skip 10 seconds back and forward (#104).
+/// The Q&A panel and the transcript share the slot under the controls row. One of them shows at a time (#128).
 struct VideoLectureView: View {
     let video: LectureVideo?
     /// Nil when the video has no quick checks.
@@ -172,6 +173,8 @@ struct VideoLectureView: View {
     var startsPlaying: @MainActor () -> Bool = { false }
     /// Gets true while the "Up next" overlay shows, so Escape cancels the countdown and does not end theater.
     var upNextShowsChanged: (Bool) -> Void = { _ in }
+    /// The Q&A pill and panel (#128). Nil shows no pill.
+    var qaPanel: LectureQAPanel? = nil
     @Environment(\.imageLoads) private var imageLoads
     @Environment(\.opensVideoPlayer) private var opensVideoPlayer
     @Environment(\.snapshotVideoStart) private var snapshotVideoStart
@@ -189,6 +192,8 @@ struct VideoLectureView: View {
     /// True while a check of the quick-check card has focus. The arrows then do not skip (#104).
     @State private var quickCheckFocused = false
     @State private var upNext = UpNextCountdown()
+    /// True while the Q&A question field has focus. Space and the arrows then type text (#128).
+    @State private var qaFieldFocused = false
 
     /// The transcript and the quick checks keep this cap in theater.
     private static let maxWidth = TheaterMode.videoWidth
@@ -204,10 +209,13 @@ struct VideoLectureView: View {
                 ContentUnavailableView("Video unavailable", systemImage: "exclamationmark.triangle",
                                        description: Text("Publish the course again to restore this file."))
                 controlsRow
+                qaSlot
             } else {
                 player
                 controlsRow
-                if hasCaptions, showsTranscript, let transcript {
+                if showsQA {
+                    qaSlot
+                } else if hasCaptions, showsTranscript, let transcript {
                     TranscriptPanel(transcript: transcript, activeLine: playback?.activeLine, seek: seek)
                         .frame(maxWidth: Self.maxWidth)
                 }
@@ -222,6 +230,7 @@ struct VideoLectureView: View {
         .background(VideoSkipKeys(skip: skip(by:)))
         .focusedSceneValue(\.showsTranscript, hasCaptions ? $showsTranscript : nil)
         .focusedSceneValue(\.theaterMode, isUnavailable ? nil : $theater)
+        .focusedSceneValue(\.showsQA, qaPanel?.isOn)
         .task(id: video) { await load() }
         .onChange(of: seekRequest) { applySeekRequest() }
         .onChange(of: playback?.endCount) { _, count in
@@ -300,14 +309,24 @@ struct VideoLectureView: View {
         if upNext.playNow() { playNext() }
     }
 
+    private var showsQA: Bool { qaPanel?.isShown == true }
+
+    /// The Q&A panel in the slot under the controls row, with the width cap of the transcript.
+    @ViewBuilder private var qaSlot: some View {
+        if let qaPanel, showsQA {
+            qaPanel.panel { qaFieldFocused = $0 }
+                .frame(maxWidth: Self.maxWidth)
+        }
+    }
+
     /// True shows "Video unavailable" and a controls row with the complete control only.
     private var isUnavailable: Bool { available == false || video == nil }
 
     /// False hides the Captions and Transcript toggles and the transcript.
     private var hasCaptions: Bool { video?.captionsURL != nil && available != false }
 
-    /// Captions, Transcript, Theater, Quick Check, then the complete control at the right edge.
-    /// If the row is too narrow, Captions, Transcript and Theater become icon-only. The complete label stays.
+    /// Captions, Transcript, Q&A, Theater, Quick Check, then the complete control at the right edge.
+    /// If the row is too narrow, Captions, Transcript, Q&A and Theater become icon-only. The complete label stays.
     private var controlsRow: some View {
         ViewThatFits(in: .horizontal) {
             controls(iconOnly: false)
@@ -329,6 +348,7 @@ struct VideoLectureView: View {
                 .labelStyle(ToolbarLabelStyle(iconOnly: iconOnly))
                 .disabled(captions == nil)
             }
+            qaPanel?.pill(iconOnly: iconOnly)
             if !isUnavailable {
                 Toggle(isOn: $theater) { Label("Theater", systemImage: "tv") }
                     .help(theater ? "Exit Theater Mode (⇧⌘T)" : "Enter Theater Mode (⇧⌘T)")
@@ -392,7 +412,8 @@ struct VideoLectureView: View {
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut(.space, modifiers: [])
+                // Space in the Q&A question field types a space (#128).
+                .keyboardShortcut(qaFieldFocused ? nil : KeyboardShortcut(.space, modifiers: []))
                 .accessibilityLabel("Play video")
             }
         }
@@ -432,7 +453,7 @@ struct VideoLectureView: View {
     /// Left Arrow and Right Arrow (#104). Returns false when the page does not take the key.
     /// A skip keeps the play state and cancels "Up next". Before the first play, the player opens paused at the resume position ±10 s.
     private func skip(by delta: Double) -> Bool {
-        guard let video, available == true, !(showsQuickChecks && quickCheckFocused) else { return false }
+        guard let video, available == true, !(showsQuickChecks && quickCheckFocused), !qaFieldFocused else { return false }
         upNext.cancel()
         if let playback {
             playback.skip(by: delta, duration: duration)
