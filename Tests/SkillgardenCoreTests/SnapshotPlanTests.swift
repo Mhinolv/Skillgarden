@@ -63,11 +63,14 @@ private func temporaryFolder() throws -> URL {
         "qa-no-captions-light.png", "qa-no-captions-dark.png", "qa-no-captions-unthemed-dark.png",
         "qa-article-light.png", "qa-article-dark.png", "qa-article-unthemed-dark.png",
         "qa-theater-light.png", "qa-theater-dark.png", "qa-theater-unthemed-dark.png",
+        "qa-citations-light.png", "qa-citations-dark.png", "qa-citations-unthemed-dark.png",
+        "qa-citation-excerpt-light.png", "qa-citation-excerpt-dark.png", "qa-citation-excerpt-unthemed-dark.png",
+        "qa-citations-stale-light.png", "qa-citations-stale-dark.png", "qa-citations-stale-unthemed-dark.png",
     ])
     // #82: every course screen except the dark-theme screen gets one dark capture with no course theme.
     #expect(SnapshotScreen.allCases.filter { $0.selectsCourse && !$0.hasUnthemedCapture } == [.courseLandingDarkTheme])
     let unthemed = outputs.filter(\.ignoresCourseTheme)
-    #expect(unthemed.count == 38)
+    #expect(unthemed.count == 41)
     #expect(unthemed.allSatisfy { $0.appearance == .dark && $0.screen.hasUnthemedCapture })
     #expect(unthemed.allSatisfy { $0.url.lastPathComponent == "\($0.screen.rawValue)-unthemed-dark.png" })
     #expect(outputs.filter { !$0.ignoresCourseTheme }.map(\.url.lastPathComponent) == SnapshotScreen.allCases.flatMap { screen in
@@ -86,14 +89,19 @@ private func temporaryFolder() throws -> URL {
     #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [
         .courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureDownloads, .pdfPreview, .lectureSources,
         .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaTheater,
+        .qaCitations, .qaCitationsStale,
     ])
     // #128: the Q&A screens open the panel with an injected status. Only the draft screen shows a draft.
     #expect(SnapshotScreen.allCases.filter(\.showsQA) == [.qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting,
-                                                          .qaStopping, .qaError, .qaNoCaptions, .qaArticle, .qaTheater])
+                                                          .qaStopping, .qaError, .qaNoCaptions, .qaArticle, .qaTheater,
+                                                          .qaCitations, .qaCitationExcerpt, .qaCitationsStale])
     #expect(SnapshotScreen.allCases.filter { $0.qaStatus != nil } == SnapshotScreen.allCases.filter(\.showsQA))
     #expect(SnapshotScreen.allCases.compactMap(\.qaStatus).map { LectureQAState(status: $0, content: .ready) }
         == [.ready, .ready, .ready, .noModel, .off, .starting, .stopping, .error(reason: "The server stopped. Exit code 9."),
-            .ready, .ready, .ready])
+            .ready, .ready, .ready, .ready, .ready, .ready])
+    // #129: only the excerpt screen opens an excerpt. Only the stale screen saves turns of an earlier revision.
+    #expect(SnapshotScreen.allCases.filter(\.opensCitationExcerpt) == [.qaCitationExcerpt])
+    #expect(SnapshotScreen.allCases.filter(SnapshotPlan.qaTurnsAreStale) == [.qaCitationsStale])
     #expect(SnapshotScreen.allCases.filter { $0.qaDraft != nil } == [.qaDraft])
     #expect(SnapshotScreen.allCases.filter(\.startsTheater) == [.videoTheater, .videoUpNextTheater, .qaTheater])
     #expect(SnapshotScreen.allCases.filter(\.showsQuickChecks) == [.videoQuickCheck])
@@ -344,12 +352,12 @@ private func temporaryFolder() throws -> URL {
                 #expect(results.groups.isEmpty)
             }
         case .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaArticle,
-             .qaTheater:
+             .qaTheater, .qaCitations, .qaCitationExcerpt, .qaCitationsStale:
             #expect(courseID == "sample-course")
             #expect(SnapshotPlan.imageLoads(for: screen) == 1)
             library.selectCourse(courseID)
             library.selectDestination(SnapshotPlan.destination(for: screen))
-            #expect(library.selectedLecture?.type == (screen == .qaArticle ? .article : .video))
+            #expect(library.selectedLecture?.type == ([.qaArticle, .qaCitationExcerpt].contains(screen) ? .article : .video))
             let lectureID = try #require(library.selectedLecture?.id)
             let context = await library.lectureContext(forLecture: lectureID)
             if screen == .qaNoCaptions {
@@ -359,13 +367,14 @@ private func temporaryFolder() throws -> URL {
                 guard case .ready = context else { Issue.record("\(screen) has no lecture text"); break }
             }
             try await SnapshotPlan.seedQATurns(for: screen, library: library)
-            let turns = try #require(try await library.lectureConversation(forLecture: lectureID)).currentTurns
+            let conversation = try #require(try await library.lectureConversation(forLecture: lectureID))
+            let turns = SnapshotPlan.qaTurnsAreStale(for: screen) ? conversation.earlierTurns : conversation.currentTurns
             #expect(turns.map(\.question) == SnapshotPlan.qaTurns(for: screen).map(\.question))
             switch screen {
             case .qaThread, .qaArticle, .qaTheater:
                 #expect(turns.map(\.status) == [.complete, .cancelled, .failed(reason: "Local AI returned an error (500). Try again.")])
                 #expect(turns.map(\.answer) == ["You plan a course step by step [t1].", "You need", ""])
-            case .qaDraft:
+            case .qaDraft, .qaCitations, .qaCitationExcerpt, .qaCitationsStale:
                 #expect(turns.map(\.status) == [.complete])
             default:
                 #expect(turns.isEmpty)

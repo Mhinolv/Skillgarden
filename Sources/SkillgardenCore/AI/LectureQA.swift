@@ -128,6 +128,8 @@ public final class LectureQA {
     @ObservationIgnored private var pendingText = ""
     @ObservationIgnored private var flush: Task<Void, Never>?
     @ObservationIgnored private var request: Task<Void, Never>?
+    /// The citations of the saved turns (#129), so a draft change does not parse each answer again.
+    @ObservationIgnored private var citationCache: [Int64: (answer: String, isStale: Bool, citations: AnswerCitations)] = [:]
 
     /// `endpoint` is `RuntimeSupervisor.verifiedEndpoint()`. `announce` posts a VoiceOver announcement.
     public init(library: LibraryModel, client: LlamaClient, endpoint: @escaping @MainActor () -> LocalAIEndpoint?,
@@ -156,6 +158,7 @@ public final class LectureQA {
         self.key = key
         content = .loading
         context = nil
+        citationCache = [:]
         conversation = LectureConversation(turns: [], sourceRevision: nil)
         notice = nil
     }
@@ -167,6 +170,7 @@ public final class LectureQA {
         let outcome = await library.lectureContext(forLecture: key.lectureID)
         let loaded = try? await library.lectureConversation(forLecture: key.lectureID)
         guard generation == self.generation, key == self.key, draft == nil else { return }
+        citationCache = [:]
         switch outcome {
         case .ready(let value):
             context = value
@@ -224,6 +228,27 @@ public final class LectureQA {
         library.clearQAHistory(forLecture: key.lectureID)
         conversation = LectureConversation(turns: [], sourceRevision: conversation.sourceRevision)
         notice = nil
+    }
+
+    /// The sources of a saved turn (#129). A turn of an earlier version of the lecture text gets stale sources.
+    public func citations(for turn: QATurn) -> AnswerCitations {
+        let isStale = conversation.isEarlierVersion(turn)
+        if let entry = citationCache[turn.id], entry.answer == turn.answer, entry.isStale == isStale { return entry.citations }
+        let citations = AnswerCitations(answer: turn.answer, context: context, isStale: isStale)
+        citationCache[turn.id] = (turn.answer, isStale, citations)
+        return citations
+    }
+
+    /// The numbered markers of the draft answer. The draft is always of the current lecture text.
+    public func citations(forDraft text: String) -> AnswerCitations {
+        AnswerCitations(answer: text, context: context, isStale: false)
+    }
+
+    /// A video source chip: the player of the open lecture seeks to the stored cue start and stays paused.
+    /// Other sources do nothing.
+    public func seek(to source: AnswerSource) {
+        guard case .video(let seconds, _) = source.kind, let key, library.selectedCourseID == key.courseID else { return }
+        library.seekCitation(lectureID: key.lectureID, seconds: seconds)
     }
 
     /// The snapshot harness shows a draft with no request.

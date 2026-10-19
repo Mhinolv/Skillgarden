@@ -57,13 +57,17 @@ public struct LectureContext: Equatable, Sendable {
     public let budget: LectureContextBudget
     /// The revision of the lecture text (#127). Saved Q&A turns with another revision stay out of new prompts.
     public let sourceRevision: String
+    /// The stored cue start of each transcript passage, by passage ID (#129). A video citation seeks to this time.
+    let seekTimes: [String: Double]
     /// The retrieval index when all the text does not fit the passage budget. It is made once, off the main actor.
     let retrievalIndex: LectureRetrievalIndex?
 
-    init(courseTitle: String, lectureTitle: String, passages: [LecturePassage], budget: LectureContextBudget = .standard) {
+    init(courseTitle: String, lectureTitle: String, passages: [LecturePassage], seekTimes: [String: Double] = [:],
+         budget: LectureContextBudget = .standard) {
         self.courseTitle = courseTitle
         self.lectureTitle = lectureTitle
         self.passages = passages
+        self.seekTimes = seekTimes
         self.budget = budget
         sourceRevision = Self.sourceRevision(of: passages)
         let full = Self.systemPrompt(courseTitle: courseTitle, lectureTitle: lectureTitle, passages: passages, isPartial: false)
@@ -86,7 +90,7 @@ public struct LectureContext: Equatable, Sendable {
 
     public static func == (lhs: LectureContext, rhs: LectureContext) -> Bool {
         lhs.courseTitle == rhs.courseTitle && lhs.lectureTitle == rhs.lectureTitle && lhs.passages == rhs.passages
-            && lhs.budget == rhs.budget
+            && lhs.seekTimes == rhs.seekTimes && lhs.budget == rhs.budget
     }
 
     /// The system message: the framing, then each passage as `[<id>] <text>`.
@@ -151,6 +155,7 @@ public enum LectureContextBuilder {
                              budget: LectureContextBudget = .standard) -> LectureContextOutcome {
         guard let lecture = learnerLecture(lectureID, in: course) else { return .notAvailable }
         let passages: [LecturePassage]
+        var seekTimes: [String: Double] = [:]
         switch lecture.type {
         case .video:
             guard let video else { return .cantLoad }
@@ -159,7 +164,9 @@ public enum LectureContextBuilder {
             case .failure(let outcome): return outcome
             case .success(let data):
                 guard let text = String(data: data, encoding: .utf8), let captions = try? WebVTT(text: text) else { return .cantLoad }
-                passages = transcriptPassages(Transcript(captions: captions))
+                let transcript = Transcript(captions: captions)
+                passages = transcriptPassages(transcript)
+                seekTimes = Dictionary(uniqueKeysWithValues: transcript.lines.map { ("t\($0.id)", $0.start) })
             }
         case .article:
             guard let article else { return .cantLoad }
@@ -173,7 +180,8 @@ public enum LectureContextBuilder {
             return .notAvailable
         }
         guard !passages.isEmpty else { return .noText }
-        return .ready(LectureContext(courseTitle: course.title, lectureTitle: lecture.title, passages: passages, budget: budget))
+        return .ready(LectureContext(courseTitle: course.title, lectureTitle: lecture.title, passages: passages,
+                                    seekTimes: seekTimes, budget: budget))
     }
 
     /// The cues of the Transcript panel and transcript search, so citation times match.
