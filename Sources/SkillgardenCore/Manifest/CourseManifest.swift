@@ -1,8 +1,8 @@
 import Foundation
 
-public enum ManifestState: String, Codable, Sendable { case draft, published }
-public enum ManifestAppearance: String, Codable, Sendable { case light, dark }
-public enum ManifestLectureType: String, Codable, Sendable { case video, article, quiz, assignment, interactive }
+public enum ManifestState: String, Codable, Sendable, CaseIterable { case draft, published }
+public enum ManifestAppearance: String, Codable, Sendable, CaseIterable { case light, dark }
+public enum ManifestLectureType: String, Codable, Sendable, CaseIterable { case video, article, quiz, assignment, interactive }
 
 public struct ManifestImage: Codable, Equatable, Sendable {
     public var path: String

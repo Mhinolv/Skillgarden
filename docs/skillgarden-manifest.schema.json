@@ -1,0 +1,836 @@
+{
+  "$defs": {
+    "article": {
+      "description": "A UTF-8 Markdown file. Each Markdown image needs an entry in images with alt.",
+      "properties": {
+        "images": {
+          "description": "Optional. The alt text of each embedded image. Image paths are relative to the course folder.",
+          "items": {
+            "$ref": "#/$defs/image"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Path of the Markdown file, relative to the course folder.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "choice": {
+      "description": "One answer choice. Choice ids are unique inside their question.",
+      "properties": {
+        "id": {
+          "description": "Choice id.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "description": "Choice text.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "type": "object"
+    },
+    "file": {
+      "description": "A file with a title.",
+      "properties": {
+        "description": {
+          "description": "Optional description.",
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Path relative to the course folder.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "title": {
+          "description": "Title of the file.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "title"
+      ],
+      "type": "object"
+    },
+    "image": {
+      "description": "An image file with alt text. PNG, JPG or SVG.",
+      "properties": {
+        "alt": {
+          "description": "Alt text. Must not be empty.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "description": "Path relative to the course folder.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "alt"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:skillgarden:manifest:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A course manifest, skillgarden.yaml or skillgarden.json. Run skillgarden validate for the file, path and media checks.",
+  "properties": {
+    "course_image": {
+      "$ref": "#/$defs/image",
+      "description": "The course image."
+    },
+    "credits": {
+      "description": "At least one item.",
+      "items": {
+        "description": "One credit.",
+        "properties": {
+          "name": {
+            "description": "Name.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "role": {
+            "description": "Optional role.",
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "description": "Optional URL.",
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "description": {
+      "description": "Course description.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "id": {
+      "description": "Stable course id. Publish updates the course with this id.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "internal": {
+      "description": "Optional. Team-only files. Learners never see these files.",
+      "properties": {
+        "files": {
+          "description": "Team-only files. Each path must stay inside internal/.",
+          "items": {
+            "$ref": "#/$defs/file"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "files"
+      ],
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "learning_outcomes": {
+      "description": "List of text. At least one item.",
+      "items": {
+        "description": "One learning outcome.",
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "requirements": {
+      "description": "List of text. At least one item.",
+      "items": {
+        "description": "One requirement.",
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "description": "Must be 1.",
+      "type": "integer"
+    },
+    "sections": {
+      "description": "List of sections. At least one item.",
+      "items": {
+        "description": "One section.",
+        "properties": {
+          "header_image": {
+            "$ref": "#/$defs/image",
+            "description": "The header image of the section."
+          },
+          "id": {
+            "description": "Section id. Ids are unique in the manifest.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "lectures": {
+            "description": "List of lectures. At least one item.",
+            "items": {
+              "allOf": [
+                {
+                  "else": {
+                    "properties": {
+                      "video": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "if": {
+                    "properties": {
+                      "type": {
+                        "const": "video"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "video": {
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "video"
+                    ]
+                  }
+                },
+                {
+                  "else": {
+                    "properties": {
+                      "article": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "if": {
+                    "properties": {
+                      "type": {
+                        "const": "article"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "article": {
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "article"
+                    ]
+                  }
+                },
+                {
+                  "else": {
+                    "properties": {
+                      "quiz": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "if": {
+                    "properties": {
+                      "type": {
+                        "const": "quiz"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "quiz": {
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "quiz"
+                    ]
+                  }
+                },
+                {
+                  "else": {
+                    "properties": {
+                      "assignment": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "if": {
+                    "properties": {
+                      "type": {
+                        "const": "assignment"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "assignment": {
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "assignment"
+                    ]
+                  }
+                },
+                {
+                  "else": {
+                    "properties": {
+                      "interactive": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "if": {
+                    "properties": {
+                      "type": {
+                        "const": "interactive"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "interactive": {
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "interactive"
+                    ]
+                  }
+                }
+              ],
+              "description": "One lecture.",
+              "properties": {
+                "article": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/article"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Required when type is article, and not allowed for other types."
+                },
+                "assignment": {
+                  "description": "Required when type is assignment, and not allowed for other types.",
+                  "properties": {
+                    "brief": {
+                      "$ref": "#/$defs/article",
+                      "description": "The brief. A UTF-8 Markdown file with the article rules."
+                    },
+                    "rubric": {
+                      "description": "One or more self-check rows, in display order.",
+                      "items": {
+                        "description": "One rubric row.",
+                        "properties": {
+                          "criterion": {
+                            "description": "The criterion.",
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "guidance": {
+                            "description": "Shown under the criterion.",
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "id": {
+                            "description": "Row id. Unique inside the rubric.",
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "criterion",
+                          "guidance"
+                        ],
+                        "type": "object"
+                      },
+                      "minItems": 1,
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "brief",
+                    "rubric"
+                  ],
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "downloads": {
+                  "description": "Optional. Files for the learner to save, in display order. Any lecture type.",
+                  "items": {
+                    "$ref": "#/$defs/file"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "description": "Lecture id. Ids are unique in the manifest.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "interactive": {
+                  "description": "Required when type is interactive, and not allowed for other types.",
+                  "properties": {
+                    "bundle_path": {
+                      "description": "A folder under the course folder that holds index.html.",
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "bundle_path"
+                  ],
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "objective": {
+                  "description": "Lecture objective.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "order": {
+                  "description": "Integer. The lectures of a section have unique order values.",
+                  "type": "integer"
+                },
+                "quiz": {
+                  "description": "Required when type is quiz, and not allowed for other types.",
+                  "properties": {
+                    "questions": {
+                      "description": "At least one question.",
+                      "items": {
+                        "description": "One quiz question.",
+                        "properties": {
+                          "choices": {
+                            "description": "Two or more choices.",
+                            "items": {
+                              "$ref": "#/$defs/choice"
+                            },
+                            "minItems": 2,
+                            "type": "array"
+                          },
+                          "correct_choice_id": {
+                            "description": "The id of the correct choice in this question.",
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "explanation": {
+                            "description": "Shown for every choice after Submit.",
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "id": {
+                            "description": "Question id. Unique inside the quiz.",
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "image": {
+                            "anyOf": [
+                              {
+                                "$ref": "#/$defs/image"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional image of the question."
+                          },
+                          "objective_tag": {
+                            "description": "The objective that the question checks.",
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "prompt": {
+                            "description": "The question text.",
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "prompt",
+                          "objective_tag",
+                          "choices",
+                          "correct_choice_id",
+                          "explanation"
+                        ],
+                        "type": "object"
+                      },
+                      "minItems": 1,
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "questions"
+                  ],
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "recommended_next": {
+                  "description": "Optional. The id of a lecture in the same course. The app does not use it now.",
+                  "minLength": 1,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sources": {
+                  "description": "Optional. 'Sources and further watching' cards.",
+                  "items": {
+                    "description": "One source card.",
+                    "properties": {
+                      "channel": {
+                        "description": "Channel of the source.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "timestamp_end": {
+                        "description": "Optional. Integer seconds, after timestamp_start.",
+                        "minimum": 0,
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "timestamp_start": {
+                        "description": "Optional. Integer seconds, 0 or greater.",
+                        "minimum": 0,
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "title": {
+                        "description": "Title of the source.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "url": {
+                        "description": "Optional. An http or https URL.",
+                        "minLength": 1,
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "channel"
+                    ],
+                    "type": "object"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "description": "published or draft. Same as for a section.",
+                  "enum": [
+                    "draft",
+                    "published"
+                  ],
+                  "type": "string"
+                },
+                "title": {
+                  "description": "Lecture title.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": {
+                  "description": "The lecture type. Give only the type field that matches it.",
+                  "enum": [
+                    "video",
+                    "article",
+                    "quiz",
+                    "assignment",
+                    "interactive"
+                  ],
+                  "type": "string"
+                },
+                "video": {
+                  "description": "Required when type is video, and not allowed for other types.",
+                  "properties": {
+                    "captions": {
+                      "description": "Optional captions.",
+                      "properties": {
+                        "path": {
+                          "description": "A .vtt file.",
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ],
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "duration_seconds": {
+                      "description": "The video length in seconds. Validate accepts a value within 2 seconds of the real length.",
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "free_preview": {
+                      "description": "Optional. Accepted, and the app ignores it.",
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "path": {
+                      "description": "An .mp4 file.",
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "poster": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/image"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Optional poster image."
+                    },
+                    "quick_checks": {
+                      "description": "Optional. One or two ungraded checks after the video.",
+                      "items": {
+                        "description": "One ungraded question after the video.",
+                        "properties": {
+                          "choices": {
+                            "description": "Two or more choices.",
+                            "items": {
+                              "$ref": "#/$defs/choice"
+                            },
+                            "minItems": 2,
+                            "type": "array"
+                          },
+                          "correct_choice_id": {
+                            "description": "The id of the correct choice in this check.",
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "explanation": {
+                            "description": "Optional. Shown after the learner picks any choice.",
+                            "minLength": 1,
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "prompt": {
+                            "description": "The question text.",
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "prompt",
+                          "choices",
+                          "correct_choice_id"
+                        ],
+                        "type": "object"
+                      },
+                      "maxItems": 2,
+                      "minItems": 1,
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "duration_seconds"
+                  ],
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "type",
+                "objective",
+                "state",
+                "order"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "objective": {
+            "description": "Section objective.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "order": {
+            "description": "Integer. Sections have unique order values.",
+            "type": "integer"
+          },
+          "state": {
+            "description": "published or draft. Learners do not see a draft section.",
+            "enum": [
+              "draft",
+              "published"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "description": "Section title.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "objective",
+          "state",
+          "order",
+          "header_image",
+          "lectures"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "state": {
+      "description": "published or draft. Learners do not see a draft course.",
+      "enum": [
+        "draft",
+        "published"
+      ],
+      "type": "string"
+    },
+    "subtitle": {
+      "description": "Course subtitle.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "target_audience": {
+      "description": "Text.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "theme": {
+      "description": "The course theme.",
+      "properties": {
+        "accent_color": {
+          "description": "Color in the form #RRGGBB, such as '#286644'.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "appearance": {
+          "description": "light or dark.",
+          "enum": [
+            "light",
+            "dark"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "accent_color",
+        "appearance"
+      ],
+      "type": "object"
+    },
+    "title": {
+      "description": "Course title.",
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "subtitle",
+    "description",
+    "learning_outcomes",
+    "requirements",
+    "target_audience",
+    "state",
+    "theme",
+    "course_image",
+    "credits",
+    "sections"
+  ],
+  "title": "Skillgarden course manifest",
+  "type": "object"
+}

@@ -14,6 +14,8 @@ private struct CommandOutcome {
     /// The `result` object of JSON mode. Nil writes `null`.
     var result: [String: Any]?
     var diagnostics: [CommandDiagnostic] = []
+    /// JSON mode prints this text in place of the envelope.
+    var jsonText: String?
     /// Text mode prints the usage text after the diagnostics.
     var showsUsage = false
 
@@ -29,6 +31,7 @@ public enum SkillgardenCommand {
                skillgarden internal list <course-id> [--json]
                skillgarden init <folder> --id <id> --title <title> [--json]
                skillgarden doctor [--json]
+               skillgarden schema [--output <file>]
 
         """
 
@@ -44,7 +47,7 @@ public enum SkillgardenCommand {
             return CommandResult(exitCode: 0, stdout: "skillgarden \(Skillgarden.version)\n", stderr: "")
         }
         if arguments == ["publish", "--help"] || arguments == ["validate", "--help"] || arguments == ["doctor", "--help"]
-            || arguments == ["init", "--help"] || arguments == ["--help"] {
+            || arguments == ["init", "--help"] || arguments == ["schema", "--help"] || arguments == ["--help"] {
             return CommandResult(exitCode: 0, stdout: usage, stderr: "")
         }
         // `--json` can come anywhere after the command name.
@@ -68,6 +71,15 @@ public enum SkillgardenCommand {
         case "doctor":
             command = "doctor"
             outcome = arguments.count == 1 ? diagnose(doctor()) : usageError("expected doctor")
+        case "schema":
+            command = "schema"
+            if arguments.count == 1 {
+                outcome = schema(output: nil)
+            } else if arguments.count == 3, arguments[1] == "--output", !arguments[2].isEmpty, !arguments[2].hasPrefix("-") {
+                outcome = schema(output: arguments[2])
+            } else {
+                outcome = usageError("expected schema [--output <file>]")
+            }
         default:
             command = arguments.first == "publish" ? "publish" : nil
             outcome = arguments.count == 2 && arguments[0] == "publish" && !arguments[1].hasPrefix("-")
@@ -83,6 +95,7 @@ public enum SkillgardenCommand {
 
     /// One JSON document on stdout for every exit code. Stderr stays empty (#109 owner decision).
     private static func jsonResult(_ outcome: CommandOutcome, command: String?) -> CommandResult {
+        if let text = outcome.jsonText { return CommandResult(exitCode: outcome.exitCode, stdout: text, stderr: "") }
         func value(_ text: String?) -> Any { text ?? NSNull() }
         let diagnostics: [[String: Any]] = outcome.diagnostics.map {
             ["code": $0.code.rawValue, "file": value($0.file), "field_path": value($0.fieldPath),
@@ -216,6 +229,21 @@ public enum SkillgardenCommand {
         let safe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "/._-+@:,"))
         if text.unicodeScalars.allSatisfy(safe.contains) { return text }
         return "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// Prints the manifest JSON Schema, or writes it to `output` and overwrites an earlier copy. It does not open the library.
+    /// The schema is already JSON, so `--json` prints the same schema. With `--output`, `--json` prints the envelope.
+    private static func schema(output: String?) -> CommandOutcome {
+        let text = ManifestSchema.json + "\n"
+        guard let output else { return CommandOutcome(exitCode: 0, text: text, jsonText: text) }
+        let file = URL(fileURLWithPath: output).standardizedFileURL
+        do {
+            try Data(text.utf8).write(to: file, options: .atomic)
+        } catch {
+            return .failure(3, [CommandDiagnostic(code: .io, file: file.path, message: error.localizedDescription)])
+        }
+        return CommandOutcome(exitCode: 0, text: "Wrote manifest schema \(ManifestSchema.version) to \(file.path)\n",
+                              result: ["path": file.path, "schema_version": ManifestSchema.version])
     }
 
     /// The report goes to stdout for every exit code, so an agent sees the lines that explain the error.
