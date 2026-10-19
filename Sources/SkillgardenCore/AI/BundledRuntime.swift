@@ -42,7 +42,7 @@ public struct BundledRuntime: LocalAIBackend {
     /// One inference slot, on the loopback address only.
     static func serverArguments(model: URL, port: Int) -> [String] {
         ["--model", model.path(percentEncoded: false), "--host", "127.0.0.1", "--port", String(port), "--parallel", "1",
-         "--ctx-size", "8192"]
+         "--ctx-size", String(LectureContextBudget.standard.contextTokens)]
     }
 
     /// `/health` gives 200 when the model is loaded and 503 while it loads.

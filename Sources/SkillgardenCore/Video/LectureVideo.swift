@@ -3,6 +3,8 @@ import Foundation
 /// The video of a video lecture, resolved inside the installed course snapshot.
 public struct LectureVideo: Equatable, Sendable {
     public let url: URL
+    /// The snapshot folder. The local AI context (#125) checks that the captions file is inside it.
+    public let folder: URL
     /// Nil when the manifest has no captions.
     public let captionsURL: URL?
     /// Nil when the manifest has no poster.
@@ -19,6 +21,7 @@ public struct LectureVideo: Equatable, Sendable {
         }
         guard let url = resolve(video.path) else { return nil }
         self.url = url
+        self.folder = folder
         captionsURL = resolve(video.captions?.path)
         posterURL = resolve(video.poster?.path)
         posterAlt = video.poster?.alt ?? ""
