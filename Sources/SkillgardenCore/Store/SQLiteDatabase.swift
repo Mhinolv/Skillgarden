@@ -6,6 +6,10 @@ public enum CourseStoreError: Error, LocalizedError, Equatable {
     case databaseFailure
     case invalidData
     case unsupportedSchema(found: Int, supported: Int)
+    /// `SQLITE_BUSY`: another connection held a write lock for longer than the busy timeout (#117).
+    case busy
+    /// `SQLITE_LOCKED`: a conflict inside the same connection or shared cache (#117).
+    case locked
 
     public var errorDescription: String? {
         switch self {
@@ -14,6 +18,8 @@ public enum CourseStoreError: Error, LocalizedError, Equatable {
         case .invalidData: "The library contains invalid course data."
         case let .unsupportedSchema(found, supported):
             "The library uses schema version \(found), but this app supports version \(supported)."
+        case .busy: "The library is busy. Another process held a write lock for more than 5 seconds."
+        case .locked: "The library database is locked by another operation."
         }
     }
 }
@@ -43,9 +49,8 @@ final class SQLiteDatabase {
     @discardableResult
     func query<T>(_ sql: String, _ values: [String?] = [], row: (OpaquePointer) throws -> T) throws -> [T] {
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-            throw CourseStoreError.databaseFailure
-        }
+        let prepared = sqlite3_prepare_v2(handle, sql, -1, &statement, nil)
+        guard prepared == SQLITE_OK, let statement else { throw Self.error(prepared) }
         defer { sqlite3_finalize(statement) }
         let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
         for (index, value) in values.enumerated() {
@@ -62,7 +67,7 @@ final class SQLiteDatabase {
             switch sqlite3_step(statement) {
             case SQLITE_ROW: rows.append(try row(statement))
             case SQLITE_DONE: return rows
-            default: throw CourseStoreError.databaseFailure
+            case let result: throw Self.error(result)
             }
         }
     }
@@ -76,6 +81,15 @@ final class SQLiteDatabase {
         } catch {
             try? execute("ROLLBACK")
             throw error
+        }
+    }
+
+    /// Keeps busy and locked results apart from other failures. The low byte of an extended code is its primary code.
+    static func error(_ result: Int32) -> CourseStoreError {
+        switch result & 0xFF {
+        case SQLITE_BUSY: .busy
+        case SQLITE_LOCKED: .locked
+        default: .databaseFailure
         }
     }
 

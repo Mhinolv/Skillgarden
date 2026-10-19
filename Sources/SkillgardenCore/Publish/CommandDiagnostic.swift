@@ -36,6 +36,8 @@ public enum DiagnosticCode: String, CaseIterable, Sendable {
     case notMP4 = "not_mp4"
     /// `media inspect` finds an MP4 file with no readable length (#116).
     case noVideoLength = "no_video_length"
+    /// SQLite reports a lock conflict inside the library connection (#117). Another process uses `library.busy`.
+    case libraryLocked = "library.locked"
 }
 
 /// One problem of a CLI run. Text mode prints `error: <text>`. JSON mode writes each field.
@@ -45,13 +47,17 @@ public struct CommandDiagnostic: Equatable, Sendable {
     public let fieldPath: String?
     public let message: String
     public let hint: String?
+    /// The library of a busy or locked library error (#117).
+    public let libraryPath: String?
 
-    public init(code: DiagnosticCode, file: String? = nil, fieldPath: String? = nil, message: String, hint: String? = nil) {
+    public init(code: DiagnosticCode, file: String? = nil, fieldPath: String? = nil, message: String, hint: String? = nil,
+                libraryPath: String? = nil) {
         self.code = code
         self.file = file
         self.fieldPath = fieldPath
         self.message = message
         self.hint = hint
+        self.libraryPath = libraryPath
     }
 
     public init(_ diagnostic: ManifestDiagnostic) {
@@ -138,7 +144,8 @@ extension ManifestDiagnostic {
             guard let range = message.range(of: "use ") else { return nil }
             return "Change \(path) to \(message[range.upperBound...])."
         case .usage, .dataDirectoryRelative, .courseFolderMissing, .fieldValue, .mediaInvalid, .courseNotFound, .libraryBusy, .io,
-             .dataDirectoryNotFolder, .courseFolderNotEmpty, .courseFolderNotFolder, .fileNotFound, .notMP4, .noVideoLength:
+             .dataDirectoryNotFolder, .courseFolderNotEmpty, .courseFolderNotFolder, .fileNotFound, .notMP4, .noVideoLength,
+             .libraryLocked:
             return nil
         }
     }
