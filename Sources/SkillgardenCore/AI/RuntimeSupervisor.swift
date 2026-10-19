@@ -277,9 +277,11 @@ public final class RuntimeSupervisor {
         while !Task.isCancelled {
             if let code = process.exitStatus { return .exited(code) }
             if await backend.isHealthy(port: port) {
+                // A quit during the check stops the process. That stop is not an error.
+                if Task.isCancelled { return .cancelled }
                 // The health answer must come from the owned server, not from a program that took the port.
                 if let code = process.exitStatus { return .exited(code) }
-                return Task.isCancelled ? .cancelled : .ready
+                return .ready
             }
             if ContinuousClock.now >= deadline { return .timedOut }
             try? await Task.sleep(for: pollInterval)

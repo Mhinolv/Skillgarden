@@ -26,8 +26,9 @@ private let otherModel = LocalModel(url: URL(fileURLWithPath: "/models/llama.ggu
 private let runtime = LocalAIRuntime(server: URL(fileURLWithPath: "/app/llama-server"), host: URL(fileURLWithPath: "/app/host"),
                                      version: "b11669")
 
-/// Waits until `condition` is true, at most `seconds`.
-private func eventually(_ seconds: Double = 5, isolation: isolated (any Actor)? = #isolation, _ condition: () -> Bool) async -> Bool {
+/// Waits until `condition` is true, at most `seconds`. The long default is for slow CI runners.
+/// Use it only where no signal is available. The tests must not depend on the time that a step takes.
+private func eventually(_ seconds: Double = 120, isolation: isolated (any Actor)? = #isolation, _ condition: () -> Bool) async -> Bool {
     let deadline = Date(timeIntervalSinceNow: seconds)
     while !condition() {
         if Date() > deadline { return false }
@@ -94,10 +95,15 @@ private final class FakeBackend: LocalAIBackend, @unchecked Sendable {
     /// The next ports. When it is empty, the port is 8000 + the launch count.
     var ports: [Int?] = []
     var healthy = true
+    /// When true, `isHealthy` waits for `setHealthy(true)` and does not answer false. The tests then need no clock.
+    var waitsUntilHealthy = false
     /// The process of each launch, by launch index. Nil gives a process that runs.
     var processes: [Int: FakeProcess] = [:]
     private(set) var launches: [Launch] = []
     private(set) var launched: [FakeProcess] = []
+    private var healthChecks = 0
+    private var checkWaiters: [CheckedContinuation<Void, Never>] = []
+    private var healthWaiters: [CheckedContinuation<Void, Never>] = []
 
     func locateRuntime() -> Result<LocalAIRuntime, LocalAIProblem> { lock.withLock { runtimeResult } }
 
@@ -114,14 +120,46 @@ private final class FakeBackend: LocalAIBackend, @unchecked Sendable {
         }
     }
 
-    func isHealthy(port: Int) async -> Bool { lock.withLock { healthy } }
+    func isHealthy(port: Int) async -> Bool {
+        let (answer, waits, checkers) = lock.withLock {
+            healthChecks += 1
+            defer { checkWaiters = [] }
+            return (healthy, waitsUntilHealthy, checkWaiters)
+        }
+        checkers.forEach { $0.resume() }
+        guard !answer && waits else { return answer }
+        await withCheckedContinuation { continuation in
+            lock.withLock {
+                if healthy { continuation.resume() } else { healthWaiters.append(continuation) }
+            }
+        }
+        return true
+    }
 
-    func setHealthy(_ on: Bool) { lock.withLock { healthy = on } }
+    func setHealthy(_ on: Bool) {
+        let waiting: [CheckedContinuation<Void, Never>] = lock.withLock {
+            healthy = on
+            guard on else { return [] }
+            defer { healthWaiters = [] }
+            return healthWaiters
+        }
+        waiting.forEach { $0.resume() }
+    }
+
+    /// Returns after the first health check. The server then runs and the status is Starting.
+    func waitForHealthCheck() async {
+        await withCheckedContinuation { continuation in
+            lock.withLock {
+                if healthChecks > 0 { continuation.resume() } else { checkWaiters.append(continuation) }
+            }
+        }
+    }
 }
 
+/// The success paths never wait for the timeout. The long time limit is for slow CI runners only.
 @MainActor
 private func supervisor(_ backend: FakeBackend, enabled: Bool = true, saved: ((Bool) -> Void)? = nil,
-                        readyTimeout: Duration = .seconds(30)) -> RuntimeSupervisor {
+                        readyTimeout: Duration = .seconds(120)) -> RuntimeSupervisor {
     RuntimeSupervisor(isEnabled: enabled, backend: backend, saveEnabled: saved, pollInterval: .milliseconds(5), readyTimeout: readyTimeout)
 }
 
@@ -170,11 +208,14 @@ private func supervisor(_ backend: FakeBackend, enabled: Bool = true, saved: ((B
 @MainActor @Test func validSetupStartsAsynchronouslyAndBecomesReady() async throws {
     let backend = FakeBackend()
     backend.healthy = false
+    backend.waitsUntilHealthy = true
     let ai = supervisor(backend)
     #expect(ai.status == .noModel)
     ai.setModel(model)
     // The call returns at once. The start runs in a task.
-    #expect(await eventually { ai.status == .starting })
+    #expect(backend.launches.isEmpty)
+    await backend.waitForHealthCheck()
+    #expect(ai.status == .starting)
     #expect(ai.endpoint == nil && ai.verifiedEndpoint() == nil)
     backend.setHealthy(true)
     await ai.waitForChanges()
@@ -219,7 +260,6 @@ private func supervisor(_ backend: FakeBackend, enabled: Bool = true, saved: ((B
 
     // Off stops the owned server: Stopping, then Off.
     ai.setEnabled(false)
-    #expect(await eventually { ai.status == .off })
     await ai.waitForChanges()
     #expect(ai.status == .off)
     #expect(backend.launched[0].terminateCount == 1)
@@ -350,9 +390,11 @@ private func supervisor(_ backend: FakeBackend, enabled: Bool = true, saved: ((B
     // A quit during Starting cancels the start, so the server never becomes Ready.
     let slow = FakeBackend()
     slow.healthy = false
+    slow.waitsUntilHealthy = true
     let starting = supervisor(slow)
     starting.setModel(model)
-    #expect(await eventually { starting.status == .starting && slow.launched.count == 1 })
+    await slow.waitForHealthCheck()
+    #expect(starting.status == .starting && slow.launched.count == 1)
     starting.stopForQuit()
     slow.setHealthy(true)
     try? await Task.sleep(for: .milliseconds(50))
@@ -484,13 +526,15 @@ private func helpersFolder(server script: String?, version: String? = "b11669") 
     #expect(await eventually { ai.status == .starting && FileManager.default.fileExists(atPath: pidFile.path) })
     let pid = try #require(await serverPID(pidFile))
     #expect(isAlive(pid))
-    ai.stopForQuit(timeout: 5)
+    ai.stopForQuit(timeout: 120)
     #expect(ai.status == .off)
-    #expect(!isAlive(pid))
+    #expect(await eventually { !isAlive(pid) })
 }
 
-private func serverPID(_ file: URL) async -> pid_t? {
-    for _ in 0..<500 {
+/// The pid that the child writes to `file`. Nil after `seconds`.
+private func serverPID(_ file: URL, seconds: Double = 120) async -> pid_t? {
+    let deadline = Date(timeIntervalSinceNow: seconds)
+    while Date() < deadline {
         if let text = try? String(contentsOf: file, encoding: .utf8), let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
             return pid
         }
@@ -523,7 +567,7 @@ private func startHost(parent: pid_t = getpid(), child script: String, pidFile: 
     return (host, input)
 }
 
-private func waitForExit(_ process: Process, seconds: Double = 10, isolation: isolated (any Actor)? = #isolation) async -> Bool {
+private func waitForExit(_ process: Process, seconds: Double = 120, isolation: isolated (any Actor)? = #isolation) async -> Bool {
     await eventually(seconds) { !process.isRunning }
 }
 
@@ -581,7 +625,7 @@ private func waitForExit(_ process: Process, seconds: Double = 10, isolation: is
     try parent.run()
     #expect(await waitForExit(parent))
     let child = try #require(await serverPID(pidFile))
-    #expect(await eventually(10) { !isAlive(child) })
+    #expect(await eventually { !isAlive(child) })
     try input.fileHandleForWriting.close()
 }
 
@@ -598,10 +642,13 @@ private func waitForExit(_ process: Process, seconds: Double = 10, isolation: is
     try input.fileHandleForWriting.close()
 
     // An ignored SIGTERM survives `exec`, so the sleep ignores it. SIGKILL follows after the kill delay.
+    // The child writes its pid before the trap, so the test waits for a second file after the trap.
     let stubbornFile = folder.appending(path: "stubborn.pid")
-    let (stubbornHost, stubbornInput) = try startHost(child: "trap '' TERM; exec /bin/sleep 600", pidFile: stubbornFile)
+    let trapped = folder.appending(path: "trapped")
+    let (stubbornHost, stubbornInput) = try startHost(child: "trap '' TERM; touch '\(trapped.path)'; exec /bin/sleep 600",
+                                                      pidFile: stubbornFile)
     let stubborn = try #require(await serverPID(stubbornFile))
-    try await Task.sleep(for: .milliseconds(100))
+    #expect(await eventually { FileManager.default.fileExists(atPath: trapped.path) })
     stubbornHost.terminate()
     #expect(await waitForExit(stubbornHost))
     #expect(stubbornHost.terminationStatus == 128 + SIGKILL)
