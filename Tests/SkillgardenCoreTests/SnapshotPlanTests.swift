@@ -66,11 +66,14 @@ private func temporaryFolder() throws -> URL {
         "qa-citations-light.png", "qa-citations-dark.png", "qa-citations-unthemed-dark.png",
         "qa-citation-excerpt-light.png", "qa-citation-excerpt-dark.png", "qa-citation-excerpt-unthemed-dark.png",
         "qa-citations-stale-light.png", "qa-citations-stale-dark.png", "qa-citations-stale-unthemed-dark.png",
+        "qa-off-history-light.png", "qa-off-history-dark.png", "qa-off-history-unthemed-dark.png",
+        "qa-error-history-light.png", "qa-error-history-dark.png", "qa-error-history-unthemed-dark.png",
+        "qa-starting-history-light.png", "qa-starting-history-dark.png", "qa-starting-history-unthemed-dark.png",
     ])
     // #82: every course screen except the dark-theme screen gets one dark capture with no course theme.
     #expect(SnapshotScreen.allCases.filter { $0.selectsCourse && !$0.hasUnthemedCapture } == [.courseLandingDarkTheme])
     let unthemed = outputs.filter(\.ignoresCourseTheme)
-    #expect(unthemed.count == 41)
+    #expect(unthemed.count == 44)
     #expect(unthemed.allSatisfy { $0.appearance == .dark && $0.screen.hasUnthemedCapture })
     #expect(unthemed.allSatisfy { $0.url.lastPathComponent == "\($0.screen.rawValue)-unthemed-dark.png" })
     #expect(outputs.filter { !$0.ignoresCourseTheme }.map(\.url.lastPathComponent) == SnapshotScreen.allCases.flatMap { screen in
@@ -89,16 +92,17 @@ private func temporaryFolder() throws -> URL {
     #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [
         .courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureDownloads, .pdfPreview, .lectureSources,
         .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaTheater,
-        .qaCitations, .qaCitationsStale,
+        .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory,
     ])
     // #128: the Q&A screens open the panel with an injected status. Only the draft screen shows a draft.
     #expect(SnapshotScreen.allCases.filter(\.showsQA) == [.qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting,
                                                           .qaStopping, .qaError, .qaNoCaptions, .qaArticle, .qaTheater,
-                                                          .qaCitations, .qaCitationExcerpt, .qaCitationsStale])
+                                                          .qaCitations, .qaCitationExcerpt, .qaCitationsStale,
+                                                          .qaOffHistory, .qaErrorHistory, .qaStartingHistory])
     #expect(SnapshotScreen.allCases.filter { $0.qaStatus != nil } == SnapshotScreen.allCases.filter(\.showsQA))
     #expect(SnapshotScreen.allCases.compactMap(\.qaStatus).map { LectureQAState(status: $0, content: .ready) }
         == [.ready, .ready, .ready, .noModel, .off, .starting, .stopping, .error(reason: "The server stopped. Exit code 9."),
-            .ready, .ready, .ready, .ready, .ready, .ready])
+            .ready, .ready, .ready, .ready, .ready, .ready, .off, .error(reason: "The server stopped. Exit code 9."), .starting])
     // #129: only the excerpt screen opens an excerpt. Only the stale screen saves turns of an earlier revision.
     #expect(SnapshotScreen.allCases.filter(\.opensCitationExcerpt) == [.qaCitationExcerpt])
     #expect(SnapshotScreen.allCases.filter(SnapshotPlan.qaTurnsAreStale) == [.qaCitationsStale])
@@ -352,7 +356,7 @@ private func temporaryFolder() throws -> URL {
                 #expect(results.groups.isEmpty)
             }
         case .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaArticle,
-             .qaTheater, .qaCitations, .qaCitationExcerpt, .qaCitationsStale:
+             .qaTheater, .qaCitations, .qaCitationExcerpt, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory:
             #expect(courseID == "sample-course")
             #expect(SnapshotPlan.imageLoads(for: screen) == 1)
             library.selectCourse(courseID)
@@ -374,7 +378,7 @@ private func temporaryFolder() throws -> URL {
             case .qaThread, .qaArticle, .qaTheater:
                 #expect(turns.map(\.status) == [.complete, .cancelled, .failed(reason: "Local AI returned an error (500). Try again.")])
                 #expect(turns.map(\.answer) == ["You plan a course step by step [t1].", "You need", ""])
-            case .qaDraft, .qaCitations, .qaCitationExcerpt, .qaCitationsStale:
+            case .qaDraft, .qaCitations, .qaCitationExcerpt, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory:
                 #expect(turns.map(\.status) == [.complete])
             default:
                 #expect(turns.isEmpty)

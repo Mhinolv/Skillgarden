@@ -104,6 +104,53 @@ private func model(_ library: LibraryModel, transport: ScriptedTransport, interv
     #expect(states.filter(\.canSend) == [.ready])
 }
 
+// #160: saved turns stay in every service state. Only "Send" needs a ready model.
+@Test func savedTurnsShowInEveryServiceStateWithAStatusRow() {
+    let service: [LectureQAState] = [.off, .noModel, .starting, .stopping, .error(reason: "x")]
+    for state in service {
+        #expect(state.showsTurns(hasHistory: true), "\(state)")
+        #expect(state.showsStatusRow(hasHistory: true), "\(state)")
+        // No history keeps the #128 full state view.
+        #expect(!state.showsTurns(hasHistory: false) && !state.showsStatusRow(hasHistory: false), "\(state)")
+        #expect(!state.canSend)
+    }
+    #expect(LectureQAState.ready.showsTurns(hasHistory: true) && !LectureQAState.ready.showsStatusRow(hasHistory: true))
+    #expect(!LectureQAState.ready.showsTurns(hasHistory: false))
+    // Loading and "No captions" do not change.
+    for state in [LectureQAState.loading, .unavailable(message: "No text")] {
+        #expect(!state.showsTurns(hasHistory: true) && !state.showsStatusRow(hasHistory: true))
+    }
+}
+
+@MainActor @Test func turnsAndSourcesStayAndClearHistoryWorksWithLocalAIOff() async throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: "LectureQATests-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let courseID = try #require(try SnapshotPlan.seedStore(for: .qaCitations, root: root, fixture: fixture))
+    let library = LibraryModel(root: root)
+    await library.reload()
+    library.selectCourse(courseID)
+    open(library, "welcome")
+    try await SnapshotPlan.seedQATurns(for: .qaCitations, library: library)
+
+    // No endpoint: local AI is off.
+    let qa = model(library, transport: ScriptedTransport(), endpoint: nil)
+    qa.show(LectureQA.key(library: library))
+    await qa.load()
+    let state = LectureQAState(status: .off, content: qa.content)
+    #expect(state == .off)
+    #expect(qa.hasHistory)
+    #expect(state.showsTurns(hasHistory: qa.hasHistory))
+    let turn = try #require(qa.conversation.turns.first)
+    #expect(qa.citations(for: turn).sources.count == 3)
+    #expect(!qa.send("Another question?"))
+
+    qa.clearHistory()
+    #expect(qa.conversation.turns.isEmpty && !qa.hasHistory)
+    await library.waitForWrites()
+    #expect(try await library.lectureConversation(forLecture: "welcome")?.turns.isEmpty == true)
+    #expect(!state.showsTurns(hasHistory: qa.hasHistory))
+}
+
 @Test func transcriptAndQAShareOneSlotAndTheSavedChoiceStays() {
     #expect(LecturePanelSlot.showsTranscript(saved: true, showsQA: false))
     #expect(!LecturePanelSlot.showsTranscript(saved: true, showsQA: true))

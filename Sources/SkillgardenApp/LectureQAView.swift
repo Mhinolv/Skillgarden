@@ -88,7 +88,20 @@ struct LectureQAView: View {
         }
     }
 
+    /// Saved turns show in every service state (#160). A status row under them shows a state that is not Ready.
     @ViewBuilder private func thread(_ state: LectureQAState) -> some View {
+        if state.showsTurns(hasHistory: qa.hasHistory) {
+            VStack(spacing: GardenSpacing.xs) {
+                turns
+                if state.showsStatusRow(hasHistory: qa.hasHistory) { statusRow(state) }
+            }
+        } else {
+            stateView(state)
+        }
+    }
+
+    /// The #128 full view of a state with no history.
+    @ViewBuilder private func stateView(_ state: LectureQAState) -> some View {
         switch state {
         case .loading:
             ProgressView().controlSize(.small)
@@ -122,11 +135,52 @@ struct LectureQAView: View {
             }
             .padding(GardenSpacing.m)
         case .ready:
-            if qa.conversation.turns.isEmpty && qa.draft == nil && qa.notice == nil {
-                message("Ask a question about this lecture.", systemImage: LectureQAPanel.symbol)
-            } else {
-                turns
+            message("Ask a question about this lecture.", systemImage: LectureQAPanel.symbol)
+        }
+    }
+
+    /// One line at the bottom of the thread frame: the state, then its action (#160).
+    @ViewBuilder private func statusRow(_ state: LectureQAState) -> some View {
+        HStack(spacing: GardenSpacing.xs) {
+            HStack(spacing: GardenSpacing.xs) {
+                switch state {
+                case .starting, .stopping:
+                    ProgressView().controlSize(.mini)
+                case .error:
+                    Image(systemName: "exclamationmark.triangle").font(GardenFont.small).foregroundStyle(palette.muted)
+                default:
+                    Image(systemName: "cpu").font(GardenFont.small).foregroundStyle(palette.muted)
+                }
+                Text(Self.statusText(state))
+                    .gardenText(.meta)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(Self.statusText(state))
             }
+            .accessibilityElement(children: .combine)
+            Spacer(minLength: 0)
+            switch state {
+            case .off, .noModel:
+                SettingsLink { Text("Open Settings…") }
+                    .buttonStyle(.garden(.plain, .small))
+            case .error:
+                Button("Retry") { localAI.retry() }
+                    .buttonStyle(.garden(.plain, .small))
+            default:
+                EmptyView()
+            }
+        }
+    }
+
+    /// The status row text. The error reason follows on the same line.
+    private static func statusText(_ state: LectureQAState) -> String {
+        switch state {
+        case .off: "Local AI is off."
+        case .noModel: "No AI model."
+        case .starting: "Starting the local model…"
+        case .stopping: "Stopping the local model…"
+        case .error(let reason): ["The local model stopped.", reason].compactMap { $0 }.joined(separator: " ")
+        case .loading, .unavailable, .ready: ""
         }
     }
 

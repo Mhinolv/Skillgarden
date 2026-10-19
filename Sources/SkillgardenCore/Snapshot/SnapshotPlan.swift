@@ -104,6 +104,12 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case qaCitationExcerpt = "qa-citation-excerpt"
     /// The Q&A panel of the video lecture (#129): a turn of an earlier version of the lecture text with stale sources.
     case qaCitationsStale = "qa-citations-stale"
+    /// The Q&A panel with saved turns and "Use local AI" off (#160): the turns, their sources and the status row.
+    case qaOffHistory = "qa-off-history"
+    /// The Q&A panel with saved turns after the local model stopped (#160): the status row with the reason and "Retry".
+    case qaErrorHistory = "qa-error-history"
+    /// The Q&A panel with saved turns while the local model starts (#160).
+    case qaStartingHistory = "qa-starting-history"
 
     static let settingsScreens: [SnapshotScreen] = [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError]
 
@@ -128,10 +134,10 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     public var qaStatus: LocalAIStatus? {
         switch self {
         case .qaNoModel: .noModel
-        case .qaOff: .off
-        case .qaStarting: .starting
+        case .qaOff, .qaOffHistory: .off
+        case .qaStarting, .qaStartingHistory: .starting
         case .qaStopping: .stopping
-        case .qaError: .failed(.serverStopped(exitCode: 9))
+        case .qaError, .qaErrorHistory: .failed(.serverStopped(exitCode: 9))
         default: showsQA ? .ready(version: "b11669") : nil
         }
     }
@@ -265,7 +271,7 @@ public enum SnapshotPlan {
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
              .videoQuickCheck, .videoTheater, .lectureSources, .videoUpNext, .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft,
              .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaArticle, .qaTheater, .qaCitations, .qaCitationExcerpt,
-             .qaCitationsStale:
+             .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -419,7 +425,7 @@ public enum SnapshotPlan {
              ("How long is the course?", "", .httpError(status: 500))]
         case .qaDraft:
             [("What is the goal of this course?", "You plan a course step by step [t1].", .finished)]
-        case .qaCitations:
+        case .qaCitations, .qaOffHistory, .qaErrorHistory, .qaStartingHistory:
             // Inline Markdown (#158): italic, a marker in bold and code.
             [("How does the course start?", "It starts with a *welcome* [t0]. Then you plan the course **step by step [t1]**. "
                 + "The `guide` has more help [L9].", .finished)]
@@ -521,7 +527,7 @@ public enum SnapshotPlan {
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
              .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions,
-             .qaTheater, .qaCitations, .qaCitationsStale:
+             .qaTheater, .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory:
             .lecture(sectionID: "plan", lectureID: "welcome")
         case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle, .qaCitationExcerpt:
             .lecture(sectionID: "plan", lectureID: "read")
