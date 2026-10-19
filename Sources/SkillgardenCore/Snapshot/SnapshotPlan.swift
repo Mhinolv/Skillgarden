@@ -440,6 +440,9 @@ public enum SnapshotPlan {
     /// True when the harness saves the Q&A turns of the screen with an earlier revision of the lecture text (#129).
     public static func qaTurnsAreStale(for screen: SnapshotScreen) -> Bool { screen == .qaCitationsStale }
 
+    /// The provider and the model of the seeded Q&A turns (#150). The panel does not show them.
+    static let snapshotOrigin = AnswerOrigin(providerID: BundledAnswerProvider.providerID, modelID: "snapshot.gguf")
+
     /// Saves the Q&A turns of the screen for the selected lecture of `library`, after the harness selects it.
     @MainActor
     public static func seedQATurns(for screen: SnapshotScreen, library: LibraryModel) async throws {
@@ -452,7 +455,8 @@ public enum SnapshotPlan {
                              passages: context.passages.map { LecturePassage(id: $0.id, label: $0.label, text: $0.text + " Old.") })
             : context
         for turn in turns {
-            let saved = try await library.startQATurn(question: turn.question, context: asked, lectureID: lectureID)
+            let saved = try await library.startQATurn(question: turn.question, context: asked, origin: snapshotOrigin,
+                                                      lectureID: lectureID)
             library.finishQATurn(saved, outcome: turn.outcome, text: turn.answer)
         }
         await library.waitForWrites()

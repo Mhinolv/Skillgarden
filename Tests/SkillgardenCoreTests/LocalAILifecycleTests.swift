@@ -223,7 +223,7 @@ private func supervisor(_ backend: FakeBackend, enabled: Bool = true, saved: ((B
     let launch = try #require(backend.launches.first)
     #expect(backend.launches.count == 1)
     #expect(launch.model == model)
-    #expect(ai.endpoint == LocalAIEndpoint(port: launch.port, apiKey: launch.apiKey))
+    #expect(ai.endpoint == LocalAIEndpoint(port: launch.port, apiKey: launch.apiKey, modelID: "qwen.gguf"))
     #expect(ai.verifiedEndpoint()?.baseURL.absoluteString == "http://127.0.0.1:\(launch.port)")
     // The same model again does not restart the server.
     ai.setModel(model)

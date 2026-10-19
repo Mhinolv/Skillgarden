@@ -79,6 +79,8 @@ public enum LocalAIStatus: Equatable, Sendable {
 public struct LocalAIEndpoint: Equatable, Sendable {
     public let port: Int
     public let apiKey: String
+    /// The file name of the model that the server runs (#150). Nil when it is not known.
+    public var modelID: String? = nil
 
     /// `http://127.0.0.1:<port>`. The server listens on the loopback address only.
     public var baseURL: URL { URL(string: "http://127.0.0.1:\(port)")! }
@@ -248,7 +250,7 @@ public final class RuntimeSupervisor {
             self.process = process
             switch await waitUntilReady(process, port: port, backend: backend) {
             case .ready:
-                endpoint = LocalAIEndpoint(port: port, apiKey: apiKey)
+                endpoint = LocalAIEndpoint(port: port, apiKey: apiKey, modelID: model.name)
                 status = .ready(version: runtime.version)
                 watch(process)
                 return

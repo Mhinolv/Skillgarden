@@ -10,7 +10,7 @@ private let fixture = URL(fileURLWithPath: #filePath)
     .appendingPathComponent("Fixtures/sample-course")
 
 private let secret = String(repeating: "0123456789abcdef", count: 4)
-private let endpoint = LocalAIEndpoint(port: 8080, apiKey: secret)
+private let endpoint = LocalAIEndpoint(port: 8080, apiKey: secret, modelID: "qwen.gguf")
 
 /// Gives each request stream to the test, which then sends the events by hand.
 private final class ScriptedTransport: LlamaTransport, @unchecked Sendable {
@@ -80,8 +80,8 @@ private final class Announcements {
 @MainActor
 private func model(_ library: LibraryModel, transport: ScriptedTransport, interval: Duration = .zero,
                    endpoint: LocalAIEndpoint? = endpoint, announcements: Announcements = Announcements()) -> LectureQA {
-    LectureQA(library: library, client: LlamaClient(transport: transport), endpoint: { endpoint }, draftInterval: interval,
-              announce: { announcements.texts.append($0) })
+    LectureQA(library: library, provider: BundledAnswerProvider(client: LlamaClient(transport: transport), endpoint: { endpoint }),
+              draftInterval: interval, announce: { announcements.texts.append($0) })
 }
 
 // MARK: States
@@ -222,6 +222,8 @@ private func model(_ library: LibraryModel, transport: ScriptedTransport, interv
         #expect(qa.conversation.turns.map(\.question) == ["What is step one?"])
         #expect(qa.conversation.turns.map(\.answer) == ["Write the goal."])
         #expect(qa.conversation.turns.map(\.status) == [.complete])
+        // #150: the turn stores the stable provider and model IDs.
+        #expect(qa.conversation.turns.map(\.origin) == [AnswerOrigin(providerID: "bundled-local", modelID: "qwen.gguf")])
         #expect(announcements.texts == ["Answer ready"])
 
         // The thread is saved for the lecture.
