@@ -123,6 +123,17 @@ final class HostedServer: LocalAIProcess, @unchecked Sendable {
         LoopbackPorts.childPIDs(of: process.processIdentifier).contains { LoopbackPorts.isListening(pid: $0, port: port) }
     }
 
+    /// The memory of the `llama-server` child for the #130 check: the larger of its physical footprint and its resident
+    /// size, because the model file is mapped. Nil when the server does not run.
+    var serverMemoryBytes: UInt64? {
+        guard process.isRunning, let pid = LoopbackPorts.childPIDs(of: process.processIdentifier).first else { return nil }
+        var info = rusage_info_v2()
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V2, $0) }
+        }
+        return result == 0 ? max(info.ri_phys_footprint, info.ri_resident_size) : nil
+    }
+
     private func append(_ data: Data) {
         lock.withLock {
             log.append(data)
