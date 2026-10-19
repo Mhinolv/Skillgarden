@@ -30,6 +30,20 @@ public enum LectureQAState: Equatable, Sendable {
 
     /// Only Ready turns on "Send".
     public var canSend: Bool { self == .ready }
+
+    /// True when the thread area shows the saved turns (#160). Each state but loading and "No captions" keeps them.
+    /// With no history, each state keeps its #128 full view.
+    public func showsTurns(hasHistory: Bool) -> Bool {
+        switch self {
+        case .loading, .unavailable: false
+        case .off, .noModel, .starting, .stopping, .error, .ready: hasHistory
+        }
+    }
+
+    /// True when a one-line status row under the turns shows the service state and its action (#160).
+    public func showsStatusRow(hasHistory: Bool) -> Bool {
+        showsTurns(hasHistory: hasHistory) && self != .ready
+    }
 }
 
 /// The slot under the video controls row (#128 owner decision). One of Transcript or Q&A shows at a time.
@@ -150,6 +164,9 @@ public final class LectureQA {
 
     /// True while a request runs.
     public var isAnswering: Bool { draft != nil }
+
+    /// True when the thread has saved turns, a notice or a draft (#160).
+    public var hasHistory: Bool { !conversation.turns.isEmpty || draft != nil || notice != nil }
 
     /// The open lecture changed. A new lecture cancels the request and clears the thread until `load()`.
     public func show(_ key: Key?) {
