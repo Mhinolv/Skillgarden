@@ -30,6 +30,12 @@ public enum DiagnosticCode: String, CaseIterable, Sendable {
     case courseFolderNotEmpty = "course_folder.not_empty"
     /// `init` finds a file, not a folder, at the target path (#110).
     case courseFolderNotFolder = "course_folder.not_folder"
+    /// `media inspect` finds no file at the path (#116).
+    case fileNotFound = "file_not_found"
+    /// `media inspect` finds a file that does not start with an MP4 `ftyp` box (#116).
+    case notMP4 = "not_mp4"
+    /// `media inspect` finds an MP4 file with no readable length (#116).
+    case noVideoLength = "no_video_length"
 }
 
 /// One problem of a CLI run. Text mode prints `error: <text>`. JSON mode writes each field.
@@ -132,7 +138,7 @@ extension ManifestDiagnostic {
             guard let range = message.range(of: "use ") else { return nil }
             return "Change \(path) to \(message[range.upperBound...])."
         case .usage, .dataDirectoryRelative, .courseFolderMissing, .fieldValue, .mediaInvalid, .courseNotFound, .libraryBusy, .io,
-             .dataDirectoryNotFolder, .courseFolderNotEmpty, .courseFolderNotFolder:
+             .dataDirectoryNotFolder, .courseFolderNotEmpty, .courseFolderNotFolder, .fileNotFound, .notMP4, .noVideoLength:
             return nil
         }
     }
