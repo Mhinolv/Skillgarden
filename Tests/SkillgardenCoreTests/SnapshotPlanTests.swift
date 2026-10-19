@@ -49,6 +49,7 @@ private func temporaryFolder() throws -> URL {
         "video-up-next-theater-light.png", "video-up-next-theater-dark.png", "video-up-next-theater-unthemed-dark.png",
         "outline-durations-light.png", "outline-durations-dark.png", "outline-durations-unthemed-dark.png",
         "settings-light.png", "settings-dark.png",
+        "settings-model-missing-light.png", "settings-model-missing-dark.png",
     ])
     // #82: every course screen except the dark-theme screen gets one dark capture with no course theme.
     #expect(SnapshotScreen.allCases.filter { $0.selectsCourse && !$0.hasUnthemedCapture } == [.courseLandingDarkTheme])
@@ -81,7 +82,8 @@ private func temporaryFolder() throws -> URL {
     ])
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: []).isEmpty)
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: nil) == outputs)
-    #expect(SnapshotScreen.allCases.filter { !$0.selectsCourse } == [.libraryEmpty, .libraryEmptyCustomFolder, .library, .settings])
+    #expect(SnapshotScreen.allCases.filter { !$0.selectsCourse } == [.libraryEmpty, .libraryEmptyCustomFolder, .library, .settings,
+                                                                    .settingsModelMissing])
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
@@ -98,7 +100,7 @@ private func temporaryFolder() throws -> URL {
         await library.reload()
         #expect(library.errorMessage == nil)
         switch screen {
-        case .libraryEmpty, .libraryEmptyCustomFolder, .settings:
+        case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing:
             #expect(courseID == nil)
             #expect(!screen.selectsCourse)
             #expect(SnapshotPlan.imageLoads(for: screen) == 0)
