@@ -67,6 +67,7 @@ public struct LectureContext: Equatable, Sendable {
         self.courseTitle = courseTitle
         self.lectureTitle = lectureTitle
         self.passages = passages
+        passageIndexes = Dictionary(passages.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         self.seekTimes = seekTimes
         self.budget = budget
         sourceRevision = Self.sourceRevision(of: passages)
@@ -85,8 +86,11 @@ public struct LectureContext: Equatable, Sendable {
 
     /// The passage of a citation ID, or nil if the context has no such passage.
     public func passage(id: String) -> LecturePassage? {
-        passages.first { $0.id == id }
+        passageIndexes[id].map { passages[$0] }
     }
+
+    /// The index in `passages` of each passage ID (#165). The first passage wins for an ID that repeats.
+    private let passageIndexes: [String: Int]
 
     public static func == (lhs: LectureContext, rhs: LectureContext) -> Bool {
         lhs.courseTitle == rhs.courseTitle && lhs.lectureTitle == rhs.lectureTitle && lhs.passages == rhs.passages
