@@ -134,10 +134,10 @@ private func jsonObject(_ result: CommandResult) throws -> [String: Any] {
 }
 
 @Test func mediaInspectRejectsBadArguments() {
-    let usage = SkillgardenCommand.run(arguments: ["--help"]).stdout
+    let usage = SkillgardenCommand.usage + SkillgardenCommand.usageMore
     #expect(usage.contains("       skillgarden media inspect <file> [--json]\n"))
-    #expect(run(["media", "--help"]) == CommandResult(exitCode: 0, stdout: usage, stderr: ""))
-    #expect(run(["media", "inspect", "--help"]) == CommandResult(exitCode: 0, stdout: usage, stderr: ""))
+    #expect(run(["media", "--help"]) == CommandResult(exitCode: 0, stdout: SkillgardenCommand.help, stderr: ""))
+    #expect(run(["media", "inspect", "--help"]) == CommandResult(exitCode: 0, stdout: SkillgardenCommand.help, stderr: ""))
     let file = fixture.appending(path: "content/welcome.mp4").path
     for arguments in [["media"], ["media", "inspect"], ["media", "inspect", file, file], ["media", "probe", file],
                       ["media", "inspect", "--all"], ["media", "inspect", ""], ["media", file]] {

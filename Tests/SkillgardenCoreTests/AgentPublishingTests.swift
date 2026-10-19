@@ -163,13 +163,42 @@ private func contents(of folder: URL) throws -> [String: Data] {
 
 @Test func validateUsage() {
     let root = FileManager.default.temporaryDirectory.appending(path: "SkillgardenUnused-\(UUID())")
-    let usage = "usage: skillgarden publish <course-folder> [--json]\n       skillgarden publish --dry-run <course-folder> [--json]\n       skillgarden validate <course-folder> [--json]\n       skillgarden internal list <course-id> [--json]\n       skillgarden inspect <course-id> [--json]\n       skillgarden remove <course-id> --yes [--json]\n       skillgarden init <folder> --id <id> --title <title> [--json]\n       skillgarden media inspect <file> [--json]\n       skillgarden doctor [--json]\n       skillgarden schema [--output <file>]\n"
-    #expect(SkillgardenCommand.run(arguments: ["validate", "--help"], root: root) == CommandResult(exitCode: 0, stdout: usage, stderr: ""))
+    let usage = SkillgardenCommand.usage + SkillgardenCommand.usageMore
+    #expect(SkillgardenCommand.run(arguments: ["validate", "--help"], root: root)
+            == CommandResult(exitCode: 0, stdout: SkillgardenCommand.help, stderr: ""))
     for arguments in [["validate"], ["validate", "a", "b"], ["validate", "--bogus"]] {
         #expect(SkillgardenCommand.run(arguments: arguments, root: root) == CommandResult(
             exitCode: 2, stdout: "", stderr: "error: expected validate <course-folder>\n" + usage))
     }
     #expect(!FileManager.default.fileExists(atPath: root.path))
+}
+
+/// The help names the guide and the skill, and the README links both (#113).
+@Test func helpGuideAndSkillPathsExist() throws {
+    let repo = fixture.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let help = SkillgardenCommand.help
+    for line in ["Guide: docs/agent-publishing.md\n", "Skill: docs/agent-skill/SKILL.md\n"] {
+        #expect(help.contains(line))
+        let path = String(line.split(separator: " ")[1].dropLast())
+        #expect(FileManager.default.fileExists(atPath: repo.appending(path: path).path), "\(path)")
+    }
+    for code in 0...3 { #expect(help.contains("\n  \(code)  ")) }
+
+    let readme = try String(contentsOf: repo.appending(path: "README.md"), encoding: .utf8)
+    #expect(readme.contains("(docs/agent-publishing.md)") && readme.contains("(docs/agent-skill/SKILL.md)"))
+    let guide = try String(contentsOf: repo.appending(path: "docs/agent-publishing.md"), encoding: .utf8)
+    #expect(guide.contains("docs/agent-skill/SKILL.md"))
+
+    let skill = try String(contentsOf: repo.appending(path: "docs/agent-skill/SKILL.md"), encoding: .utf8)
+    #expect(skill.hasPrefix("---\nname: skillgarden-publish\ndescription: "))
+    let headings = skill.split(separator: "\n").filter { $0.hasPrefix("## ") }
+    #expect(headings == ["## 1. Set the library in the workspace", "## 2. Validate", "## 3. Publish", "## 4. Check the result",
+                         "## 5. Hand off to the owner"])
+    // Each library setting in the skill is the workspace library. Nothing goes to the home folder.
+    let settings = skill.components(separatedBy: "SKILLGARDEN_DATA_DIR=").dropFirst()
+    #expect(!settings.isEmpty)
+    for setting in settings { #expect(setting.hasPrefix("\"$PWD/.skillgarden-library\"")) }
+    #expect(!skill.contains("$HOME") && !skill.contains("~/.local"))
 }
 
 @MainActor @Test func libraryShowsABadDataDirectorySetting() async {

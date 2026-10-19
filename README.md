@@ -4,6 +4,7 @@ A Mac-native, local course platform for agent-created content.
 
 - `skillgarden` CLI: agents publish courses from a folder and a manifest.
 - Skillgarden app (SwiftUI): learners take the courses.
+- Agents: read the [agent publishing guide](docs/agent-publishing.md) and the [publication skill](docs/agent-skill/SKILL.md) at `docs/agent-skill/SKILL.md`.
 
 ## Build and run
 ```sh

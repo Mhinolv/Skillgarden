@@ -18,7 +18,7 @@ private func entries(_ folder: URL) throws -> [String] {
     try FileManager.default.subpathsOfDirectory(atPath: folder.path).sorted()
 }
 
-private let usage = SkillgardenCommand.run(arguments: ["--help"]).stdout
+private let usage = SkillgardenCommand.usage + SkillgardenCommand.usageMore
 private let scaffoldFiles = ["content", "content/welcome.md", "media", "media/course.svg", "media/section.svg", "skillgarden.yaml"]
 
 @Test func initCreatesAMissingFolderThatPassesValidateAndPublish() throws {
@@ -145,7 +145,7 @@ private let scaffoldFiles = ["content", "content/welcome.md", "media", "media/co
                 "error: --id must not be \"start\" or \"welcome\", because the starter section and lecture use these ids\n" + usage))
         }
         #expect(!FileManager.default.fileExists(atPath: folder))
-        #expect(run(["init", "--help"]) == CommandResult(exitCode: 0, stdout: usage, stderr: ""))
+        #expect(run(["init", "--help"]) == CommandResult(exitCode: 0, stdout: SkillgardenCommand.help, stderr: ""))
         #expect(usage.contains("       skillgarden internal list <course-id> [--json]\n       skillgarden inspect <course-id> [--json]\n"
             + "       skillgarden remove <course-id> --yes [--json]\n"
             + "       skillgarden init <folder> --id <id> --title <title> [--json]\n       skillgarden media inspect <file> [--json]\n       skillgarden doctor [--json]\n"))

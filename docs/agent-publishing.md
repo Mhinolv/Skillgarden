@@ -2,30 +2,28 @@
 
 This guide tells an agent how to publish a course to the Skillgarden library with the `skillgarden` CLI.
 The example course is `Tests/Fixtures/sample-course`.
+The publication skill, with the steps from workspace publish to owner handoff, is `docs/agent-skill/SKILL.md`.
 
 ## 1. Quick start
+
+This quick start keeps the library in the workspace. It writes nothing to the home folder.
 
 1. Use the CLI that the app bundle holds. You do not need a Swift toolchain or an install step:
 
    ```sh
-   /Applications/Skillgarden.app/Contents/Helpers/skillgarden validate <course-folder>
+   /Applications/Skillgarden.app/Contents/Helpers/skillgarden --help
    ```
 
    A repository build has the same CLI at `build/Skillgarden.app/Contents/Helpers/skillgarden` (`./scripts/build.sh app`).
-   To put a copy in your workspace, run the install script with a destination:
+   The steps below write `skillgarden` for the CLI. Use the full path or a workspace copy (see [Install script](#install-script)) in its place.
+
+2. Set the library to a folder in the workspace. The path must be absolute:
 
    ```sh
-   scripts/install_cli.sh ./bin
-   ./bin/skillgarden --help
+   export SKILLGARDEN_DATA_DIR="$PWD/.skillgarden-library"
    ```
 
-   ```
-   Installed skillgarden <version> to /path/to/workspace/bin/skillgarden (from /Applications/Skillgarden.app)
-   ```
-
-   The steps below write `skillgarden` for the CLI. Use the full path or the workspace copy in its place.
-
-2. Check the course folder. This command writes nothing:
+3. Check the course folder. This command writes nothing:
 
    ```sh
    skillgarden validate Tests/Fixtures/sample-course
@@ -35,16 +33,21 @@ The example course is `Tests/Fixtures/sample-course`.
    Valid "Local Course Basics" (sample-course, published): 2 sections, 4 lectures
    ```
 
-3. Publish the course:
+4. Publish the course:
 
    ```sh
-   skillgarden publish Tests/Fixtures/sample-course
+   SKILLGARDEN_DATA_DIR="$PWD/.skillgarden-library" skillgarden publish Tests/Fixtures/sample-course
    ```
 
    ```
    Published "Local Course Basics" (sample-course, published): created 7, updated 0, unchanged 0, removed 0
-   Library: /Users/<name>/Library/Application Support/Skillgarden
+   Files: added 13, changed 0, unchanged 0, removed 0
+   Snapshot: new <snapshot-id>, 13 files, <size>
+   Library: /path/to/workspace/.skillgarden-library
    ```
+
+5. Check the exit code first. Then read the summary line and the `Library:` line. Section 7 lists the exit codes.
+6. Give the owner the course folder for File > `Import Course…` in the app. See section 2.
 
 Publish is idempotent. If you publish the same folder again, the counts show `unchanged`.
 
@@ -68,6 +71,17 @@ Nothing was written.
 - If the library uses a newer store version, the command stops with exit code 3 and a `hint:` line.
 
 ### Install script
+
+The install script is optional. To put a copy of the CLI in your workspace, give a destination:
+
+```sh
+scripts/install_cli.sh ./bin
+./bin/skillgarden --help
+```
+
+```
+Installed skillgarden <version> to /path/to/workspace/bin/skillgarden (from /Applications/Skillgarden.app)
+```
 
 `scripts/install_cli.sh [--app <Skillgarden.app>] [<destination>]`
 
@@ -109,18 +123,20 @@ The CLI and the app use the same lookup order for the library folder:
 - A leading `~` expands to the home folder.
 - If a value is a relative path, the command stops with `error: SKILLGARDEN_DATA_DIR must be an absolute path` (or `DataDirectory`) and exit code 2.
 
-A sandboxed agent often cannot write to Application Support. Use a folder that the agent can write to:
+A sandboxed agent often cannot write to Application Support or the home folder. Use a folder in the workspace:
 
 ```sh
-export SKILLGARDEN_DATA_DIR="$HOME/skillgarden-library"
+export SKILLGARDEN_DATA_DIR="$PWD/.skillgarden-library"
 skillgarden publish path/to/course
 ```
 
-The app reads the same folder only if it sees the same setting. The owner sets it once:
+The app reads the same folder only if it sees the same setting. The owner sets it once, with the path of the `Library:` line:
 
 ```sh
-defaults write dev.skillgarden.app DataDirectory "$HOME/skillgarden-library"
+defaults write dev.skillgarden.app DataDirectory "/path/to/workspace/.skillgarden-library"
 ```
+
+The app reads the setting when it starts. If the app is open, quit it and open it again.
 
 Check which folder the CLI and the app use:
 
@@ -304,7 +320,7 @@ The app bundle holds the CLI at `Skillgarden.app/Contents/Helpers/skillgarden`. 
 | `skillgarden doctor` | Labelled lines: version, CLI, library, source, folder, write access, app library, match, sandbox |
 | `skillgarden schema [--output <file>]` | The manifest JSON Schema. With `--output`: `Wrote manifest schema 1 to <path>`. See section 8. |
 | `skillgarden --version` | `skillgarden <version>` |
-| `skillgarden --help` | The usage text |
+| `skillgarden --help` | The `usage:` lines, examples, the library folder order, the exit codes, and the paths of this guide and the skill. `<command> --help` prints the same text. |
 
 For a draft course, `validate` and `publish` also print `Draft: learners do not see this course.`
 
@@ -312,7 +328,7 @@ For a draft course, `validate` and `publish` also print `Draft: learners do not 
 |---|---|---|
 | 0 | Success | Results on stdout |
 | 1 | Manifest or file errors. For `inspect` and `remove`, an unknown course id. For `init`, a folder that is not empty or a path that is not a folder. For `media inspect`, a file that is not MP4 or has no readable length. | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem. List indexes in `<fieldPath>` start at 0: `sections[0]` is the first section. |
-| 2 | Usage error or bad data folder setting. For `remove`, a run without `--yes`. | `error: ...` on stderr. A usage error also prints the usage text. |
+| 2 | Usage error or bad data folder setting. For `remove`, a run without `--yes`. | `error: ...` on stderr. A usage error also prints the `usage:` lines and `Run "skillgarden --help" for more.` |
 | 3 | I/O or library error. For `validate`, also a missing course folder. For `media inspect`, a file that does not exist or a folder. For `doctor`, a library path that is not a folder. For `schema`, a file that cannot be written. A busy or locked library. | `error: <description>` on stderr. A busy or locked library also prints a `hint:` line and `Library: <path>`. |
 
 `doctor` prints its report on stdout also for exit codes 2 and 3.
