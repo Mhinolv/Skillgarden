@@ -1,0 +1,20 @@
+{
+  "name": "llama.cpp",
+  "version": "b11669",
+  "architecture": "arm64",
+  "minimumSystemVersion": "13.3",
+  "sha256": {
+    "llama-server": "981b460a278e9a0c880cef32d6fab42785a119084456b16845304cf38c32cf69",
+    "libllama-server-impl.dylib": "f1fb36acea8df4eefd90aafe30af16a1a87d7f8b45da3576a3d64100cf18a435",
+    "libllama-common.0.dylib": "725c24d32d0abd5fd6d2baf589d5294bfea90c072ed4db99cb62fe88d4ed7f42",
+    "libmtmd.0.dylib": "b59316a5d3ad780edfe98df05bf4a3f24fd17eb9cc4d5c53324d5ef6882465b2",
+    "libllama.0.dylib": "7d461aace0a3ace6d5733bde2ec2d03b54f00ef620a6f3bbedb735eb1cbb5035",
+    "libggml.0.dylib": "a97bc40525aea78834fdf28197b5b21f149b6d5ac2d3b615b95b86f775a69477",
+    "libggml-base.0.dylib": "35851d2f742b8bdda2ea9707ae4f9b8a8970d38b387ccdeb09fce518c64fda54",
+    "libggml-blas.0.dylib": "12aefdc8dd4873d69554dc85a0dd09fffef9828e1fc9ecf6b48913ef2106b33a",
+    "libggml-cpu.0.dylib": "f29b0322166bc9ea2a1f2482f9cd034959013228831f5bfd06aa770b75dd4d12",
+    "libggml-metal.0.dylib": "448d7eafb7906c4bbd445cac28fad15ae9311b4315461283742a2fb1af2a5653",
+    "libggml-rpc.0.dylib": "547ac08b705a96e82ddb9fcfc2529472f97f5da1957984b3a7652cd5875d452d",
+    "LICENSE": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+  }
+}

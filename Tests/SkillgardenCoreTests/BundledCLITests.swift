@@ -26,13 +26,13 @@ private struct Run {
     var errorText: String
 }
 
-private func run(_ executable: URL, _ arguments: [String], in folder: URL, path: String = "/usr/bin:/bin") throws -> Run {
+private func run(_ executable: URL, _ arguments: [String], in folder: URL, path: String = "/usr/bin:/bin", environment: [String: String] = [:]) throws -> Run {
     let process = Process()
     process.executableURL = executable
     process.arguments = arguments
     process.currentDirectoryURL = folder
     // PWD keeps the logical temporary path (/var/...), so script output matches `URL.path`.
-    process.environment = ["HOME": NSHomeDirectory(), "PATH": path, "PWD": folder.path]
+    process.environment = ["HOME": NSHomeDirectory(), "PATH": path, "PWD": folder.path].merging(environment) { $1 }
     let stdout = Pipe(), stderr = Pipe()
     process.standardOutput = stdout
     process.standardError = stderr
@@ -83,8 +83,11 @@ private func expectedVersion() throws -> String {
     try Data("app".utf8).write(to: debug.appending(path: "SkillgardenApp"))
     try FileManager.default.copyItem(at: try builtCLI(), to: debug.appending(path: "skillgarden"))
     try Data("icon".utf8).write(to: icon.appending(path: "AppIcon.icns"))
+    let llama = root.appending(path: "llama")
+    try makeLlamaRuntime(at: llama, manifest: root.appending(path: "assets/llama.cpp/runtime.json"), server: try builtCLI())
 
-    let bundle = try run(URL(fileURLWithPath: "/bin/zsh"), [scripts.appending(path: "bundle_app.sh").path], in: root)
+    let bundle = try run(URL(fileURLWithPath: "/bin/zsh"), [scripts.appending(path: "bundle_app.sh").path], in: root,
+                         environment: ["SKILLGARDEN_LLAMA_DIR": llama.path])
     #expect(bundle.status == 0, "\(bundle.errorText)")
     let log = try String(contentsOf: root.appending(path: "build.log"), encoding: .utf8)
     #expect(log == "build --product SkillgardenApp\nbuild --product skillgarden\n")
