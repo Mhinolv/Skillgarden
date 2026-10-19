@@ -75,9 +75,13 @@ struct SkillgardenApp: App {
         }
         // Skillgarden > Settings… (⌘,).
         Settings {
-            SettingsView(autoPlays: Binding(get: { autoPlays }, set: { autoPlays = $0; Skillgarden.saveAutoPlay($0) }))
+            SettingsView(autoPlays: Binding(get: { autoPlays }, set: { autoPlays = $0; Skillgarden.saveAutoPlay($0) }),
+                         modelSettings: modelSettings)
         }
     }
+
+    /// The Settings "Local AI" model (#122). The bookmark is in Application Support/Skillgarden.
+    @State private var modelSettings = ModelSettings(store: ModelBookmarkStore())
 
     /// The View > Appearance choice. Each change is saved at once.
     @State private var appearance = Skillgarden.savedAppearance()
@@ -359,20 +363,25 @@ struct ContentView: View {
 /// The Settings window (⌘,). The app saves each change at once (#99).
 struct SettingsView: View {
     @Binding var autoPlays: Bool
+    /// The "Local AI" model choice (#122).
+    let modelSettings: ModelSettings
 
     var body: some View {
         Form {
             Toggle("Auto-play next lecture", isOn: $autoPlays)
+            LocalAISection(settings: modelSettings)
         }
         .formStyle(.grouped)
-        .frame(width: 400)
+        .frame(width: 460)
         .fixedSize()
+        // Each open checks the saved model again, so a moved or deleted file shows at once.
+        .task { await modelSettings.load() }
     }
 }
 
 struct SettingsView_Previews: PreviewProvider {
     static var previews: some View {
-        SettingsView(autoPlays: .constant(true))
+        SettingsView(autoPlays: .constant(true), modelSettings: ModelSettings(store: nil))
     }
 }
 
