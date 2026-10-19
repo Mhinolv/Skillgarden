@@ -55,6 +55,8 @@ public struct LectureContext: Equatable, Sendable {
     /// All passages of the lecture, in lecture order.
     public let passages: [LecturePassage]
     public let budget: LectureContextBudget
+    /// The revision of the lecture text (#127). Saved Q&A turns with another revision stay out of new prompts.
+    public let sourceRevision: String
     /// The retrieval index when all the text does not fit the passage budget. It is made once, off the main actor.
     let retrievalIndex: LectureRetrievalIndex?
 
@@ -63,6 +65,7 @@ public struct LectureContext: Equatable, Sendable {
         self.lectureTitle = lectureTitle
         self.passages = passages
         self.budget = budget
+        sourceRevision = Self.sourceRevision(of: passages)
         let full = Self.systemPrompt(courseTitle: courseTitle, lectureTitle: lectureTitle, passages: passages, isPartial: false)
         retrievalIndex = LectureContextBudget.estimatedTokens(full) <= budget.promptTokens ? nil : LectureRetrievalIndex(passages: passages)
     }

@@ -3,7 +3,7 @@ import SQLite3
 
 /// A synchronous local store. The lock protects the connection and each complete operation.
 public final class CourseStore: @unchecked Sendable {
-    public static let currentSchemaVersion = 10
+    public static let currentSchemaVersion = 11
     static let databaseName = "library.sqlite"
     public let databaseURL: URL
     private let database: SQLiteDatabase
@@ -90,7 +90,7 @@ public final class CourseStore: @unchecked Sendable {
     }
 
     /// Deletes a course like `deleteCourse` and returns its title and publication folders. Nil for an unknown course.
-    /// Learner progress has no foreign key to `courses`, so it stays (#118).
+    /// Learner progress and Q&A history have no foreign key to `courses`, so they stay (#118, #127).
     func removeCourse(id: String) throws -> (title: String, directory: String?, internalDirectory: String?)? {
         try lock.withLock {
             try database.transaction {
@@ -409,6 +409,94 @@ public final class CourseStore: @unchecked Sendable {
         }
     }
 
+    // MARK: Q&A history (#127)
+
+    /// Saves the question with an empty pending answer before the request starts. The thread of the lecture
+    /// starts with its first turn. A course that is not in the library throws, so no new thread starts for it.
+    public func startQATurn(question: String, sourceRevision: String, courseID: String, lectureID: String,
+                            askedAt: Date = Date()) throws -> QATurn {
+        try lock.withLock {
+            try database.transaction {
+                guard try !database.query("SELECT 1 FROM courses WHERE id = ?", [courseID], row: { _ in () }).isEmpty else {
+                    throw CourseStoreError.databaseFailure
+                }
+                try database.execute("INSERT OR IGNORE INTO qa_threads (course_id, lecture_id) VALUES (?, ?)", [courseID, lectureID])
+                let ids = try database.query("""
+                    INSERT INTO qa_messages (course_id, lecture_id, question, status, source_revision, asked_at)
+                    VALUES (?, ?, ?, 'pending', ?, ?) RETURNING id
+                    """, [courseID, lectureID, question, sourceRevision, String(askedAt.timeIntervalSince1970)]) {
+                    sqlite3_column_int64($0, 0)
+                }
+                guard let id = ids.first else { throw CourseStoreError.databaseFailure }
+                return QATurn(id: id, question: question, answer: "", status: .pending, sourceRevision: sourceRevision,
+                              askedAt: Date(timeIntervalSince1970: askedAt.timeIntervalSince1970))
+            }
+        }
+    }
+
+    /// Saves the end of a pending turn: complete, cancelled or failed. One write for each answer, never one for each token.
+    /// False when the turn is not pending any more, for example after Clear History or a restart.
+    @discardableResult
+    public func finishQATurn(id: Int64, status: QATurnStatus, answer: String) throws -> Bool {
+        let (name, reason) = Self.qaStatusColumns(status)
+        guard status != .pending else { throw CourseStoreError.invalidData }
+        return try lock.withLock {
+            try !database.query("""
+                UPDATE qa_messages SET status = ?, failure_reason = ?, answer = ? WHERE id = ? AND status = 'pending' RETURNING id
+                """, [name, reason, answer, String(id)]) { _ in () }.isEmpty
+        }
+    }
+
+    /// The thread of a lecture, oldest turn first. Empty for a lecture with no saved turns.
+    public func qaTurns(courseID: String, lectureID: String) throws -> [QATurn] {
+        try lock.withLock {
+            try database.query("""
+                SELECT id, question, answer, status, failure_reason, source_revision, asked_at FROM qa_messages
+                WHERE course_id = ? AND lecture_id = ? ORDER BY id
+                """, [courseID, lectureID]) { row in
+                QATurn(id: sqlite3_column_int64(row, 0), question: SQLiteDatabase.text(row, 1), answer: SQLiteDatabase.text(row, 2),
+                       status: try Self.qaStatus(SQLiteDatabase.text(row, 3), reason: SQLiteDatabase.text(row, 4)),
+                       sourceRevision: SQLiteDatabase.text(row, 5), askedAt: Date(timeIntervalSince1970: sqlite3_column_double(row, 6)))
+            }
+        }
+    }
+
+    /// Clear History: removes the thread of one lecture and all of its turns in one transaction.
+    public func clearQAHistory(courseID: String, lectureID: String) throws {
+        try lock.withLock {
+            try database.transaction {
+                try database.execute("DELETE FROM qa_messages WHERE course_id = ? AND lecture_id = ?", [courseID, lectureID])
+                try database.execute("DELETE FROM qa_threads WHERE course_id = ? AND lecture_id = ?", [courseID, lectureID])
+            }
+        }
+    }
+
+    /// Marks each pending turn as interrupted. The app calls it once at launch, before it starts a request.
+    public func interruptPendingQATurns() throws {
+        try lock.withLock { try database.execute("UPDATE qa_messages SET status = 'interrupted' WHERE status = 'pending'") }
+    }
+
+    private static func qaStatusColumns(_ status: QATurnStatus) -> (name: String, reason: String?) {
+        switch status {
+        case .pending: ("pending", nil)
+        case .complete: ("complete", nil)
+        case .cancelled: ("cancelled", nil)
+        case .failed(let reason): ("failed", reason)
+        case .interrupted: ("interrupted", nil)
+        }
+    }
+
+    private static func qaStatus(_ name: String, reason: String) throws -> QATurnStatus {
+        switch name {
+        case "pending": .pending
+        case "complete": .complete
+        case "cancelled": .cancelled
+        case "failed": .failed(reason: reason)
+        case "interrupted": .interrupted
+        default: throw CourseStoreError.invalidData
+        }
+    }
+
     static let migrations: [[String]] = [[
         """
         CREATE TABLE courses (
@@ -516,6 +604,27 @@ public final class CourseStore: @unchecked Sendable {
         // 1 after the learner marks a lecture incomplete by hand: the video does not complete it again (#79).
         // Progress saved before this version keeps the automatic complete on.
         "ALTER TABLE lecture_progress ADD COLUMN auto_complete_off INTEGER NOT NULL DEFAULT 0 CHECK(auto_complete_off IN (0, 1))",
+    ], [
+        // One Q&A thread for each lecture (#127). Like learner progress, it has no foreign key to `courses` or `lectures`.
+        // A republish and a course removal keep the thread, so the history comes back when the course id is published again.
+        """
+        CREATE TABLE qa_threads (
+            course_id TEXT NOT NULL, lecture_id TEXT NOT NULL,
+            PRIMARY KEY(course_id, lecture_id)
+        )
+        """,
+        // The turns of a thread in `id` order. `source_revision` is the lecture text revision when the learner asked.
+        // `failure_reason` is the learner text of a failed turn. `asked_at` is seconds since 1970.
+        """
+        CREATE TABLE qa_messages (
+            id INTEGER PRIMARY KEY, course_id TEXT NOT NULL, lecture_id TEXT NOT NULL,
+            question TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL CHECK(status IN ('pending', 'complete', 'cancelled', 'failed', 'interrupted')),
+            failure_reason TEXT, source_revision TEXT NOT NULL, asked_at REAL NOT NULL,
+            FOREIGN KEY(course_id, lecture_id) REFERENCES qa_threads(course_id, lecture_id) ON DELETE CASCADE
+        )
+        """,
+        "CREATE INDEX qa_messages_thread ON qa_messages(course_id, lecture_id, id)",
     ]]
 }
 

@@ -382,7 +382,7 @@ public enum CoursePublisher {
     }
 
     /// Deletes a course from the library database (#118). Nil for an unknown course.
-    /// It does not create a library that does not exist. The snapshot folders and learner progress stay.
+    /// It does not create a library that does not exist. The snapshot folders, learner progress and Q&A history stay.
     public static func remove(courseID: String, root: URL = Skillgarden.defaultDataDirectory) throws -> CourseRemoval? {
         guard FileManager.default.fileExists(atPath: root.appending(path: CourseStore.databaseName).path),
               let removed = try CourseStore(root: root).removeCourse(id: courseID) else { return nil }

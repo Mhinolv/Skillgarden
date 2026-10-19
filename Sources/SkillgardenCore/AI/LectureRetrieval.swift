@@ -11,6 +11,7 @@ public struct LecturePrompt: Equatable, Sendable {
     /// The system message. Empty when `noEvidence` is true.
     public let systemPrompt: String
     /// The chat request: the system prompt, then the question. Empty when `noEvidence` is true.
+    /// `LectureConversation.prompt(context:question:)` puts the saved turns between them (#127).
     public let messages: [ChatMessage]
     /// True when the prompt leaves out parts of the lecture. The app shows "Based on parts of this lecture".
     public let isPartial: Bool
@@ -165,6 +166,13 @@ extension LectureContext {
     /// oldest first. Their terms help a short follow-up question, such as "Why?", find its passages.
     /// The system prompt and the question fit the budget together. A question longer than its share takes from the passages.
     public func prompt(question: String, priorQuestions: [String] = []) -> LecturePrompt {
+        prompt(question: question, priorQuestions: priorQuestions, historyTokens: 0)
+    }
+
+    /// When retrieval selects the passages, `historyTokens` stay free for the saved Q&A turns (#127).
+    /// A prompt with all passages does not use it, so the history never makes the answer partial.
+    /// If no match fits with the history, the passages take its tokens.
+    func prompt(question: String, priorQuestions: [String], historyTokens: Int) -> LecturePrompt {
         let limit = budget.contextTokens - budget.answerTokens - max(budget.questionTokens, LectureContextBudget.estimatedTokens(question))
         let full = Self.systemPrompt(courseTitle: courseTitle, lectureTitle: lectureTitle, passages: passages, isPartial: false)
         if LectureContextBudget.estimatedTokens(full) <= limit {
@@ -176,8 +184,10 @@ extension LectureContext {
         let longestID = passages.map(\.id).max { $0.utf8.count < $1.utf8.count } ?? ""
         let framing = Self.framing(courseTitle: courseTitle, lectureTitle: lectureTitle, exampleID: longestID, isPartial: true).utf8.count
         let index = retrievalIndex ?? LectureRetrievalIndex(passages: passages)
-        guard let selected = index.select(question: question, priorQuestions: priorQuestions, limitBytes: 3 * limit - framing)
-        else { return .noEvidence }
+        func select(_ tokens: Int) -> [Int]? {
+            index.select(question: question, priorQuestions: priorQuestions, limitBytes: 3 * tokens - framing)
+        }
+        guard let selected = select(limit - historyTokens) ?? (historyTokens > 0 ? select(limit) : nil) else { return .noEvidence }
         let chosen = selected.map { passages[$0] }
         let system = Self.systemPrompt(courseTitle: courseTitle, lectureTitle: lectureTitle, passages: chosen,
                                        isPartial: chosen.count < passages.count)

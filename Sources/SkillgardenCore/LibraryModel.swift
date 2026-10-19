@@ -68,6 +68,8 @@ public final class LibraryModel {
     @ObservationIgnored private var reviewRandom: any RandomNumberGenerator
     /// Lecture contexts for local AI by course, lecture and source revision (#125).
     @ObservationIgnored private let lectureContexts = LectureContextCache()
+    /// True after the first reload marked the pending Q&A turns of the last app run as interrupted (#127).
+    @ObservationIgnored private var interruptedPendingTurns = false
     public let root: URL
     /// The store of the last reload. Progress writes use it off the main actor, one at a time.
     private var store: CourseStore?
@@ -479,6 +481,41 @@ public final class LibraryModel {
                                              article: articles[course.id]?[lectureID], budget: budget)
     }
 
+    /// The saved Q&A thread of a lecture in the selected course (#127). Nil for a lecture outside the published outline,
+    /// so its history does not show. The current source revision comes from the lecture context.
+    public func lectureConversation(forLecture lectureID: String,
+                                    budget: LectureContextBudget = .standard) async throws -> LectureConversation? {
+        guard let course = selectedCourse, LectureContextBuilder.learnerLecture(lectureID, in: course) != nil,
+              let store else { return nil }
+        let revision: String? = if case .ready(let context) = await lectureContext(forLecture: lectureID, budget: budget) {
+            context.sourceRevision
+        } else { nil }
+        await waitForWrites()
+        let courseID = course.id
+        let turns = try await Task.detached { try store.qaTurns(courseID: courseID, lectureID: lectureID) }.value
+        return LectureConversation(turns: turns, sourceRevision: revision)
+    }
+
+    /// Saves the question with a pending answer before the request starts (#127).
+    public func startQATurn(question: String, context: LectureContext, lectureID: String) async throws -> QATurn {
+        guard let courseID = selectedCourseID, let store else { throw CourseStoreError.databaseFailure }
+        await waitForWrites()
+        return try await Task.detached {
+            try store.startQATurn(question: question, sourceRevision: context.sourceRevision, courseID: courseID, lectureID: lectureID)
+        }.value
+    }
+
+    /// Saves the end of a request: the last `AnswerUpdate.ended` outcome and text (#127).
+    public func finishQATurn(_ turn: QATurn, outcome: AnswerOutcome, text: String) {
+        enqueueWrite { try $0.finishQATurn(id: turn.id, status: QATurnStatus(outcome: outcome), answer: text) }
+    }
+
+    /// Clear History for one lecture of the selected course (#127). The caller cancels the active request first.
+    public func clearQAHistory(forLecture lectureID: String) {
+        guard let courseID = selectedCourseID else { return }
+        enqueueWrite { try $0.clearQAHistory(courseID: courseID, lectureID: lectureID) }
+    }
+
     /// Waits until all queued progress writes finish.
     func waitForWrites() async { _ = await pendingWrite?.value }
 
@@ -573,14 +610,18 @@ public final class LibraryModel {
         let root = root
         // Queued writes finish first, so the reload reads them.
         await waitForWrites()
+        let interruptsPendingTurns = !interruptedPendingTurns
         do {
             let (store, loaded, installed, progress, lastOpened, quizResults, interactiveResults, reviewed, cues) = try await Task.detached {
                 let store = try CourseStore(root: root)
+                // A turn that was pending when the app stopped can never finish (#127). Later reloads keep active requests.
+                if interruptsPendingTurns { try store.interruptPendingQATurns() }
                 return (store, try store.listCourses(), try Self.installedData(store: store, root: root),
                         try store.allProgress(), try store.lastOpenedLectures(), try store.allQuizResults(),
                         try store.allInteractiveResults(), try store.allReviewedSections(), try store.allTranscriptCues())
             }.value
             self.store = store
+            interruptedPendingTurns = true
             courses = loaded
             headerImages = installed.headerImages
             landings = installed.landings
