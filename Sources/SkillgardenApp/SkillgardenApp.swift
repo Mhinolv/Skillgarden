@@ -186,7 +186,8 @@ struct ContentView: View {
          localAI: RuntimeSupervisor = RuntimeSupervisor(isEnabled: false, backend: nil), client: LlamaClient = LlamaClient()) {
         _library = State(initialValue: library)
         self.localAI = localAI
-        _qa = State(initialValue: LectureQA(library: library, client: client, endpoint: { [localAI] in localAI.verifiedEndpoint() },
+        let provider = BundledAnswerProvider(client: client, endpoint: { [localAI] in localAI.verifiedEndpoint() })
+        _qa = State(initialValue: LectureQA(library: library, provider: provider,
                                             announce: { AccessibilityNotification.Announcement($0).post() }))
         _videoText = State(initialValue: videoText)
         self.saveVideoText = saveVideoText

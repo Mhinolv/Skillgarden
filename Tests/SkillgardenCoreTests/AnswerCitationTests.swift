@@ -150,7 +150,7 @@ private struct NoTransport: LlamaTransport {
     library.selectDestination(.lecture(sectionID: "plan", lectureID: "welcome"))
     try await SnapshotPlan.seedQATurns(for: .qaCitations, library: library)
 
-    let qa = LectureQA(library: library, client: LlamaClient(transport: NoTransport()), endpoint: { nil })
+    let qa = LectureQA(library: library, provider: BundledAnswerProvider(client: LlamaClient(transport: NoTransport()), endpoint: { nil }))
     qa.show(LectureQA.key(library: library))
     await qa.load()
     let turn = try #require(qa.conversation.turns.first)
@@ -189,7 +189,7 @@ private struct NoTransport: LlamaTransport {
     library.selectDestination(.lecture(sectionID: "plan", lectureID: "welcome"))
     try await SnapshotPlan.seedQATurns(for: .qaCitationsStale, library: library)
 
-    let qa = LectureQA(library: library, client: LlamaClient(transport: NoTransport()), endpoint: { nil })
+    let qa = LectureQA(library: library, provider: BundledAnswerProvider(client: LlamaClient(transport: NoTransport()), endpoint: { nil }))
     qa.show(LectureQA.key(library: library))
     await qa.load()
     let turn = try #require(qa.conversation.earlierTurns.first)
@@ -212,7 +212,7 @@ private struct NoTransport: LlamaTransport {
     library.selectDestination(SnapshotPlan.destination(for: .qaCitationExcerpt))
     try await SnapshotPlan.seedQATurns(for: .qaCitationExcerpt, library: library)
 
-    let qa = LectureQA(library: library, client: LlamaClient(transport: NoTransport()), endpoint: { nil })
+    let qa = LectureQA(library: library, provider: BundledAnswerProvider(client: LlamaClient(transport: NoTransport()), endpoint: { nil }))
     qa.show(LectureQA.key(library: library))
     await qa.load()
     let turn = try #require(qa.conversation.turns.first)

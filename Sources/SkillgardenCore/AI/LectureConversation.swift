@@ -60,14 +60,18 @@ public struct QATurn: Identifiable, Equatable, Hashable, Sendable {
     /// The `LectureContext.sourceRevision` of the lecture text when the learner asked.
     public let sourceRevision: String
     public let askedAt: Date
+    /// The provider and the model that answer the turn (#150). Turns saved before #150 load as `AnswerOrigin.legacy`.
+    public let origin: AnswerOrigin
 
-    public init(id: Int64, question: String, answer: String, status: QATurnStatus, sourceRevision: String, askedAt: Date) {
+    public init(id: Int64, question: String, answer: String, status: QATurnStatus, sourceRevision: String, askedAt: Date,
+                origin: AnswerOrigin = .legacy) {
         self.id = id
         self.question = question
         self.answer = answer
         self.status = status
         self.sourceRevision = sourceRevision
         self.askedAt = askedAt
+        self.origin = origin
     }
 
     /// One accessibility element for the turn: "Question: …", then "Answer: …, <status>".

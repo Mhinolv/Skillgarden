@@ -3,7 +3,7 @@ import SQLite3
 
 /// A synchronous local store. The lock protects the connection and each complete operation.
 public final class CourseStore: @unchecked Sendable {
-    public static let currentSchemaVersion = 11
+    public static let currentSchemaVersion = 12
     static let databaseName = "library.sqlite"
     public let databaseURL: URL
     private let database: SQLiteDatabase
@@ -413,7 +413,8 @@ public final class CourseStore: @unchecked Sendable {
 
     /// Saves the question with an empty pending answer before the request starts. The thread of the lecture
     /// starts with its first turn. A course that is not in the library throws, so no new thread starts for it.
-    public func startQATurn(question: String, sourceRevision: String, courseID: String, lectureID: String,
+    /// `origin` is the provider and the model that answer it (#150).
+    public func startQATurn(question: String, sourceRevision: String, origin: AnswerOrigin, courseID: String, lectureID: String,
                             askedAt: Date = Date()) throws -> QATurn {
         try lock.withLock {
             try database.transaction {
@@ -422,14 +423,15 @@ public final class CourseStore: @unchecked Sendable {
                 }
                 try database.execute("INSERT OR IGNORE INTO qa_threads (course_id, lecture_id) VALUES (?, ?)", [courseID, lectureID])
                 let ids = try database.query("""
-                    INSERT INTO qa_messages (course_id, lecture_id, question, status, source_revision, asked_at)
-                    VALUES (?, ?, ?, 'pending', ?, ?) RETURNING id
-                    """, [courseID, lectureID, question, sourceRevision, String(askedAt.timeIntervalSince1970)]) {
+                    INSERT INTO qa_messages (course_id, lecture_id, question, status, source_revision, asked_at, provider_id, model_id)
+                    VALUES (?, ?, ?, 'pending', ?, ?, ?, ?) RETURNING id
+                    """, [courseID, lectureID, question, sourceRevision, String(askedAt.timeIntervalSince1970), origin.providerID,
+                          origin.modelID]) {
                     sqlite3_column_int64($0, 0)
                 }
                 guard let id = ids.first else { throw CourseStoreError.databaseFailure }
                 return QATurn(id: id, question: question, answer: "", status: .pending, sourceRevision: sourceRevision,
-                              askedAt: Date(timeIntervalSince1970: askedAt.timeIntervalSince1970))
+                              askedAt: Date(timeIntervalSince1970: askedAt.timeIntervalSince1970), origin: origin)
             }
         }
     }
@@ -451,12 +453,14 @@ public final class CourseStore: @unchecked Sendable {
     public func qaTurns(courseID: String, lectureID: String) throws -> [QATurn] {
         try lock.withLock {
             try database.query("""
-                SELECT id, question, answer, status, failure_reason, source_revision, asked_at FROM qa_messages
+                SELECT id, question, answer, status, failure_reason, source_revision, asked_at, provider_id, model_id FROM qa_messages
                 WHERE course_id = ? AND lecture_id = ? ORDER BY id
                 """, [courseID, lectureID]) { row in
                 QATurn(id: sqlite3_column_int64(row, 0), question: SQLiteDatabase.text(row, 1), answer: SQLiteDatabase.text(row, 2),
                        status: try Self.qaStatus(SQLiteDatabase.text(row, 3), reason: SQLiteDatabase.text(row, 4)),
-                       sourceRevision: SQLiteDatabase.text(row, 5), askedAt: Date(timeIntervalSince1970: sqlite3_column_double(row, 6)))
+                       sourceRevision: SQLiteDatabase.text(row, 5), askedAt: Date(timeIntervalSince1970: sqlite3_column_double(row, 6)),
+                       origin: AnswerOrigin(providerID: SQLiteDatabase.text(row, 7),
+                                            modelID: sqlite3_column_type(row, 8) == SQLITE_NULL ? nil : SQLiteDatabase.text(row, 8)))
             }
         }
     }
@@ -625,6 +629,11 @@ public final class CourseStore: @unchecked Sendable {
         )
         """,
         "CREATE INDEX qa_messages_thread ON qa_messages(course_id, lecture_id, id)",
+    ], [
+        // The provider and the model of each turn (#150). They are stable IDs, not display names.
+        // Turns saved before this version load as the bundled local provider. A NULL model is not known.
+        "ALTER TABLE qa_messages ADD COLUMN provider_id TEXT NOT NULL DEFAULT 'bundled-local'",
+        "ALTER TABLE qa_messages ADD COLUMN model_id TEXT",
     ]]
 }
 

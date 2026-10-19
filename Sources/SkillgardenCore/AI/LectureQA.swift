@@ -130,8 +130,7 @@ public final class LectureQA {
     public private(set) var notice: Notice?
 
     @ObservationIgnored private let library: LibraryModel
-    @ObservationIgnored private let client: LlamaClient
-    @ObservationIgnored private let endpoint: @MainActor () -> LocalAIEndpoint?
+    @ObservationIgnored private let provider: any AnswerProvider
     @ObservationIgnored private let announce: @MainActor (String) -> Void
     @ObservationIgnored private var context: LectureContext?
     /// Goes up on each lecture change and Clear History. A request of an earlier generation changes no state.
@@ -145,12 +144,11 @@ public final class LectureQA {
     /// The citations of the saved turns (#129), so a draft change does not parse each answer again.
     @ObservationIgnored private var citationCache: [Int64: (answer: String, isStale: Bool, citations: AnswerCitations)] = [:]
 
-    /// `endpoint` is `RuntimeSupervisor.verifiedEndpoint()`. `announce` posts a VoiceOver announcement.
-    public init(library: LibraryModel, client: LlamaClient, endpoint: @escaping @MainActor () -> LocalAIEndpoint?,
-                draftInterval: Duration = .milliseconds(100), announce: @escaping @MainActor (String) -> Void = { _ in }) {
+    /// `provider` answers each question (#150). `announce` posts a VoiceOver announcement.
+    public init(library: LibraryModel, provider: any AnswerProvider, draftInterval: Duration = .milliseconds(100),
+                announce: @escaping @MainActor (String) -> Void = { _ in }) {
         self.library = library
-        self.client = client
-        self.endpoint = endpoint
+        self.provider = provider
         self.announce = announce
         throttle = DraftThrottle(interval: draftInterval)
     }
@@ -203,11 +201,12 @@ public final class LectureQA {
         if let loaded { conversation = loaded }
     }
 
-    /// Asks the question. False when the panel can't send now: no text, a running request, no lecture text or no server.
+    /// Asks the question. False when the panel can't send now: no text, a running request, no lecture text,
+    /// or a provider that can't answer now.
     @discardableResult
     public func send(_ text: String) -> Bool {
         let question = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty, draft == nil, let key, let context, let endpoint = endpoint(),
+        guard !question.isEmpty, draft == nil, let key, let context, let answer = provider.prepare(),
               library.selectedCourseID == key.courseID else { return false }
         notice = nil
         guard let prompt = conversation.prompt(context: context, question: question) else {
@@ -218,7 +217,7 @@ public final class LectureQA {
         cancelRequested = false
         let generation = generation
         request = Task {
-            await run(question: question, context: context, key: key, messages: prompt.messages, endpoint: endpoint,
+            await run(question: question, context: context, key: key, messages: prompt.messages, answer: answer,
                       generation: generation)
         }
         return true
@@ -235,7 +234,7 @@ public final class LectureQA {
     public func cancel() {
         guard draft != nil else { return }
         cancelRequested = true
-        if let requestID { client.cancel(requestID) }
+        if let requestID { provider.cancel(requestID) }
     }
 
     /// Clear History, after the learner confirms. It cancels the request first.
@@ -288,14 +287,15 @@ public final class LectureQA {
         draft = nil
     }
 
-    private func run(question: String, context: LectureContext, key: Key, messages: [ChatMessage], endpoint: LocalAIEndpoint,
+    private func run(question: String, context: LectureContext, key: Key, messages: [ChatMessage], answer prepared: PreparedAnswer,
                      generation: Int) async {
         // The store call reads the course id before its first suspension, so the check and the save see the same lecture.
         guard generation == self.generation else { return }
         guard library.selectedCourseID == key.courseID else { draft = nil; return }
         let turn: QATurn
         do {
-            turn = try await library.startQATurn(question: question, context: context, lectureID: key.lectureID)
+            turn = try await library.startQATurn(question: question, context: context, origin: prepared.origin,
+                                                 lectureID: key.lectureID)
         } catch {
             guard generation == self.generation else { return }
             draft = nil
@@ -307,7 +307,7 @@ public final class LectureQA {
             if generation == self.generation { await end(generation) }
             return
         }
-        let answer = client.ask(messages, endpoint: endpoint)
+        let answer = prepared.ask(messages)
         requestID = answer.id
         for await update in answer.updates {
             switch update {

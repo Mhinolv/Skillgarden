@@ -506,11 +506,14 @@ public final class LibraryModel {
     }
 
     /// Saves the question with a pending answer before the request starts (#127).
-    public func startQATurn(question: String, context: LectureContext, lectureID: String) async throws -> QATurn {
+    /// `origin` is the provider and the model that answer it (#150).
+    public func startQATurn(question: String, context: LectureContext, origin: AnswerOrigin,
+                            lectureID: String) async throws -> QATurn {
         guard let courseID = selectedCourseID, let store else { throw CourseStoreError.databaseFailure }
         await waitForWrites()
         return try await Task.detached {
-            try store.startQATurn(question: question, sourceRevision: context.sourceRevision, courseID: courseID, lectureID: lectureID)
+            try store.startQATurn(question: question, sourceRevision: context.sourceRevision, origin: origin, courseID: courseID,
+                                  lectureID: lectureID)
         }.value
     }
 

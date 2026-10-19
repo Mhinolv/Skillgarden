@@ -47,12 +47,12 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
 
         let store = try CourseStore(root: other)
         #expect(try store.schemaVersion == CourseStore.currentSchemaVersion)
-        #expect(CourseStore.currentSchemaVersion == 11)
+        #expect(CourseStore.currentSchemaVersion == 12)
         #expect(try store.loadCourse(id: "c") == course())
         #expect(try store.allProgress() == ["c": ["a": LectureProgress(completed: false, autoCompleteOff: true)]])
         #expect(try store.lastOpenedLectures() == ["c": "b"])
         #expect(try store.qaTurns(courseID: "c", lectureID: "a").isEmpty)
-        _ = try store.startQATurn(question: "Why?", sourceRevision: "r", courseID: "c", lectureID: "a")
+        _ = try store.startQATurn(question: "Why?", sourceRevision: "r", origin: .legacy, courseID: "c", lectureID: "a")
         #expect(try store.qaTurns(courseID: "c", lectureID: "a").count == 1)
     }
 }
@@ -61,16 +61,16 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
     try withStore { (store: CourseStore, root: URL) throws in
         try store.saveCourse(course())
         let asked = Date(timeIntervalSince1970: 1_800_000_000.5)
-        let first = try store.startQATurn(question: "What is soil?", sourceRevision: "r1", courseID: "c", lectureID: "a", askedAt: asked)
+        let first = try store.startQATurn(question: "What is soil?", sourceRevision: "r1", origin: .legacy, courseID: "c", lectureID: "a", askedAt: asked)
         #expect(first.status == .pending && first.answer.isEmpty && first.askedAt == asked)
         // The pending question survives a restart before the answer ends.
         #expect(try CourseStore(root: root).qaTurns(courseID: "c", lectureID: "a") == [first])
 
         #expect(try store.finishQATurn(id: first.id, status: .complete, answer: "Soil holds water."))
         #expect(try !store.finishQATurn(id: first.id, status: .cancelled, answer: "changed"))
-        let second = try store.startQATurn(question: "And sand?", sourceRevision: "r1", courseID: "c", lectureID: "a")
+        let second = try store.startQATurn(question: "And sand?", sourceRevision: "r1", origin: .legacy, courseID: "c", lectureID: "a")
         try store.finishQATurn(id: second.id, status: .cancelled, answer: "Sand")
-        let third = try store.startQATurn(question: "And clay?", sourceRevision: "r1", courseID: "c", lectureID: "a")
+        let third = try store.startQATurn(question: "And clay?", sourceRevision: "r1", origin: .legacy, courseID: "c", lectureID: "a")
         try store.finishQATurn(id: third.id, status: QATurnStatus(outcome: .httpError(status: 500)), answer: "")
         #expect(throws: CourseStoreError.invalidData) { try store.finishQATurn(id: third.id, status: .pending, answer: "") }
 
@@ -82,7 +82,7 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
         #expect(try store.qaTurns(courseID: "c", lectureID: "b").isEmpty)
         // A thread needs its course row.
         #expect(throws: CourseStoreError.databaseFailure) {
-            try store.startQATurn(question: "Q", sourceRevision: "r", courseID: "absent", lectureID: "a")
+            try store.startQATurn(question: "Q", sourceRevision: "r", origin: .legacy, courseID: "absent", lectureID: "a")
         }
     }
 }
@@ -90,9 +90,9 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
 @Test func pendingTurnsBecomeInterruptedAndDoNotFinishLater() throws {
     try withStore { (store: CourseStore, _: URL) throws in
         try store.saveCourse(course())
-        let done = try store.startQATurn(question: "One", sourceRevision: "r", courseID: "c", lectureID: "a")
+        let done = try store.startQATurn(question: "One", sourceRevision: "r", origin: .legacy, courseID: "c", lectureID: "a")
         try store.finishQATurn(id: done.id, status: .complete, answer: "Done")
-        let pending = try store.startQATurn(question: "Two", sourceRevision: "r", courseID: "c", lectureID: "a")
+        let pending = try store.startQATurn(question: "Two", sourceRevision: "r", origin: .legacy, courseID: "c", lectureID: "a")
         try store.interruptPendingQATurns()
         #expect(try store.qaTurns(courseID: "c", lectureID: "a").map(\.status) == [.complete, .interrupted])
         #expect(try !store.finishQATurn(id: pending.id, status: .complete, answer: "Late"))
@@ -105,7 +105,7 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
         try store.saveCourse(course())
         try store.saveCourse(course("d"))
         for (courseID, lectureID) in [("c", "a"), ("c", "a"), ("c", "b"), ("d", "a")] {
-            _ = try store.startQATurn(question: "Q", sourceRevision: "r", courseID: courseID, lectureID: lectureID)
+            _ = try store.startQATurn(question: "Q", sourceRevision: "r", origin: .legacy, courseID: courseID, lectureID: lectureID)
         }
         let pending = try store.qaTurns(courseID: "c", lectureID: "a")[0]
         try store.clearQAHistory(courseID: "c", lectureID: "a")
@@ -123,8 +123,8 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
 @Test func courseRemovalKeepsQAHistoryAndARepublishShowsIt() throws {
     try withStore { (store: CourseStore, root: URL) throws in
         for id in ["c", "d"] { try store.saveCourse(course(id)) }
-        let pending = try store.startQATurn(question: "Q", sourceRevision: "r", courseID: "c", lectureID: "a")
-        let started = try store.startQATurn(question: "Why?", sourceRevision: "r", courseID: "d", lectureID: "a")
+        let pending = try store.startQATurn(question: "Q", sourceRevision: "r", origin: .legacy, courseID: "c", lectureID: "a")
+        let started = try store.startQATurn(question: "Why?", sourceRevision: "r", origin: .legacy, courseID: "d", lectureID: "a")
         try store.finishQATurn(id: started.id, status: .complete, answer: "Because")
         let done = QATurn(id: started.id, question: "Why?", answer: "Because", status: .complete, sourceRevision: "r",
                           askedAt: started.askedAt)
@@ -134,7 +134,7 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
         #expect(try rowCount("qa_threads", store) == 2)
         #expect(try rowCount("qa_messages", store) == 2)
         #expect(throws: CourseStoreError.databaseFailure) {
-            try store.startQATurn(question: "Q", sourceRevision: "r", courseID: "d", lectureID: "a")
+            try store.startQATurn(question: "Q", sourceRevision: "r", origin: .legacy, courseID: "d", lectureID: "a")
         }
         // A publish of the same course id shows the history again, also after a restart.
         try store.saveCourse(course("d"))
@@ -152,7 +152,7 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
 @Test func republishKeepsHistoryOfStableLectureIDs() throws {
     try withStore { (store: CourseStore, _: URL) throws in
         try store.saveCourse(course())
-        let saved = try store.startQATurn(question: "Q", sourceRevision: "r", courseID: "c", lectureID: "a")
+        let saved = try store.startQATurn(question: "Q", sourceRevision: "r", origin: .legacy, courseID: "c", lectureID: "a")
         // The save replaces the section and lecture rows. The thread has no foreign key to them.
         var changed = course(lectures: ["b", "a", "new"])
         changed.title = "Garden Basics 2"
@@ -320,9 +320,9 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
         Issue.record("The article has no context")
         return
     }
-    let first = try await library.startQATurn(question: "What is step one?", context: context, lectureID: "read")
+    let first = try await library.startQATurn(question: "What is step one?", context: context, origin: .legacy, lectureID: "read")
     library.finishQATurn(first, outcome: .finished, text: "Write the goal [a3].")
-    _ = try await library.startQATurn(question: "And then?", context: context, lectureID: "read")
+    _ = try await library.startQATurn(question: "And then?", context: context, origin: .legacy, lectureID: "read")
     #expect(try await library.lectureConversation(forLecture: "read")?.turns.map(\.status) == [.complete, .pending])
     // A second reload in the same run keeps the active request pending.
     await library.reload()
