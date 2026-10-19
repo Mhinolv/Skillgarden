@@ -2,7 +2,7 @@
 
 `Skillgarden.app` holds one pinned llama.cpp runtime for local AI features.
 The app does not use Homebrew or the network to get it.
-The learner app does not use the runtime yet. Settings shows its version later (#122, #123).
+The app runs one `llama-server` while it is open (#123). Settings shows its status and version.
 
 ## Pinned runtime
 
@@ -55,6 +55,7 @@ SKILLGARDEN_LLAMA_DIR=/path/to/llama-b11669 ./scripts/build.sh app
 
 | Item | Path in `Skillgarden.app` |
 |---|---|
+| Server helper (#123) | `Contents/Helpers/SkillgardenAIHost` |
 | Server binary | `Contents/Helpers/llama/llama-server` |
 | Libraries that `llama-server` loads | `Contents/Helpers/llama/*.dylib` |
 | Runtime manifest | `Contents/Helpers/llama/runtime.json` |
@@ -83,6 +84,22 @@ PASS checksums
 - `library paths`: each library is in `Contents/Helpers/llama`, `/usr/lib` or `/System/Library`. Each rpath is `@loader_path`, `@executable_path` or a system folder. `llama-server --version` starts.
 - `checksums`: each bundled file matches `runtime.json`, and the license notice is present.
 - A failure prints `FAIL <check>: <detail>`, and the exit status is 1.
+
+## Server lifecycle
+
+`RuntimeSupervisor` (`Sources/SkillgardenCore/AI/`) owns one server (#123).
+
+- The server starts at app launch when `Use local AI` is on and the model is valid. It stops at quit (⌘Q).
+- Closing the last window does not stop it. Turning `Use local AI` off stops it and skips the start.
+- The app starts `SkillgardenAIHost --parent-pid <app pid> -- llama-server …`. The helper runs `llama-server` as its child.
+- The helper stops the server when its stdin pipe from the app closes, when the app pid exits, or on SIGTERM.
+  It sends SIGTERM, then SIGKILL after 3 seconds.
+- `llama-server` listens on `127.0.0.1` on a free port, with one slot (`--parallel 1`) and `--ctx-size 8192`.
+  If another program takes the port first, the supervisor tries a new port, at most 3 times.
+- Each start makes a new session secret. The server gets it in `LLAMA_API_KEY`, so it is not in the process list.
+- The status is Ready when `GET /health` gives 200. Before callers send lecture text, they use `verifiedEndpoint()`.
+  It checks that the owned server still runs and listens on the port.
+- The snapshot harness injects the status and starts no runtime.
 
 ## Framework exception
 

@@ -81,8 +81,11 @@ enum SnapshotRenderer {
         // The Settings screens draw the Settings form at the top of the window. The real Settings window is separate.
         // The harness injects the model row state and saves no bookmark (#122).
         let modelSettings = ModelSettings(store: nil, state: output.screen.modelState(home: FileManager.default.homeDirectoryForCurrentUser) ?? .none)
+        // It also injects the local AI status and starts no runtime (#123).
+        let status = output.screen.localAIStatus ?? .off
+        let localAI = RuntimeSupervisor(isEnabled: status != .off, backend: nil, status: status)
         let screenView = output.screen.isSettings
-            ? AnyView(SettingsView(autoPlays: .constant(true), modelSettings: modelSettings)
+            ? AnyView(SettingsView(autoPlays: .constant(true), modelSettings: modelSettings, localAI: localAI)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top))
             : AnyView(ContentView(library: library, reloadsOnAppear: false, customRootPath: output.screen.customRootPath,
                                   appearance: output.appearance == .dark ? .dark : .light))
