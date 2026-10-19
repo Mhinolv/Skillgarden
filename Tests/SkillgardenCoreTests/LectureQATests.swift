@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 @testable import SkillgardenCore
 
@@ -355,6 +356,41 @@ private func model(_ library: LibraryModel, transport: ScriptedTransport, interv
         await qa.waitForRequest()
         #expect(qa.draft == nil)
         #expect(qa.conversation.turns.map(\.answer) == ["Write the goal."])
+    }
+}
+
+// #165: a draft change redraws only the draft. Views that read `isAnswering` do not draw again, and the panel
+// reads the draft citations as often as it wants with one parse for each flush.
+@MainActor @Test func draftFlushParsesOnceAndKeepsIsAnsweringStill() async throws {
+    try await withLibrary { library throws in
+        open(library, "read")
+        let transport = ScriptedTransport()
+        let qa = model(library, transport: transport)
+        qa.show(LectureQA.key(library: library))
+        await qa.load()
+        #expect(qa.send("What is step one?"))
+        #expect(qa.isAnswering)
+        let stream = try await transport.stream(0)
+        stream.yield(.response(status: 200))
+
+        final class Flag: @unchecked Sendable { var changed = false }
+        let answering = Flag()
+        withObservationTracking { _ = qa.isAnswering } onChange: { answering.changed = true }
+        let before = qa.draftParseCount
+        for (flush, text) in ["Write", "Write the", "Write the goal [a1]."].enumerated() {
+            stream.yield(.data(chunk(String(text.dropFirst(qa.draft?.text.count ?? 0)))))
+            try await until { qa.draft?.text == text }
+            for _ in 0..<3 { _ = qa.draftCitations }
+            #expect(qa.draftParseCount - before == flush + 1)
+        }
+        #expect(qa.draftCitations?.sources.count == 1)
+        #expect(!answering.changed)
+
+        stream.yield(.data(chunk("", finish: "stop")))
+        stream.finish()
+        await qa.waitForRequest()
+        #expect(answering.changed)
+        #expect(!qa.isAnswering && qa.draftCitations == nil)
     }
 }
 
