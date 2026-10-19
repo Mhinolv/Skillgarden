@@ -16,7 +16,7 @@ private func suite() throws -> LocalAICheck.Suite {
 
 /// Gives each test an empty folder.
 @MainActor
-private func withFolder<T>(_ body: (URL) async throws -> T) async throws -> T {
+private func withFolder<T: Sendable>(_ body: @MainActor (URL) async throws -> T) async throws -> T {
     let folder = FileManager.default.temporaryDirectory.appending(path: "LocalAICheckTests-\(UUID())", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: folder) }
