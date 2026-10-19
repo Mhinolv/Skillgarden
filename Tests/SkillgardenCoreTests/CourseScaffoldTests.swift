@@ -146,7 +146,7 @@ private let scaffoldFiles = ["content", "content/welcome.md", "media", "media/co
         }
         #expect(!FileManager.default.fileExists(atPath: folder))
         #expect(run(["init", "--help"]) == CommandResult(exitCode: 0, stdout: usage, stderr: ""))
-        #expect(usage.contains("       skillgarden internal list <course-id> [--json]\n"
+        #expect(usage.contains("       skillgarden internal list <course-id> [--json]\n       skillgarden inspect <course-id> [--json]\n"
             + "       skillgarden init <folder> --id <id> --title <title> [--json]\n       skillgarden doctor [--json]\n"))
     }
 }

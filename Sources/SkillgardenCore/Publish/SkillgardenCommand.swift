@@ -20,6 +20,8 @@ private struct CommandOutcome {
     var showsUsage = false
     /// Text mode prints a `hint:` line after each diagnostic that has a hint.
     var showsHints = false
+    /// Text mode prints these lines on stderr after the diagnostics, such as the `Library:` line.
+    var errorFooter = ""
 
     static func failure(_ exitCode: Int32, _ diagnostics: [CommandDiagnostic], showsUsage: Bool = false) -> CommandOutcome {
         CommandOutcome(exitCode: exitCode, diagnostics: diagnostics, showsUsage: showsUsage)
@@ -32,6 +34,7 @@ public enum SkillgardenCommand {
                skillgarden publish --dry-run <course-folder> [--json]
                skillgarden validate <course-folder> [--json]
                skillgarden internal list <course-id> [--json]
+               skillgarden inspect <course-id> [--json]
                skillgarden init <folder> --id <id> --title <title> [--json]
                skillgarden doctor [--json]
                skillgarden schema [--output <file>]
@@ -50,7 +53,7 @@ public enum SkillgardenCommand {
             return CommandResult(exitCode: 0, stdout: "skillgarden \(Skillgarden.version)\n", stderr: "")
         }
         if arguments == ["publish", "--help"] || arguments == ["validate", "--help"] || arguments == ["doctor", "--help"]
-            || arguments == ["init", "--help"] || arguments == ["schema", "--help"] || arguments == ["--help"] {
+            || arguments == ["init", "--help"] || arguments == ["schema", "--help"] || arguments == ["inspect", "--help"] || arguments == ["--help"] {
             return CommandResult(exitCode: 0, stdout: usage, stderr: "")
         }
         // `--json` can come anywhere after the command name.
@@ -67,6 +70,10 @@ public enum SkillgardenCommand {
             command = "internal list"
             outcome = arguments.count == 3 && arguments[1] == "list" && !arguments[2].hasPrefix("-")
                 ? withRoot(root) { listInternal(courseID: arguments[2], root: $0) } : usageError("expected internal list <course-id>")
+        case "inspect":
+            command = "inspect"
+            outcome = arguments.count == 2 && !arguments[1].hasPrefix("-")
+                ? withRoot(root) { inspect(courseID: arguments[1], root: $0) } : usageError("expected inspect <course-id>")
         case "init":
             command = "init"
             outcome = initArguments(Array(arguments.dropFirst())).map(initCourse)
@@ -104,7 +111,7 @@ public enum SkillgardenCommand {
         let errors = outcome.diagnostics.map {
             "error: \($0.text)\n" + (outcome.showsHints ? $0.hint.map { "hint: \($0)\n" } ?? "" : "")
         }.joined()
-        return CommandResult(exitCode: outcome.exitCode, stdout: outcome.text, stderr: errors + (outcome.showsUsage ? usage : ""))
+        return CommandResult(exitCode: outcome.exitCode, stdout: outcome.text, stderr: errors + outcome.errorFooter + (outcome.showsUsage ? usage : ""))
     }
 
     /// One JSON document on stdout for every exit code. Stderr stays empty (#109 owner decision).
@@ -150,10 +157,11 @@ public enum SkillgardenCommand {
     private static func publish(courseFolder path: String, root: URL) -> CommandOutcome {
         do {
             let result = try CoursePublisher.publish(courseFolder: URL(fileURLWithPath: path), root: root)
-            return CommandOutcome(exitCode: 0, text: result.summary + "\n" + draftText(result.state) + "Library: \(root.path)\n", result: [
+            let lines = [result.summary, result.files.line, result.snapshot.line].map { $0 + "\n" }.joined()
+            return CommandOutcome(exitCode: 0, text: lines + draftText(result.state) + "Library: \(root.path)\n", result: [
                 "title": result.title, "id": result.id, "state": result.state.rawValue, "draft": result.state == .draft,
                 "created": result.created, "updated": result.updated, "unchanged": result.unchanged, "removed": result.removed,
-                "library_path": root.path,
+                "library_path": root.path, "files": json(result.files), "snapshot": json(result.snapshot),
             ])
         } catch {
             return failure(error)
@@ -176,17 +184,55 @@ public enum SkillgardenCommand {
         }
         let lines = [plan.summary] + plan.changes.map(\.line) + [plan.files.line, plan.snapshot.line] + [plan.migrationLine].compactMap { $0 }
         let text = lines.map { $0 + "\n" }.joined() + draftText(plan.state) + "Library: \(root.path)\nNothing was written.\n"
-        let snapshot = plan.snapshot
         return CommandOutcome(exitCode: 0, text: text, result: [
             "title": plan.title, "id": plan.id, "state": plan.state.rawValue, "draft": plan.state == .draft,
             "created": plan.created, "updated": plan.updated, "unchanged": plan.unchanged, "removed": plan.removed,
             "library_path": root.path, "dry_run": true,
             "changes": plan.changes.map { ["action": $0.action.rawValue, "kind": $0.kind, "id": $0.id] },
-            "files": ["added": plan.files.added, "changed": plan.files.changed, "unchanged": plan.files.unchanged,
-                      "removed": plan.files.removed],
-            "snapshot": ["state": snapshot.keptID == nil ? "new" : "kept", "id": snapshot.keptID ?? NSNull(),
-                         "files": snapshot.files, "bytes": snapshot.bytes] as [String: Any],
+            "files": json(plan.files), "snapshot": json(plan.snapshot),
             "migration": plan.migrationFrom.map { ["from": $0, "to": CourseStore.currentSchemaVersion] as Any } ?? NSNull(),
+        ])
+    }
+
+    private static func json(_ files: FileCounts) -> [String: Any] {
+        ["added": files.added, "changed": files.changed, "unchanged": files.unchanged, "removed": files.removed]
+    }
+
+    /// `id` is null only in a dry run that plans a new snapshot.
+    private static func json(_ snapshot: SnapshotSummary) -> [String: Any] {
+        ["state": snapshot.keptID == nil ? "new" : "kept", "id": snapshot.id ?? NSNull(), "files": snapshot.files,
+         "bytes": snapshot.bytes]
+    }
+
+    /// Shows an installed course and whether learners see it (#115). It opens the library read-only.
+    private static func inspect(courseID: String, root: URL) -> CommandOutcome {
+        let inspection: CourseInspection?
+        do {
+            inspection = try CoursePublisher.inspect(courseID: courseID, root: root)
+        } catch let error as CourseStoreError {
+            guard case .unsupportedSchema = error else { return failure(error) }
+            var outcome = CommandOutcome.failure(3, [CommandDiagnostic(code: .io, message: error.localizedDescription,
+                                                                       hint: "Update skillgarden. Inspect does not change the library.")])
+            outcome.showsHints = true
+            return outcome
+        } catch {
+            return failure(error)
+        }
+        guard let inspection else {
+            var outcome = CommandOutcome.failure(1, [CommandDiagnostic(code: .courseNotFound, message: "course \"\(courseID)\" not found",
+                                                                       hint: "Check the id, or check \(Skillgarden.dataDirectoryVariable).")])
+            outcome.showsHints = true
+            outcome.errorFooter = "Library: \(root.path)\n"
+            return outcome
+        }
+        let lines = [inspection.heading, inspection.learnersLine, "Snapshot: \(inspection.snapshotID)",
+                     "Snapshot path: \(inspection.snapshotPath)", "Internal files: \(inspection.internalFiles)", "Library: \(root.path)"]
+        return CommandOutcome(exitCode: 0, text: lines.map { $0 + "\n" }.joined(), result: [
+            "title": inspection.title, "id": inspection.id, "state": inspection.state.rawValue, "draft": inspection.state == .draft,
+            "visible": inspection.state == .published, "sections": inspection.sections, "visible_sections": inspection.visibleSections,
+            "lectures": inspection.lectures, "visible_lectures": inspection.visibleLectures,
+            "snapshot": ["id": inspection.snapshotID, "path": inspection.snapshotPath] as [String: Any],
+            "internal_files": inspection.internalFiles, "library_path": root.path,
         ])
     }
 

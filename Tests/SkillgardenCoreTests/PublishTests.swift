@@ -81,8 +81,12 @@ private func counts(_ result: PublishResult) -> [Int] {
     try withCourse { folder, root in
         try edit(folder, "state: published\ntheme:", "state: draft\ntheme:")
         let result = SkillgardenCommand.run(arguments: ["publish", folder.path], root: root)
+        let snapshot = try #require(try CoursePublisher.assetDirectory(courseID: "sample-course", root: root)).lastPathComponent
+        let size = try #require(result.stdout.split(separator: "\n").first { $0.hasPrefix("Snapshot: ") }?.split(separator: ", ").last)
         #expect(result == CommandResult(exitCode: 0, stdout: """
             Published "Local Course Basics" (sample-course, draft): created 7, updated 0, unchanged 0, removed 0
+            Files: added 13, changed 0, unchanged 0, removed 0
+            Snapshot: new \(snapshot), 13 files, \(size)
             Draft: learners do not see this course.
             Library: \(root.path)
 
@@ -170,7 +174,7 @@ private func counts(_ result: PublishResult) -> [Int] {
 
 @Test func commandUsageAndHelp() throws {
     let root = FileManager.default.temporaryDirectory.appending(path: "SkillgardenUnused-\(UUID())")
-    let usage = "usage: skillgarden publish <course-folder> [--json]\n       skillgarden publish --dry-run <course-folder> [--json]\n       skillgarden validate <course-folder> [--json]\n       skillgarden internal list <course-id> [--json]\n       skillgarden init <folder> --id <id> --title <title> [--json]\n       skillgarden doctor [--json]\n       skillgarden schema [--output <file>]\n"
+    let usage = "usage: skillgarden publish <course-folder> [--json]\n       skillgarden publish --dry-run <course-folder> [--json]\n       skillgarden validate <course-folder> [--json]\n       skillgarden internal list <course-id> [--json]\n       skillgarden inspect <course-id> [--json]\n       skillgarden init <folder> --id <id> --title <title> [--json]\n       skillgarden doctor [--json]\n       skillgarden schema [--output <file>]\n"
     for arguments in [["publish", "--help"], ["--help"]] {
         #expect(SkillgardenCommand.run(arguments: arguments, root: root) == CommandResult(exitCode: 0, stdout: usage, stderr: ""))
     }
