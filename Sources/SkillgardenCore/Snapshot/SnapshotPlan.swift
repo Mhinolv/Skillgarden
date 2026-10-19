@@ -77,6 +77,10 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case settingsAIError = "settings-ai-error"
     /// The same Settings window with three provider profiles in the Q&A section (#151). One profile has a refused Keychain item.
     case settingsProviders = "settings-providers"
+    /// The LM Studio provider sheet after a passed "Test Connection" (#152). The harness draws the sheet in place of the window.
+    case providerSheetLMStudio = "provider-sheet-lm-studio"
+    /// The Ollama provider sheet with a `localhost` base URL: the loopback error under the field and "Save" off (#152).
+    case providerSheetOllamaError = "provider-sheet-ollama-error"
     /// The Q&A panel of the video lecture (#128), scrolled to the end: Ready with three saved turns,
     /// one complete, one cancelled and one failed.
     case qaThread = "qa-thread"
@@ -116,9 +120,12 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case qaConsent = "qa-consent"
     /// The Q&A panel with the OpenAI API profile as "Answer with" and a saved remote turn (#151).
     case qaRemote = "qa-remote"
+    /// The Q&A panel with the LM Studio profile as "Answer with" (#152): the header "LM Studio · qwen3-8b-mlx",
+    /// a saved LM Studio turn and a streamed draft answer.
+    case qaExternalLocal = "qa-external-local"
 
     static let settingsScreens: [SnapshotScreen] = [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
-                                                    .settingsProviders]
+                                                    .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError]
 
     /// True for the Settings screens. The harness draws the Settings form in place of the main window.
     public var isSettings: Bool { Self.settingsScreens.contains(self) }
@@ -126,7 +133,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The local AI status that the harness injects into the Settings form (#123). It starts no runtime. Nil for the other screens.
     public var localAIStatus: LocalAIStatus? {
         switch self {
-        case .settings, .settingsProviders: .ready(version: "b11669")
+        case .settings, .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError: .ready(version: "b11669")
         case .settingsModelMissing: .noModel
         case .settingsAIOff: .off
         case .settingsAIError: .failed(.noFreePort)
@@ -151,7 +158,11 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// The draft that the harness shows in the Q&A panel: the question, then the answer so far. Nil for no draft.
     public var qaDraft: (question: String, text: String)? {
-        self == .qaDraft ? ("What does the outline show first?", "The outline shows the **sections** of the course, in order.") : nil
+        switch self {
+        case .qaDraft: ("What does the outline show first?", "The outline shows the **sections** of the course, in order.")
+        case .qaExternalLocal: ("Which tools do I need?", "You need a text editor and the course outline [t1].")
+        default: nil
+        }
     }
 
     /// The model row state that the harness injects into the Settings form (#122). Nil for the other screens.
@@ -166,7 +177,27 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     }
 
     /// True when the harness gives the fixture provider profiles to Settings and the Q&A panel (#151).
-    public var usesProviderProfiles: Bool { [.settingsProviders, .qaConsent, .qaRemote].contains(self) }
+    public var usesProviderProfiles: Bool { [.settingsProviders, .qaConsent, .qaRemote, .qaExternalLocal].contains(self) }
+
+    /// The "Answer with" profile of `usesProviderProfiles`: LM Studio on `qa-external-local` (#152), else the OpenAI API.
+    public var selectedProviderID: String? {
+        guard usesProviderProfiles else { return nil }
+        return SnapshotPlan.providerProfiles[self == .qaExternalLocal ? 1 : 0].id
+    }
+
+    /// The provider sheet that the harness draws in place of the window (#152), with its injected test result.
+    /// Nil for the other screens.
+    public var providerSheet: (profile: ProviderProfile, testResult: ConnectionTestResult?)? {
+        switch self {
+        case .providerSheetLMStudio:
+            (ProviderProfile(id: "snapshot-lm-studio-new", kind: .externalLocal, name: "LM Studio", vendor: "LM Studio",
+                             origin: "http://127.0.0.1:1234/v1", modelID: "qwen3-8b-mlx"), .connected)
+        case .providerSheetOllamaError:
+            (ProviderProfile(id: "snapshot-ollama-new", kind: .externalLocal, name: "Ollama", vendor: "Ollama",
+                             origin: "http://localhost:11434/v1", modelID: "llama3.2"), nil)
+        default: nil
+        }
+    }
 
     /// The question that the harness sends, so the consent sheet opens (#151). Nil for the other screens.
     public var qaConsentQuestion: String? { self == .qaConsent ? "Which tools do I need?" : nil }
@@ -279,13 +310,13 @@ public enum SnapshotPlan {
     public static func seedStore(for screen: SnapshotScreen, root: URL, fixture: URL) throws -> String? {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
-             .settingsProviders:
+             .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError:
             _ = try CourseStore(root: root)
             return nil
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
              .videoQuickCheck, .videoTheater, .lectureSources, .videoUpNext, .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft,
              .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaArticle, .qaTheater, .qaCitations, .qaCitationExcerpt,
-             .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote:
+             .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote, .qaExternalLocal:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -437,7 +468,7 @@ public enum SnapshotPlan {
             [("What is the goal of this course?", "You plan a course step by step [t1].", .finished),
              ("Which tools do I need?", "You need", .canceled),
              ("How long is the course?", "", .httpError(status: 500))]
-        case .qaDraft, .qaConsent, .qaRemote:
+        case .qaDraft, .qaConsent, .qaRemote, .qaExternalLocal:
             [("What is the goal of this course?", "You plan a course step by step [t1].", .finished)]
         case .qaCitations, .qaOffHistory, .qaErrorHistory, .qaStartingHistory:
             // Inline Markdown (#158): italic, a marker in bold and code.
@@ -457,9 +488,14 @@ public enum SnapshotPlan {
     /// The provider and the model of the seeded Q&A turns (#150). The panel shows them only for a profile (#151).
     static let snapshotOrigin = AnswerOrigin(providerID: BundledAnswerProvider.providerID, modelID: "snapshot.gguf")
 
-    /// The origin of the seeded turns of a screen: the OpenAI API profile on `qa-remote`, else the bundled model.
+    /// The origin of the seeded turns of a screen: the OpenAI API profile on `qa-remote`, the LM Studio profile on
+    /// `qa-external-local` (#152), else the bundled model.
     static func qaOrigin(for screen: SnapshotScreen) -> AnswerOrigin {
-        screen == .qaRemote ? AnswerOrigin(providerID: providerProfiles[0].id, modelID: providerProfiles[0].modelID) : snapshotOrigin
+        switch screen {
+        case .qaRemote: AnswerOrigin(providerID: providerProfiles[0].id, modelID: providerProfiles[0].modelID)
+        case .qaExternalLocal: AnswerOrigin(providerID: providerProfiles[1].id, modelID: providerProfiles[1].modelID)
+        default: snapshotOrigin
+        }
     }
 
     /// The fixture profiles of `usesProviderProfiles` (#151): one of each group with an adapter later, and a second API.
@@ -468,7 +504,7 @@ public enum SnapshotPlan {
         ProviderProfile(id: "snapshot-openai", kind: .api, name: "OpenAI API", vendor: "OpenAI", origin: "https://api.openai.com",
                         modelID: "gpt-5", credentialReference: "snapshot-openai"),
         ProviderProfile(id: "snapshot-lm-studio", kind: .externalLocal, name: "LM Studio", vendor: "LM Studio",
-                        origin: "http://localhost:1234", modelID: "qwen2.5-7b-instruct"),
+                        origin: "http://127.0.0.1:1234/v1", modelID: "qwen3-8b-mlx"),
         ProviderProfile(id: "snapshot-anthropic", kind: .api, name: "Anthropic API", vendor: "Anthropic",
                         origin: "https://api.anthropic.com", modelID: "claude-sonnet-5-5", credentialReference: "snapshot-anthropic"),
     ]
@@ -550,7 +586,7 @@ public enum SnapshotPlan {
     public static func imageLoads(for screen: SnapshotScreen) -> Int {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
-             .settingsProviders: 0
+             .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError: 0
         case .library: 3
         case .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads, .pdfPreview: 2
         default: 1
@@ -561,11 +597,12 @@ public enum SnapshotPlan {
     public static func destination(for screen: SnapshotScreen) -> CourseDestination? {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library, .settings, .settingsModelMissing, .settingsAIOff,
-             .settingsAIError, .settingsProviders: nil
+             .settingsAIError, .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError: nil
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
              .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions,
-             .qaTheater, .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote:
+             .qaTheater, .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
+             .qaExternalLocal:
             .lecture(sectionID: "plan", lectureID: "welcome")
         case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle, .qaCitationExcerpt:
             .lecture(sectionID: "plan", lectureID: "read")

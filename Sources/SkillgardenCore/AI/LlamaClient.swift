@@ -59,9 +59,16 @@ public final class LlamaClient: @unchecked Sendable {
     }
 
     func ask(_ messages: [ChatMessage], baseURL: URL, apiKey: String) -> AnswerRequest {
+        start(Self.chatRequest(messages, baseURL: baseURL, apiKey: apiKey), pump: Self.pump)
+    }
+
+    /// Starts `request` and reads its response with `pump` (#152). A nil request ends at once as untrusted.
+    func start(_ request: URLRequest?,
+               pump: @escaping @Sendable (AsyncThrowingStream<LlamaTransportEvent, any Error>, (String) -> Bool) async -> AnswerOutcome)
+        -> AnswerRequest {
         let id = UUID()
         let (updates, continuation) = AsyncStream<AnswerUpdate>.makeStream()
-        guard let request = Self.chatRequest(messages, baseURL: baseURL, apiKey: apiKey) else {
+        guard let request else {
             continuation.yield(.ended(.untrusted, text: ""))
             continuation.finish()
             return AnswerRequest(id: id, updates: updates)
@@ -79,7 +86,7 @@ public final class LlamaClient: @unchecked Sendable {
         // A consumer that stops reading cancels the request.
         continuation.onTermination = { [weak self] _ in self?.cancel(id) }
         let task = Task { [weak self, transport] in
-            let outcome = await Self.pump(transport.send(request)) { text in self?.deliver(id, .delta(text: text)) ?? false }
+            let outcome = await pump(transport.send(request)) { text in self?.deliver(id, .delta(text: text)) ?? false }
             self?.end(id, outcome)
         }
         lock.withLock {
@@ -96,8 +103,7 @@ public final class LlamaClient: @unchecked Sendable {
     /// Reads the response. `send` gets the full text after each delta and gives false when the request ended.
     static func pump(_ events: AsyncThrowingStream<LlamaTransportEvent, any Error>,
                      send: (String) -> Bool) async -> AnswerOutcome {
-        var decoder = ServerSentEventDecoder()
-        var text = ""
+        var reader = ChatStreamReader()
         do {
             for try await event in events {
                 switch event {
@@ -108,22 +114,7 @@ public final class LlamaClient: @unchecked Sendable {
                     default: return .httpError(status: status)
                     }
                 case .data(let data):
-                    for event in decoder.decode(data) {
-                        switch ChatStreamEvent(data: event) {
-                        case .content(let delta):
-                            guard !delta.isEmpty else { continue }
-                            text += delta
-                            guard send(text) else { return .canceled }
-                        case .finished(let delta):
-                            text += delta
-                            if !delta.isEmpty { guard send(text) else { return .canceled } }
-                            return text.isEmpty ? .empty : .finished
-                        case .error(let status):
-                            return .httpError(status: status)
-                        case .malformed:
-                            return .malformed
-                        }
-                    }
+                    if let outcome = reader.read(data, send: send) { return outcome }
                 }
             }
         } catch {
@@ -131,7 +122,7 @@ public final class LlamaClient: @unchecked Sendable {
         }
         if Task.isCancelled { return .canceled }
         // The body ended with no finish event.
-        return text.isEmpty ? .empty : .disconnected
+        return reader.unfinishedOutcome
     }
 
     /// Gives a delta of the active request. False when `id` is not active.
