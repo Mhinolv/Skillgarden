@@ -137,6 +137,7 @@ public struct AnswerCitations: Equatable, Sendable {
         if !rest.isEmpty { segments.append(.text(String(rest))) }
         self.segments = segments
         self.sources = sources + (unknown.map { [$0] } ?? [])
+        styled = Self.styled(segments)
     }
 
     /// `[t12]`, `[a3]` and lists such as `[t1, t2]`. A letter must come first, so `[1]` and `[x]` stay plain text.
@@ -154,13 +155,65 @@ public struct AnswerCitations: Equatable, Sendable {
         "[\(source.id)]"
     }
 
-    /// The answer as the learner sees it, with numbered markers.
-    public var text: String {
-        segments.map {
-            switch $0 {
-            case .text(let value): value
-            case .marker(let source): Self.markerText(source)
+    /// The answer as the learner sees it (#158): inline Markdown styles, no links and numbered markers.
+    /// Each marker run has `AnswerMarkerAttribute`, so the panel can color it.
+    public let styled: AttributedString
+
+    /// The answer as the learner sees it, with numbered markers and no Markdown syntax.
+    public var text: String { String(styled.characters) }
+
+    /// Parses the full answer once with a placeholder for each marker, so a marker inside `**…**` is also bold.
+    /// Links become text, as in the article excerpt. An open `**` in a draft stays text until it closes.
+    /// Each marker is one private-use character, so a marker that the parse drops (for example in a link address)
+    /// does not move the other markers.
+    private static func styled(_ segments: [Segment]) -> AttributedString {
+        let placeholders: ClosedRange<UInt32> = 0xE000...0xF8FF
+        func isPlaceholder(_ scalar: Unicode.Scalar) -> Bool { placeholders.contains(scalar.value) }
+        var markdown = ""
+        var markers: [AnswerSource] = []
+        for segment in segments {
+            switch segment {
+            case .text(let value): markdown.unicodeScalars.append(contentsOf: value.unicodeScalars.filter { !isPlaceholder($0) })
+            case .marker(let source):
+                // Markers after the last placeholder show as plain text. An answer has far fewer markers.
+                guard let scalar = Unicode.Scalar(placeholders.lowerBound + UInt32(markers.count)), isPlaceholder(scalar) else {
+                    markdown += markerText(source)
+                    continue
+                }
+                markdown.unicodeScalars.append(scalar)
+                markers.append(source)
             }
-        }.joined()
+        }
+        let parsed = (try? AttributedString(markdown: markdown, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(markdown)
+        var styled = AttributedString()
+        for run in parsed.runs {
+            var attributes = run.attributes
+            attributes.link = nil
+            var text = ""
+            func flush() {
+                if !text.isEmpty { styled += AttributedString(text, attributes: attributes) }
+                text = ""
+            }
+            for scalar in parsed.unicodeScalars[run.range] {
+                guard isPlaceholder(scalar) else {
+                    text.unicodeScalars.append(scalar)
+                    continue
+                }
+                flush()
+                let source = markers[Int(scalar.value - placeholders.lowerBound)]
+                var marker = AttributedString(markerText(source), attributes: attributes)
+                marker[AnswerMarkerAttribute.self] = source
+                styled += marker
+            }
+            flush()
+        }
+        return styled
     }
+}
+
+/// The source of a marker run in `AnswerCitations.styled` (#158).
+public enum AnswerMarkerAttribute: AttributedStringKey {
+    public typealias Value = AnswerSource
+    public static let name = "SkillgardenAnswerMarker"
 }

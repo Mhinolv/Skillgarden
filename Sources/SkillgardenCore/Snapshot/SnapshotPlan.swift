@@ -138,7 +138,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// The draft that the harness shows in the Q&A panel: the question, then the answer so far. Nil for no draft.
     public var qaDraft: (question: String, text: String)? {
-        self == .qaDraft ? ("What does the outline show first?", "The outline shows the sections of the course, in order.") : nil
+        self == .qaDraft ? ("What does the outline show first?", "The outline shows the **sections** of the course, in order.") : nil
     }
 
     /// The model row state that the harness injects into the Settings form (#122). Nil for the other screens.
@@ -420,8 +420,9 @@ public enum SnapshotPlan {
         case .qaDraft:
             [("What is the goal of this course?", "You plan a course step by step [t1].", .finished)]
         case .qaCitations:
-            [("How does the course start?", "It starts with a welcome [t0]. Then you plan the course step by step [t1]. "
-                + "The guide has more help [L9].", .finished)]
+            // Inline Markdown (#158): italic, a marker in bold and code.
+            [("How does the course start?", "It starts with a *welcome* [t0]. Then you plan the course **step by step [t1]**. "
+                + "The `guide` has more help [L9].", .finished)]
         case .qaCitationExcerpt:
             [("What do I do first?", "Write the goal of the course first [a4]. Keep each lecture short [a6].", .finished)]
         case .qaCitationsStale:
