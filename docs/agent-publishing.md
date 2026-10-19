@@ -235,6 +235,7 @@ The app bundle holds the CLI at `Skillgarden.app/Contents/Helpers/skillgarden`. 
 | `skillgarden internal list <course-id>` | One tab-separated row for each internal file |
 | `skillgarden init <folder> --id <id> --title <title>` | `Created "<title>" (<id>, draft): 4 files in <path>`, then the draft line and the next step |
 | `skillgarden doctor` | Labelled lines: version, CLI, library, source, folder, write access, app library, match, sandbox |
+| `skillgarden schema [--output <file>]` | The manifest JSON Schema. With `--output`: `Wrote manifest schema 1 to <path>`. See section 8. |
 | `skillgarden --version` | `skillgarden <version>` |
 | `skillgarden --help` | The usage text |
 
@@ -245,21 +246,21 @@ For a draft course, `validate` and `publish` also print `Draft: learners do not 
 | 0 | Success | Results on stdout |
 | 1 | Manifest or file errors. For `init`, a folder that is not empty or a path that is not a folder. | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem. List indexes in `<fieldPath>` start at 0: `sections[0]` is the first section. |
 | 2 | Usage error or bad data folder setting | `error: ...` on stderr. A usage error also prints the usage text. |
-| 3 | I/O or library error. For `validate`, also a missing course folder. For `doctor`, a library path that is not a folder. | `error: <description>` on stderr |
+| 3 | I/O or library error. For `validate`, also a missing course folder. For `doctor`, a library path that is not a folder. For `schema`, a file that cannot be written. | `error: <description>` on stderr |
 
 `doctor` prints its report on stdout also for exit codes 2 and 3.
 
 ### JSON output
 
-Add `--json` anywhere after the command name, for example `skillgarden validate <course-folder> --json`. Then each run writes one JSON document to stdout, for every exit code. Stderr stays empty. The exit codes do not change.
+Add `--json` anywhere after the command name, for example `skillgarden validate <course-folder> --json`. Then each run writes one JSON document to stdout, for every exit code. Stderr stays empty. The exit codes do not change. `skillgarden schema --json` writes the schema itself, not the object below.
 
 | Key | Value |
 |---|---|
 | `format_version` | `1`. Later versions add keys only. |
-| `command` | `validate`, `publish`, `internal list`, `init`, `doctor`, or `null` for an unknown command |
+| `command` | `validate`, `publish`, `internal list`, `init`, `doctor`, `schema`, or `null` for an unknown command |
 | `ok` | `true` when `exit_code` is 0 |
 | `exit_code` | The process exit code |
-| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`. `internal list`: `files`, each with `title`, `path`, `description`. `init`: `title`, `id`, `state`, `draft`, `path`, `files`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
+| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`. `internal list`: `files`, each with `title`, `path`, `description`. `init`: `title`, `id`, `state`, `draft`, `path`, `files`. `schema --output`: `path`, `schema_version`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
 | `diagnostics` | One object for each problem: `code`, `severity` (`error`), `message`, `file`, `field_path`, `hint`. `file`, `field_path` and `hint` are `null` when unknown. |
 
 The `code` values are stable. New versions add codes, but never rename a code.
@@ -280,3 +281,30 @@ The `code` values are stable. New versions add codes, but never rename a code.
 | `course.not_found` | `internal list` cannot find the course |
 | `library.busy` | Another process uses the library |
 | `io` | All other errors |
+
+## 8. Manifest schema
+
+`skillgarden schema` prints the JSON Schema (draft 2020-12) of manifest version 1. The repository has a copy in `docs/skillgarden-manifest.schema.json`.
+
+```sh
+skillgarden schema --output skillgarden-manifest.schema.json
+```
+
+- The schema `$id` is `urn:skillgarden:manifest:1`. It changes when `schema_version` changes.
+- The schema lists the required fields, the types, the `state`, `appearance` and lecture `type` values, and the type field that each lecture type needs.
+- The schema accepts unknown keys, the same as `validate`.
+- A manifest that matches the schema can still fail `validate`. Run `skillgarden validate <course-folder>` before you publish.
+
+Only `validate` does these checks:
+
+| Check | Example error |
+|---|---|
+| Files exist | `file does not exist` |
+| Paths stay inside the course folder, and learner paths stay out of `internal/` | `path must stay inside the course folder` |
+| Paths are normalized | `path must be normalized: use "media/intro.mp4"` |
+| Media formats: `.mp4`, `.vtt`, images, UTF-8 Markdown, interactive bundles, video length | `must be an .mp4 file` |
+| Ids and `order` values are unique | `duplicate id "intro" (first used at ...)` |
+| `correct_choice_id` and `recommended_next` refer to a choice or lecture that exists | `must refer to a lecture id in this course` |
+| Alt text of each Markdown image | `alt text is required` |
+| Hex colors | `must be a hex color such as "#286644"` |
+| Text that is only spaces, source URLs and the order of timestamps | `must be an http or https URL` |
