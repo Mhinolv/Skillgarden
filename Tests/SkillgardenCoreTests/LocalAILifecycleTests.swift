@@ -421,7 +421,8 @@ private func supervisor(_ backend: FakeBackend, enabled: Bool = true, saved: ((B
     await ai.waitForChanges()
     #expect(ai.status == .failed(.noFreePort))
     #expect(SnapshotScreen.allCases.compactMap(\.localAIStatus)
-        == [.ready(version: "b11669"), .noModel, .off, .failed(.noFreePort), .ready(version: "b11669")])
+        == [.ready(version: "b11669"), .noModel, .off, .failed(.noFreePort), .ready(version: "b11669"), .ready(version: "b11669"),
+            .ready(version: "b11669")])
     #expect(SnapshotScreen.allCases.filter { $0.localAIStatus != nil } == SnapshotScreen.allCases.filter(\.isSettings))
 }
 

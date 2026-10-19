@@ -137,7 +137,7 @@ enum ModelChooser {
 }
 
 /// The Settings "Q&A" section (#151): the app-wide "Answer with" choice, one row for each provider profile, and the footer.
-/// "Add Provider" lists only kinds with a shipped adapter. No adapter ships yet, so the section shows no menu.
+/// "Add Provider" lists only kinds with a shipped adapter: LM Studio and Ollama first (#152).
 struct QAProvidersSection: View {
     let providers: ProviderSettings
     @State private var editing: ProviderProfile?
@@ -160,6 +160,14 @@ struct QAProvidersSection: View {
             }
             .pickerStyle(.menu)
             ForEach(providers.profiles) { row($0) }
+            if providers.adapterKinds.contains(.externalLocal) {
+                Menu("Add Provider") {
+                    ForEach(ExternalLocalServer.allCases) { server in
+                        Button(server.menuTitle) { editing = .preset(server) }
+                    }
+                }
+                .fixedSize()
+            }
         } header: {
             Text("Q&A")
         } footer: {
@@ -209,11 +217,14 @@ struct QAProvidersSection: View {
 
 /// The provider sheet (#151): the fields of the kind, "Test Connection", "Cancel" and "Save".
 /// The key goes into the Keychain only. The field stays empty for a saved key.
+/// An external local server (#152) has the fields Name, Base URL, Model ID and an optional token, with a red caption
+/// under an invalid field and the footer of its preset.
 struct ProviderSheet: View {
     let providers: ProviderSettings
     @State var profile: ProviderProfile
+    /// The snapshot harness injects a test result. The app starts with none.
+    @State var testResult: ConnectionTestResult?
     @State private var secret = ""
-    @State private var testResult: ConnectionTestResult?
     @State private var isTesting = false
     @State private var saveProblem: String?
     @Environment(\.dismiss) private var dismiss
@@ -222,31 +233,41 @@ struct ProviderSheet: View {
         profile.isValid(hasSecret: providers.hasSecret(profile) || !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
+    private var canTest: Bool { providers.canTest(profile.kind) }
+
     var body: some View {
         VStack(spacing: 0) {
             Form {
                 Section {
-                    TextField("Name", text: $profile.name)
-                    TextField("Company", text: $profile.vendor)
-                    TextField(profile.kind == .externalLocal ? "Server URL" : "Base URL", text: $profile.origin,
-                              prompt: Text(profile.kind == .externalLocal ? "http://localhost:1234" : "https://api.example.com"))
-                    TextField("Model", text: $profile.modelID)
-                    if profile.kind.usesAPIKey {
-                        SecureField("API Key", text: $secret, prompt: Text(keyPrompt))
+                    if profile.kind == .externalLocal {
+                        externalLocalFields
+                    } else {
+                        TextField("Name", text: $profile.name)
+                        TextField("Company", text: $profile.vendor)
+                        TextField("Base URL", text: $profile.origin, prompt: Text("https://api.example.com"))
+                        TextField("Model", text: $profile.modelID)
+                        if profile.kind.usesAPIKey {
+                            SecureField("API Key", text: $secret, prompt: Text(keyPrompt))
+                        }
                     }
                 } header: {
                     Text(profile.kind.title)
                 } footer: {
-                    if let saveProblem {
-                        Text(saveProblem).foregroundStyle(.red)
-                    } else if providers.testConnection != nil {
-                        testFooter
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let saveProblem {
+                            Text(saveProblem).foregroundStyle(.red)
+                        } else if canTest {
+                            testFooter
+                        }
+                        if let server = profile.externalServer {
+                            Text(server.footer).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
             }
             .formStyle(.grouped)
             HStack {
-                if providers.testConnection != nil {
+                if canTest {
                     Button("Test Connection", action: test).disabled(!isValid || isTesting)
                     if isTesting { ProgressView().controlSize(.small) }
                 }
@@ -261,6 +282,29 @@ struct ProviderSheet: View {
         }
         .frame(width: 420)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The fields of an external local server (#152). The red caption is also the accessibility hint of its field.
+    @ViewBuilder private var externalLocalFields: some View {
+        TextField("Name", text: $profile.name)
+        validated(TextField("Base URL", text: $profile.origin, prompt: Text((profile.externalServer ?? .lmStudio).defaultBaseURL)),
+                  problem: profile.originProblem)
+        validated(TextField("Model ID", text: $profile.modelID, prompt: Text("Model ID from the server")),
+                  problem: profile.modelProblem)
+        SecureField("Token", text: $secret, prompt: Text(providers.hasSecret(profile) ? "Saved in the Keychain" : "Bearer token (optional)"))
+    }
+
+    private func validated(_ field: some View, problem: String?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            field.accessibilityHint(problem ?? "")
+            if let problem {
+                Text(problem)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityHidden(true)
+            }
+        }
     }
 
     private var keyPrompt: String {
@@ -283,11 +327,10 @@ struct ProviderSheet: View {
     }
 
     private func test() {
-        guard let testConnection = providers.testConnection else { return }
         isTesting = true
-        let key = secret.isEmpty ? nil : secret
+        testResult = nil
         Task {
-            testResult = await testConnection(profile, key)
+            testResult = await providers.test(profile, secret: secret)
             isTesting = false
         }
     }

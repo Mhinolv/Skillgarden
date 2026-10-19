@@ -83,7 +83,7 @@ struct LectureQAView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: Self.threadHeight)
             composer(state)
-            Text(profile.map { "Answers come from \($0.vendor) and can be wrong." } ?? "Answers come from a local model and can be wrong.")
+            Text(profile?.answerFooter ?? "Answers come from a local model and can be wrong.")
                 .gardenText(.label)
         }
         .gardenCard(padding: GardenSpacing.s)
@@ -367,6 +367,7 @@ struct RemoteConsentSheet: View {
                     Text("• " + item).fixedSize(horizontal: false, vertical: true)
                 }
             }
+            if let cloudNote = request.cloudNote { Text(cloudNote).fixedSize(horizontal: false, vertical: true) }
             Text("Provider charges and data policies apply.").font(.caption).foregroundStyle(.secondary)
             DisclosureGroup("Show exact text", isExpanded: $showsText) {
                 ScrollView {

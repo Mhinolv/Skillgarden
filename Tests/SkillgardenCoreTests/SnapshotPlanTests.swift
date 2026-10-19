@@ -12,7 +12,7 @@ private func temporaryFolder() throws -> URL {
     return folder
 }
 
-@Test func snapshotOutputsAreDeterministicForAnOutDirectory() {
+@Test func snapshotOutputsAreDeterministicForAnOutDirectory() throws {
     let out = URL(fileURLWithPath: "/tmp/snapshots")
     let outputs = SnapshotPlan.outputs(outDirectory: out)
     #expect(outputs.map(\.url.lastPathComponent) == [
@@ -53,6 +53,8 @@ private func temporaryFolder() throws -> URL {
         "settings-ai-off-light.png", "settings-ai-off-dark.png",
         "settings-ai-error-light.png", "settings-ai-error-dark.png",
         "settings-providers-light.png", "settings-providers-dark.png",
+        "provider-sheet-lm-studio-light.png", "provider-sheet-lm-studio-dark.png",
+        "provider-sheet-ollama-error-light.png", "provider-sheet-ollama-error-dark.png",
         "qa-thread-light.png", "qa-thread-dark.png", "qa-thread-unthemed-dark.png",
         "qa-empty-light.png", "qa-empty-dark.png", "qa-empty-unthemed-dark.png",
         "qa-draft-light.png", "qa-draft-dark.png", "qa-draft-unthemed-dark.png",
@@ -72,11 +74,12 @@ private func temporaryFolder() throws -> URL {
         "qa-starting-history-light.png", "qa-starting-history-dark.png", "qa-starting-history-unthemed-dark.png",
         "qa-consent-light.png", "qa-consent-dark.png", "qa-consent-unthemed-dark.png",
         "qa-remote-light.png", "qa-remote-dark.png", "qa-remote-unthemed-dark.png",
+        "qa-external-local-light.png", "qa-external-local-dark.png", "qa-external-local-unthemed-dark.png",
     ])
     // #82: every course screen except the dark-theme screen gets one dark capture with no course theme.
     #expect(SnapshotScreen.allCases.filter { $0.selectsCourse && !$0.hasUnthemedCapture } == [.courseLandingDarkTheme])
     let unthemed = outputs.filter(\.ignoresCourseTheme)
-    #expect(unthemed.count == 46)
+    #expect(unthemed.count == 47)
     #expect(unthemed.allSatisfy { $0.appearance == .dark && $0.screen.hasUnthemedCapture })
     #expect(unthemed.allSatisfy { $0.url.lastPathComponent == "\($0.screen.rawValue)-unthemed-dark.png" })
     #expect(outputs.filter { !$0.ignoresCourseTheme }.map(\.url.lastPathComponent) == SnapshotScreen.allCases.flatMap { screen in
@@ -96,27 +99,43 @@ private func temporaryFolder() throws -> URL {
         .courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureDownloads, .pdfPreview, .lectureSources,
         .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaTheater,
         .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
+        .qaExternalLocal,
     ])
     // #128: the Q&A screens open the panel with an injected status. Only the draft screen shows a draft.
     #expect(SnapshotScreen.allCases.filter(\.showsQA) == [.qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting,
                                                           .qaStopping, .qaError, .qaNoCaptions, .qaArticle, .qaTheater,
                                                           .qaCitations, .qaCitationExcerpt, .qaCitationsStale,
-                                                          .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote])
+                                                          .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
+                                                          .qaExternalLocal])
     #expect(SnapshotScreen.allCases.filter { $0.qaStatus != nil } == SnapshotScreen.allCases.filter(\.showsQA))
     #expect(SnapshotScreen.allCases.compactMap(\.qaStatus).map { LectureQAState(status: $0, content: .ready) }
         == [.ready, .ready, .ready, .noModel, .off, .starting, .stopping, .error(reason: "The server stopped. Exit code 9."),
             .ready, .ready, .ready, .ready, .ready, .ready, .off, .error(reason: "The server stopped. Exit code 9."), .starting,
-            .ready, .ready])
+            .ready, .ready, .ready])
     // #151: three screens use the fixture profiles. Only the consent screen sends a question.
-    #expect(SnapshotScreen.allCases.filter(\.usesProviderProfiles) == [.settingsProviders, .qaConsent, .qaRemote])
+    #expect(SnapshotScreen.allCases.filter(\.usesProviderProfiles) == [.settingsProviders, .qaConsent, .qaRemote, .qaExternalLocal])
+    #expect(SnapshotScreen.allCases.compactMap(\.selectedProviderID)
+        == ["snapshot-openai", "snapshot-openai", "snapshot-openai", "snapshot-lm-studio"])
     #expect(SnapshotScreen.allCases.filter { $0.qaConsentQuestion != nil } == [.qaConsent])
     #expect(SnapshotPlan.providerProfiles.map(\.kind) == [.api, .externalLocal, .api])
     #expect(SnapshotPlan.providerProfiles.allSatisfy { $0.isValid(hasSecret: true) })
-    #expect(SnapshotScreen.allCases.filter { SnapshotPlan.qaOrigin(for: $0).providerID != BundledAnswerProvider.providerID } == [.qaRemote])
+    #expect(SnapshotScreen.allCases.filter { SnapshotPlan.qaOrigin(for: $0).providerID != BundledAnswerProvider.providerID }
+        == [.qaRemote, .qaExternalLocal])
+    // #152: the LM Studio sheet passed its test. The Ollama sheet has the loopback error, so "Save" is off.
+    #expect(SnapshotScreen.allCases.filter { $0.providerSheet != nil } == [.providerSheetLMStudio, .providerSheetOllamaError])
+    let lmStudio = try #require(SnapshotScreen.providerSheetLMStudio.providerSheet)
+    #expect(lmStudio.testResult == .connected)
+    #expect(lmStudio.profile.isValid(hasSecret: false))
+    #expect(lmStudio.profile.externalServer == .lmStudio)
+    let ollama = try #require(SnapshotScreen.providerSheetOllamaError.providerSheet)
+    #expect(ollama.profile.originProblem == "Use 127.0.0.1 or [::1]. Use an API provider for other hosts.")
+    #expect(!ollama.profile.isValid(hasSecret: false))
+    #expect(ollama.profile.externalServer == .ollama)
+    #expect(SnapshotPlan.providerProfiles[1].title == "LM Studio · qwen3-8b-mlx")
     // #129: only the excerpt screen opens an excerpt. Only the stale screen saves turns of an earlier revision.
     #expect(SnapshotScreen.allCases.filter(\.opensCitationExcerpt) == [.qaCitationExcerpt])
     #expect(SnapshotScreen.allCases.filter(SnapshotPlan.qaTurnsAreStale) == [.qaCitationsStale])
-    #expect(SnapshotScreen.allCases.filter { $0.qaDraft != nil } == [.qaDraft])
+    #expect(SnapshotScreen.allCases.filter { $0.qaDraft != nil } == [.qaDraft, .qaExternalLocal])
     #expect(SnapshotScreen.allCases.filter(\.startsTheater) == [.videoTheater, .videoUpNextTheater, .qaTheater])
     #expect(SnapshotScreen.allCases.filter(\.showsQuickChecks) == [.videoQuickCheck])
     #expect(SnapshotScreen.allCases.filter(\.checksTitlebarForVideo) == [.videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater,
@@ -129,7 +148,8 @@ private func temporaryFolder() throws -> URL {
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: nil) == outputs)
     #expect(SnapshotScreen.allCases.filter { !$0.selectsCourse } == [.libraryEmpty, .libraryEmptyCustomFolder, .library, .settings,
                                                                     .settingsModelMissing, .settingsAIOff, .settingsAIError,
-                                                                    .settingsProviders])
+                                                                    .settingsProviders, .providerSheetLMStudio,
+                                                                    .providerSheetOllamaError])
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
@@ -147,7 +167,7 @@ private func temporaryFolder() throws -> URL {
         #expect(library.errorMessage == nil)
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
-             .settingsProviders:
+             .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError:
             #expect(courseID == nil)
             #expect(!screen.selectsCourse)
             #expect(SnapshotPlan.imageLoads(for: screen) == 0)
@@ -369,7 +389,7 @@ private func temporaryFolder() throws -> URL {
             }
         case .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaArticle,
              .qaTheater, .qaCitations, .qaCitationExcerpt, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory,
-             .qaConsent, .qaRemote:
+             .qaConsent, .qaRemote, .qaExternalLocal:
             #expect(courseID == "sample-course")
             #expect(SnapshotPlan.imageLoads(for: screen) == 1)
             library.selectCourse(courseID)
@@ -392,7 +412,7 @@ private func temporaryFolder() throws -> URL {
                 #expect(turns.map(\.status) == [.complete, .cancelled, .failed(reason: "Local AI returned an error (500). Try again.")])
                 #expect(turns.map(\.answer) == ["You plan a course step by step [t1].", "You need", ""])
             case .qaDraft, .qaCitations, .qaCitationExcerpt, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory,
-                 .qaConsent, .qaRemote:
+                 .qaConsent, .qaRemote, .qaExternalLocal:
                 #expect(turns.map(\.status) == [.complete])
                 #expect(turns.map(\.origin) == [SnapshotPlan.qaOrigin(for: screen)])
             default:

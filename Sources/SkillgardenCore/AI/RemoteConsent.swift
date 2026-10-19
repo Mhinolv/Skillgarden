@@ -65,6 +65,12 @@ public struct RemoteConsentRequest: Identifiable, Equatable, Sendable {
     /// The sheet title: "Send this question to OpenAI?"
     public var title: String { "Send this question to \(vendor)?" }
 
+    /// The extra line of an external local server (#152). A loopback address does not prove that the server keeps the text
+    /// on this Mac. Nil for the other kinds.
+    public var cloudNote: String? {
+        destination.kind == .externalLocal ? "Skillgarden can't check if this server uses the cloud." : nil
+    }
+
     /// The list of the sheet: what leaves the Mac.
     public var items: [String] {
         let passages = passageCount == 1 ? "1 lecture passage" : "\(passageCount) lecture passages"

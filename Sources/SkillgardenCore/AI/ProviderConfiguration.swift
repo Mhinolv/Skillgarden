@@ -65,9 +65,21 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
         credentialReference = try container.decodeIfPresent(String.self, forKey: .credentialReference)
     }
 
+    /// A new profile of an external local server preset (#152). The model ID is empty until the learner types it.
+    public static func preset(_ server: ExternalLocalServer) -> ProviderProfile {
+        ProviderProfile(kind: .externalLocal, name: server.rawValue, vendor: server.rawValue, origin: server.defaultBaseURL, modelID: "")
+    }
+
+    /// The server preset of an external local server profile (#152). Nil for the other kinds.
+    public var externalServer: ExternalLocalServer? {
+        kind == .externalLocal ? ExternalLocalServer(rawValue: vendor) : nil
+    }
+
     /// The host of `origin`, for example `api.openai.com`. The full origin when it has no host.
+    /// An IPv6 host keeps its brackets, for example `[::1]:1234`.
     public var host: String {
-        guard let components = URLComponents(string: origin), let host = components.host, !host.isEmpty else { return origin }
+        guard let components = URLComponents(string: origin), var host = components.host, !host.isEmpty else { return origin }
+        if host.contains(":"), !host.hasPrefix("[") { host = "[\(host)]" }
         return components.port.map { "\(host):\($0)" } ?? host
     }
 
@@ -88,20 +100,87 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
     /// The Keychain account for the secret of this profile.
     public var keychainAccount: String { credentialReference ?? id }
 
+    /// The Q&A footer: "Answers come from LM Studio on this Mac and can be wrong." (#152)
+    public var answerFooter: String {
+        kind == .externalLocal ? "Answers come from \(vendor) on this Mac and can be wrong."
+            : "Answers come from \(vendor) and can be wrong."
+    }
+
+    /// The red caption under the Base URL field of an external local server (#152). Nil when the URL is valid.
+    public var originProblem: String? {
+        kind == .externalLocal && Self.loopbackBaseURL(origin) == nil ? Self.loopbackOnlyText : nil
+    }
+
+    /// The red caption under the Model ID field (#152). Nil when the field has text.
+    public var modelProblem: String? {
+        modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Self.noModelText : nil
+    }
+
+    public static let loopbackOnlyText = "Use 127.0.0.1 or [::1]. Use an API provider for other hosts."
+    public static let noModelText = "Enter the model ID."
+
     /// True when the provider sheet can save the fields. `hasSecret` is true when the Keychain has a key or the sheet has one.
     /// The origin is an http or https URL with a host, and no user, password, path, query or fragment,
-    /// so no secret goes into a URL.
+    /// so no secret goes into a URL. An external local server uses a loopback base URL (#152).
     public func isValid(hasSecret: Bool) -> Bool {
         let trimmed = [name, vendor, modelID].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard !trimmed.contains(where: \.isEmpty), Self.isValidOrigin(origin) else { return false }
+        guard !trimmed.contains(where: \.isEmpty) else { return false }
+        if kind == .externalLocal { return Self.loopbackBaseURL(origin) != nil }
+        guard Self.isValidOrigin(origin) else { return false }
         return !kind.needsAPIKey || hasSecret
     }
 
+    /// Plain HTTP is valid only for a literal loopback address (#152).
     static func isValidOrigin(_ origin: String) -> Bool {
         guard let components = URLComponents(string: origin), let scheme = components.scheme?.lowercased(),
               scheme == "https" || scheme == "http", let host = components.host, !host.isEmpty else { return false }
+        guard scheme == "https" || isLoopbackHost(host) else { return false }
         return components.user == nil && components.password == nil && components.query == nil && components.fragment == nil
             && (components.path.isEmpty || components.path == "/")
+    }
+
+    /// The base URL of an external local server (#152): `http://127.0.0.1` or `http://[::1]`, an optional port and path,
+    /// and no user, password, query or fragment. An empty path gives `/v1`. A host name such as `localhost` is not
+    /// accepted, because a hosts file can send it to another address. Nil for another URL.
+    public static func loopbackBaseURL(_ text: String) -> URL? {
+        guard var parts = URLComponents(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              parts.scheme == "http", let host = parts.host, isLoopbackHost(host),
+              parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil else { return nil }
+        if let port = parts.port, !(1...65535).contains(port) { return nil }
+        while parts.path.hasSuffix("/") { parts.path.removeLast() }
+        if parts.path.isEmpty { parts.path = "/v1" }
+        return parts.url
+    }
+
+    private static func isLoopbackHost(_ host: String) -> Bool {
+        ["127.0.0.1", "::1", "[::1]"].contains(host)
+    }
+}
+
+/// The external local server presets of "Add Provider" (#152). The raw value is the name and the vendor of the profile.
+public enum ExternalLocalServer: String, CaseIterable, Identifiable, Sendable {
+    case lmStudio = "LM Studio"
+    case ollama = "Ollama"
+
+    public var id: String { rawValue }
+
+    /// The "Add Provider" menu item: "LM Studio…".
+    public var menuTitle: String { rawValue + "…" }
+
+    /// The OpenAI-compatible base URL of the server at its default port.
+    public var defaultBaseURL: String {
+        switch self {
+        case .lmStudio: "http://127.0.0.1:1234/v1"
+        case .ollama: "http://127.0.0.1:11434/v1"
+        }
+    }
+
+    /// The secondary caption of the provider sheet.
+    public var footer: String {
+        switch self {
+        case .lmStudio: "Skillgarden does not start LM Studio. Start its local server first."
+        case .ollama: "Ollama can send text to cloud models. Set OLLAMA_NO_CLOUD=1 to keep text on this Mac."
+        }
     }
 }
 
@@ -207,18 +286,22 @@ public final class ProviderSettings {
     @ObservationIgnored private let credentials: any CredentialStore
     /// Makes the answer provider of a profile. Nil when the kind has no shipped adapter.
     @ObservationIgnored private let makeProvider: @MainActor (ProviderProfile, any CredentialStore) -> (any AnswerProvider)?
-    /// Runs "Test Connection". Nil while no adapter ships, so the sheet shows no button.
+    /// Runs "Test Connection" with the profile and its token. Nil while no adapter ships, so the sheet shows no button.
     @ObservationIgnored public let testConnection: (@MainActor (ProviderProfile, String?) async -> ConnectionTestResult)?
+    /// The kinds with a shipped adapter (#152). "Add Provider" and "Test Connection" show only for them.
+    @ObservationIgnored public let adapterKinds: Set<AnswerProviderKind>
     @ObservationIgnored private var providers: [String: (profile: ProviderProfile, provider: any AnswerProvider)] = [:]
 
     /// `store` nil saves nothing: the snapshot harness and previews inject the profiles.
     public init(store: ProviderSettingsStore?, credentials: any CredentialStore = KeychainCredentialStore(),
                 profiles: [ProviderProfile] = [], selectedID: String = BundledAnswerProvider.providerID,
+                adapterKinds: Set<AnswerProviderKind> = [],
                 makeProvider: @escaping @MainActor (ProviderProfile, any CredentialStore) -> (any AnswerProvider)? = { _, _ in nil },
                 testConnection: (@MainActor (ProviderProfile, String?) async -> ConnectionTestResult)? = nil) {
         let saved = store?.load() ?? SavedProviders(selectedID: selectedID, profiles: profiles)
         self.store = store
         self.credentials = credentials
+        self.adapterKinds = adapterKinds
         self.makeProvider = makeProvider
         self.testConnection = testConnection
         self.profiles = saved.profiles
@@ -319,6 +402,23 @@ public final class ProviderSettings {
 
     /// True when a saved secret exists for the profile.
     public func hasSecret(_ profile: ProviderProfile) -> Bool { profile.credentialReference != nil }
+
+    /// True when the provider sheet of `kind` shows "Test Connection" (#152).
+    public func canTest(_ kind: AnswerProviderKind) -> Bool { testConnection != nil && adapterKinds.contains(kind) }
+
+    /// "Test Connection" (#152): one synthetic message with the key of the sheet, else the saved key of the profile.
+    /// Nil when the kind has no test.
+    public func test(_ profile: ProviderProfile, secret: String?) async -> ConnectionTestResult? {
+        guard canTest(profile.kind), let testConnection else { return nil }
+        var key = secret?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if key?.isEmpty != false {
+            key = nil
+            if let saved = profiles.first(where: { $0.id == profile.id }), saved.credentialReference != nil {
+                do { key = try credentials.secret(account: saved.keychainAccount) } catch { return .failed(reason: error.message) }
+            }
+        }
+        return await testConnection(profile, key)
+    }
 
     /// True when the learner allowed the course to send lecture text to this exact destination.
     public func hasConsent(courseID: String, destination: RemoteDestination) -> Bool {

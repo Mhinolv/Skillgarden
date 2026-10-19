@@ -256,6 +256,32 @@ Courses and the Q&A history stay on this Mac. Internal-only material never goes 
 | Disconnect | Deletes the Keychain item, the consents and the profile. The bundled model answers again. |
 | Adapters | A profile sends only when its adapter ships (#152 to #157). "Add Provider" lists only those kinds. |
 
+## External local server: LM Studio and Ollama (#152)
+
+Skillgarden can send Q&A to a model server that you run on this Mac. Use Settings > Q&A > "Add Provider" > "LM Studio…" or "Ollama…".
+Skillgarden does not install, start or stop the server. It does not download models.
+
+| Item | Rule |
+|---|---|
+| Base URL | LM Studio: `http://127.0.0.1:1234/v1`. Ollama: `http://127.0.0.1:11434/v1`. A URL with no path gets `/v1`. |
+| Hosts | Plain HTTP only to `127.0.0.1` or `[::1]`. The sheet rejects `localhost`, because a hosts file can send it to another address. |
+| Model ID | Type the model ID that the server shows, for example `qwen3-8b-mlx`. Skillgarden does not read the model list. |
+| Token | Optional. Skillgarden sends it as `Authorization: Bearer`. The token is a Keychain item. The session secret of the bundled server is never used. |
+| Request | `POST <base URL>/chat/completions` with `stream: true`. "Test Connection" sends one short message with no lecture text. |
+| Consent | An external local server also needs the consent of each course. |
+
+**Privacy limit.** A loopback address does not prove that the text stays on this Mac. The server can send it on.
+Ollama can send prompts to Ollama cloud models. The consent sheet says "Skillgarden can't check if this server uses the cloud."
+To keep text on this Mac with Ollama, start it with `OLLAMA_NO_CLOUD=1`, for example `OLLAMA_NO_CLOUD=1 ollama serve`.
+You can also set `"disable_ollama_cloud": true` in `~/.ollama/server.json`. Use a local model, not a `-cloud` model.
+
+| Error text | Cause |
+|---|---|
+| "LM Studio is not running at 127.0.0.1:1234." | No server answers at the base URL. Start the local server. |
+| "The server has no model "<id>"." | The server returned 404, or its error names the model. Check the model ID. |
+| "The server did not accept the token." | The server returned 401 or 403. |
+| "The server sent an error (<status code>)." | Any other error. Skillgarden never shows the response body. |
+
 ## Framework exception
 
 The engineering rules allow only Apple frameworks and the vendored Yams package.
