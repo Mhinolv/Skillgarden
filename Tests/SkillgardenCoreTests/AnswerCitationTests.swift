@@ -84,7 +84,8 @@ private struct NoTransport: LlamaTransport {
 @Test func markerListsSpacesAndPlainBracketsParse() {
     let citations = AnswerCitations(answer: "Both [t0, t1] and [ t1 ]. Not [1], [x] or [link](https://example.com).",
                                     context: videoContext, isStale: false)
-    #expect(citations.text == "Both [1][2] and [2]. Not [1], [x] or [link](https://example.com).")
+    // A Markdown link shows only its text (#158).
+    #expect(citations.text == "Both [1][2] and [2]. Not [1], [x] or link.")
     #expect(citations.sources.map(\.id) == ["1", "2"])
 }
 
@@ -224,4 +225,79 @@ private struct NoTransport: LlamaTransport {
     // A video seek on an article page does nothing.
     library.seekCitation(lectureID: "read", seconds: 1)
     #expect(library.transcriptSeek == nil)
+}
+
+// MARK: Inline Markdown (#158)
+
+@Test func answerTextHasNoInlineMarkdownSyntax() {
+    let citations = AnswerCitations(answer: "BF16 uses **2 bytes per weight [t1]**, *not* `4`. See [the guide](https://example.com) or ~~FP32~~.",
+                                    context: videoContext, isStale: false)
+    #expect(citations.text == "BF16 uses 2 bytes per weight [1], not 4. See the guide or FP32.")
+}
+
+/// The runs of `styled` as (text, intent, marker number) for checks.
+private func runs(_ citations: AnswerCitations) -> [(String, InlinePresentationIntent?, String?)] {
+    citations.styled.runs.map {
+        (String(citations.styled[$0.range].characters), $0.inlinePresentationIntent, $0[AnswerMarkerAttribute.self]?.id)
+    }
+}
+
+@Test func styledAnswerKeepsAMarkerInsideABoldSpanBoldAndRemovesLinks() {
+    let citations = AnswerCitations(answer: "BF16 uses **2 bytes [t1] per weight**, *not* `4`. See [the guide](https://example.com) or ~~FP32~~.",
+                                    context: videoContext, isStale: false)
+    let styled = runs(citations)
+    #expect(styled.map(\.0) == ["BF16 uses ", "2 bytes ", "[1]", " per weight", ", ", "not", " ", "4", ". See the guide or ", "FP32", "."])
+    #expect(styled[1].1 == .stronglyEmphasized && styled[2].1 == .stronglyEmphasized && styled[3].1 == .stronglyEmphasized)
+    #expect(styled.map(\.2) == [nil, nil, "1", nil, nil, nil, nil, nil, nil, nil, nil])
+    #expect(styled[5].1 == .emphasized)
+    #expect(styled[7].1 == .code)
+    #expect(styled[9].1 == .strikethrough)
+    #expect(citations.styled.runs.allSatisfy { $0.link == nil })
+    #expect(citations.sources.map(\.title) == ["1 · 4:12"])
+}
+
+@Test func styledAnswerKeepsStaleAndUnknownMarkersAndTheirSources() {
+    let stale = AnswerCitations(answer: "**Dig [t0]** then [x9].", context: videoContext, isStale: true)
+    #expect(stale.text == "Dig [1] then [?].")
+    let markers = stale.styled.runs.compactMap { $0[AnswerMarkerAttribute.self] }
+    #expect(markers.map(\.kind) == [.stale, .unknown])
+    #expect(markers.map(\.isActionable) == [false, false])
+    // A list of IDs gives one marker for each ID.
+    let list = AnswerCitations(answer: "Mulch [t1, t0].", context: videoContext, isStale: false)
+    #expect(runs(list).map(\.0) == ["Mulch ", "[1]", "[2]", "."])
+}
+
+@Test func styledAnswerKeepsLineBreaksListsAndPlainBrackets() {
+    let answer = "Steps:\n\n1. Dig [t0]\n- Mulch * twice\n  [1] and [x] stay"
+    let citations = AnswerCitations(answer: answer, context: videoContext, isStale: false)
+    #expect(citations.text == "Steps:\n\n1. Dig [1]\n- Mulch * twice\n  [1] and [x] stay")
+    #expect(citations.styled.runs.compactMap { $0[AnswerMarkerAttribute.self]?.id } == ["1"])
+}
+
+@Test func styledDraftShowsAnOpenBoldMarkAsTextUntilItCloses() {
+    let open = AnswerCitations(answer: "It uses **2 bytes [t1]", context: videoContext, isStale: false)
+    #expect(open.text == "It uses **2 bytes [1]")
+    #expect(open.styled.runs.allSatisfy { $0.inlinePresentationIntent == nil })
+    let closed = AnswerCitations(answer: "It uses **2 bytes [t1]**", context: videoContext, isStale: false)
+    #expect(closed.text == "It uses 2 bytes [1]")
+}
+
+@Test func styledAnswerHandlesEmptyTextMarkerOnlyAndPlaceholderCharacters() {
+    #expect(AnswerCitations(answer: "", context: videoContext, isStale: false).text == "")
+    #expect(AnswerCitations(answer: "[t1]", context: videoContext, isStale: false).text == "[1]")
+    // Private-use characters from the model never become markers.
+    let model = AnswerCitations(answer: "A\u{E000}B [t0] C\u{F8FF}", context: videoContext, isStale: false)
+    #expect(model.text == "AB [1] C")
+    // A marker in a link address is gone, and the next marker keeps its own source.
+    let link = AnswerCitations(answer: "[see](https://x.com/[t1]) then [t0]", context: videoContext, isStale: false)
+    #expect(link.styled.runs.compactMap { $0[AnswerMarkerAttribute.self]?.id } == ["2"])
+}
+
+@Test func turnAccessibilityLabelHasNoMarkdownSyntax() {
+    let turn = QATurn(id: 1, question: "What is BF16?", answer: "It uses **2 bytes** [t1], `bf16`, ~~not~~ *4*.",
+                      status: .complete, sourceRevision: "r", askedAt: Date())
+    let citations = AnswerCitations(answer: turn.answer, context: videoContext, isStale: false)
+    let label = turn.accessibilityLabel(answer: citations.text)
+    #expect(!label.contains("*") && !label.contains("`") && !label.contains("~"))
+    #expect(label.hasPrefix("Question: What is BF16?. Answer: It uses 2 bytes [1], bf16, not 4."))
 }

@@ -229,19 +229,13 @@ struct LectureQAView: View {
         }
     }
 
-    /// The answer with `[1]`, `[2]` in place of passage IDs. Valid markers use the accent ink, the others the muted color.
-    /// Markers are plain text, not links.
+    /// The answer with inline Markdown styles (#158) and `[1]`, `[2]` in place of passage IDs.
+    /// Valid markers use the accent ink, the others the muted color. Markers and links are plain text, not links.
     private func answerText(_ citations: AnswerCitations) -> AttributedString {
-        var text = AttributedString()
-        for segment in citations.segments {
-            switch segment {
-            case .text(let value):
-                text += AttributedString(value)
-            case .marker(let source):
-                var marker = AttributedString(AnswerCitations.markerText(source))
-                marker.foregroundColor = source.isActionable ? palette.accentInk : palette.muted
-                text += marker
-            }
+        var text = citations.styled
+        for (source, range) in text.runs[AnswerMarkerAttribute.self] {
+            guard let source else { continue }
+            text[range].foregroundColor = source.isActionable ? palette.accentInk : palette.muted
         }
         return text
     }
