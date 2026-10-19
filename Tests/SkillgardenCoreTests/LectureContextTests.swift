@@ -77,16 +77,22 @@ private func ready(_ outcome: LectureContextOutcome) throws -> LectureContext {
         let captions = try #require(try video(folder, captions: "content/v.vtt")?.loadCaptions())
         let search = TranscriptCue.cues(lectureID: "v", captions: captions)
         #expect(context.passages.map(\.id) == search.map { "t\($0.index)" })
-        #expect(context.systemPrompt.contains("\"Garden Basics\""))
-        #expect(context.systemPrompt.contains("\"Soil\""))
-        #expect(context.systemPrompt.contains("Answer only from the passages"))
-        #expect(context.systemPrompt.contains("If the passages do not hold the answer"))
-        #expect(context.systemPrompt.hasSuffix("\n[t0] Dig a bed in the sun.\n[t1] Mulch keeps the soil wet."))
+        // All the text fits, so the prompt has all passages, even for a question with no match.
+        let prompt = context.prompt(question: "Why mulch?")
+        #expect(context.fitsBudget)
+        #expect(context.prompt(question: "Which tractor?").passages == context.passages)
+        #expect(!prompt.isPartial && !prompt.noEvidence)
+        #expect(prompt.systemPrompt.contains("\"Garden Basics\""))
+        #expect(prompt.systemPrompt.contains("\"Soil\""))
+        #expect(prompt.systemPrompt.contains("Answer only from the passages"))
+        #expect(prompt.systemPrompt.contains("If the passages do not hold the answer"))
+        #expect(!prompt.systemPrompt.contains("Do not summarize"))
+        #expect(prompt.systemPrompt.hasSuffix("[t0].\n\nPassages:\n[t0] Dig a bed in the sun.\n[t1] Mulch keeps the soil wet."))
+        #expect(prompt.estimatedTokens == context.estimatedTokens)
         #expect(context.estimatedTokens <= LectureContextBudget.standard.promptTokens)
         #expect(context.passage(id: "t1")?.label == "0:05")
         #expect(context.passage(id: "t9") == nil)
-        let messages = context.messages(question: "Why mulch?")
-        #expect(messages == [ChatMessage(role: .system, content: context.systemPrompt), ChatMessage(role: .user, content: "Why mulch?")])
+        #expect(prompt.messages == [ChatMessage(role: .system, content: prompt.systemPrompt), ChatMessage(role: .user, content: "Why mulch?")])
     }
 }
 
@@ -123,7 +129,7 @@ private func ready(_ outcome: LectureContextOutcome) throws -> LectureContext {
             LecturePassage(id: "a6", label: "Tools", text: "A spade is enough."),
             LecturePassage(id: "a7", label: "Tools", text: "skillgarden publish ./course"),
         ])
-        #expect(!context.systemPrompt.contains("https://"))
+        #expect(!context.prompt(question: "Which guide?").systemPrompt.contains("https://"))
     }
 }
 
@@ -144,25 +150,26 @@ private func ready(_ outcome: LectureContextOutcome) throws -> LectureContext {
     }
 }
 
-@Test func oversizedLectureIsTooLongUntilRetrievalShips() async throws {
+@Test func longLectureIsReadyForRetrievalAndOnlyAHugeFileIsTooLong() async throws {
     try await withFolder { folder in
         let lectures = course([lecture("v", .video)])
         try write(vtt(cues: 40), "content/v.vtt", in: folder)
         let captions = video(folder, captions: "content/v.vtt")
         let context = try ready(LectureContextBuilder.build(course: lectures, lectureID: "v", video: captions, article: nil))
-        // The limit is exact: the prompt fits at its own size and is too long one token below.
+        // The limit is exact: all the text fits at its own size, and retrieval starts one token below.
         let fits = LectureContextBudget(contextTokens: context.estimatedTokens + 30, answerTokens: 20, questionTokens: 10)
-        #expect(LectureContextBuilder.build(course: lectures, lectureID: "v", video: captions, article: nil, budget: fits) == .ready(context))
+        let all = try ready(LectureContextBuilder.build(course: lectures, lectureID: "v", video: captions, article: nil, budget: fits))
+        #expect(all.fitsBudget && all.passages == context.passages)
+        #expect(!all.prompt(question: "Water?").isPartial)
         let short = LectureContextBudget(contextTokens: context.estimatedTokens + 29, answerTokens: 20, questionTokens: 10)
-        let tooLong = LectureContextBuilder.build(course: lectures, lectureID: "v", video: captions, article: nil, budget: short)
+        let long = try ready(LectureContextBuilder.build(course: lectures, lectureID: "v", video: captions, article: nil, budget: short))
+        #expect(!long.fitsBudget && long.passages == context.passages)
+        #expect(long.prompt(question: "Water?").isPartial)
+        // A file over the byte limit is too long before a read.
+        try Data(repeating: 0x61, count: LectureContextBudget.maximumFileBytes + 1).write(to: folder.appending(path: "content/v.vtt"))
+        let tooLong = LectureContextBuilder.build(course: lectures, lectureID: "v", video: captions, article: nil)
         #expect(tooLong == .tooLong)
-        #expect(tooLong.learnerText == "This lecture is too long for local AI. Questions about long lectures are not available yet.")
-        // A very large file is too long before a read. A budget of 0 tokens fits nothing.
-        try write(vtt(cues: 3_600, text: String(repeating: "Water the bed. ", count: 5)), "content/v.vtt", in: folder)
-        #expect(LectureContextBuilder.build(course: lectures, lectureID: "v", video: captions, article: nil) == .tooLong)
-        let none = LectureContextBudget(contextTokens: 100, answerTokens: 100, questionTokens: 100)
-        #expect(none.promptTokens == 0)
-        #expect(LectureContextBuilder.build(course: lectures, lectureID: "v", video: captions, article: nil, budget: none) == .tooLong)
+        #expect(tooLong.learnerText == "This lecture is too long for local AI.")
     }
 }
 
@@ -319,7 +326,7 @@ private let secrets = [
     for id in ["welcome", "read", "check", "apply", "draft-article", "draft-video", "unknown"] {
         let outcome = await library.lectureContext(forLecture: id)
         outcomes[id] = outcome
-        if case .ready(let context) = outcome { prompts.append(context.messages(question: "What is in this lecture?").map(\.content).joined()) }
+        if case .ready(let context) = outcome { prompts.append(context.prompt(question: "What is in this lecture?").messages.map(\.content).joined()) }
     }
     let welcome = try ready(try #require(outcomes["welcome"]))
     #expect(welcome.courseTitle == "Local Course Basics")
