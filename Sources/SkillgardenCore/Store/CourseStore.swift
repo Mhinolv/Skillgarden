@@ -89,6 +89,22 @@ public final class CourseStore: @unchecked Sendable {
         try lock.withLock { try database.execute("DELETE FROM courses WHERE id = ?", [id]) }
     }
 
+    /// Deletes a course like `deleteCourse` and returns its title and publication folders. Nil for an unknown course.
+    /// Learner progress has no foreign key to `courses`, so it stays (#118).
+    func removeCourse(id: String) throws -> (title: String, directory: String?, internalDirectory: String?)? {
+        try lock.withLock {
+            try database.transaction {
+                guard let title = try database.query("SELECT title FROM courses WHERE id = ?", [id], row: { SQLiteDatabase.text($0, 0) }).first
+                else { return nil }
+                let folders = try database.query("SELECT directory, internal_directory FROM course_publications WHERE course_id = ?", [id]) {
+                    (SQLiteDatabase.text($0, 0), sqlite3_column_type($0, 1) == SQLITE_NULL ? nil : SQLiteDatabase.text($0, 1))
+                }.first
+                try database.execute("DELETE FROM courses WHERE id = ?", [id])
+                return (title, folders?.0, folders?.1)
+            }
+        }
+    }
+
     private func readCourses(id: String?, includeDrafts: Bool) throws -> [Course] {
         try lock.withLock {
             // Three queries fetch any library size. The transaction gives all queries one snapshot.

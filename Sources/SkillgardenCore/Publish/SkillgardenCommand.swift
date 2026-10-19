@@ -35,6 +35,7 @@ public enum SkillgardenCommand {
                skillgarden validate <course-folder> [--json]
                skillgarden internal list <course-id> [--json]
                skillgarden inspect <course-id> [--json]
+               skillgarden remove <course-id> --yes [--json]
                skillgarden init <folder> --id <id> --title <title> [--json]
                skillgarden media inspect <file> [--json]
                skillgarden doctor [--json]
@@ -55,6 +56,7 @@ public enum SkillgardenCommand {
         }
         if arguments == ["publish", "--help"] || arguments == ["validate", "--help"] || arguments == ["doctor", "--help"]
             || arguments == ["init", "--help"] || arguments == ["schema", "--help"] || arguments == ["inspect", "--help"]
+            || arguments == ["remove", "--help"]
             || arguments == ["media", "--help"] || arguments == ["media", "inspect", "--help"] || arguments == ["--help"] {
             return CommandResult(exitCode: 0, stdout: usage, stderr: "")
         }
@@ -76,6 +78,16 @@ public enum SkillgardenCommand {
             command = "inspect"
             outcome = arguments.count == 2 && !arguments[1].hasPrefix("-")
                 ? withRoot(root) { inspect(courseID: arguments[1], root: $0) } : usageError("expected inspect <course-id>")
+        case "remove":
+            command = "remove"
+            // `--yes` can come before or after the course id. Without it, remove does not open the library.
+            let confirmed = arguments.filter { $0 == "--yes" }.count == 1
+            let rest = arguments.dropFirst().filter { $0 != "--yes" }
+            if rest.count == 1, !rest[0].isEmpty, !rest[0].hasPrefix("-"), arguments.count == (confirmed ? 3 : 2) {
+                outcome = withRoot(root) { confirmed ? remove(courseID: rest[0], root: $0) : unconfirmedRemove(courseID: rest[0], root: $0) }
+            } else {
+                outcome = usageError("expected remove <course-id> --yes")
+            }
         case "media":
             command = "media inspect"
             outcome = arguments.count == 3 && arguments[1] == "inspect" && !arguments[2].isEmpty && !arguments[2].hasPrefix("-")
@@ -255,6 +267,35 @@ public enum SkillgardenCommand {
             "snapshot": ["id": inspection.snapshotID, "path": inspection.snapshotPath] as [String: Any],
             "internal_files": inspection.internalFiles, "library_path": root.path,
         ])
+    }
+
+    /// Deletes a course from the library database (#118). Learner progress and the snapshot folders stay.
+    private static func remove(courseID: String, root: URL) -> CommandOutcome {
+        let removal: CourseRemoval?
+        do {
+            removal = try CoursePublisher.remove(courseID: courseID, root: root)
+        } catch {
+            return failure(error, root: root)
+        }
+        guard let removal else {
+            var outcome = CommandOutcome.failure(1, [CommandDiagnostic(code: .courseNotFound, message: "course \"\(courseID)\" not found")])
+            outcome.errorFooter = "Library: \(root.path)\n"
+            return outcome
+        }
+        let lines = ["Removed \"\(removal.title)\" (\(removal.id)) from the library.",
+                     "Learner progress stays. If you publish this course id again, the progress comes back."]
+            + removal.folders.map { "Files stay on disk: \($0)" } + ["Library: \(root.path)"]
+        return CommandOutcome(exitCode: 0, text: lines.map { $0 + "\n" }.joined(), result: [
+            "title": removal.title, "id": removal.id, "progress_kept": true, "folders_kept": removal.folders, "library_path": root.path,
+        ])
+    }
+
+    /// A remove run without `--yes` exits 2 and does not open the library.
+    private static func unconfirmedRemove(courseID: String, root: URL) -> CommandOutcome {
+        var outcome = CommandOutcome.failure(2, [CommandDiagnostic(
+            code: .usage, message: "remove deletes course \"\(courseID)\" from the library. Run it again with --yes to confirm.")])
+        outcome.errorFooter = "Library: \(root.path)\n"
+        return outcome
     }
 
     /// Shows the MP4 length and the `duration_seconds` value that validate accepts (#116). It does not open the library.

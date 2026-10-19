@@ -144,6 +144,14 @@ public struct CourseInspection: Equatable, Sendable {
     }
 }
 
+/// A course that `skillgarden remove` deleted from the library database (#118).
+public struct CourseRemoval: Equatable, Sendable {
+    public let title: String
+    public let id: String
+    /// The publication folders that stay on disk, in `courses/`, `derivatives/`, `internal/` order. Only folders that exist.
+    public let folders: [String]
+}
+
 /// Publishes immutable asset snapshots before the database refers to them.
 public enum CoursePublisher {
     public static func publish(courseFolder: URL, root: URL = Skillgarden.defaultDataDirectory) throws -> PublishResult {
@@ -371,6 +379,19 @@ public enum CoursePublisher {
     /// Returns the installed snapshot. Source files can be removed after publish.
     public static func assetDirectory(courseID: String, root: URL = Skillgarden.defaultDataDirectory) throws -> URL? {
         try CourseStore(root: root).publication(id: courseID).map { root.appending(path: $0.directory) }
+    }
+
+    /// Deletes a course from the library database (#118). Nil for an unknown course.
+    /// It does not create a library that does not exist. The snapshot folders and learner progress stay.
+    public static func remove(courseID: String, root: URL = Skillgarden.defaultDataDirectory) throws -> CourseRemoval? {
+        guard FileManager.default.fileExists(atPath: root.appending(path: CourseStore.databaseName).path),
+              let removed = try CourseStore(root: root).removeCourse(id: courseID) else { return nil }
+        // Publish writes `courses/<name>`, `derivatives/<name>` and `internal/<name>` with one snapshot name.
+        let folders = [removed.directory, removed.directory.map { "derivatives/" + ($0 as NSString).lastPathComponent },
+                       removed.internalDirectory]
+            .compactMap { $0 }.map { root.appending(path: $0) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        return CourseRemoval(title: removed.title, id: courseID, folders: folders.map(\.path))
     }
 
     /// Returns nil for an unknown course. Draft courses also list their internal files.

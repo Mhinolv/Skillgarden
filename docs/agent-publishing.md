@@ -264,6 +264,29 @@ Library: /path/to/library
 - For a draft course, the `Learners:` line tells you why learners cannot see the course and how to fix it.
 - For an unknown course id, `inspect` exits 1 and prints `error: course "<id>" not found`, a hint and `Library: <path>` on stderr.
 
+## 6b. Remove a course
+
+Delete a course from the library database. The command needs `--yes`, before or after the id. It never asks a question:
+
+```sh
+skillgarden remove sample-course --yes
+```
+
+```
+Removed "Local Course Basics" (sample-course) from the library.
+Learner progress stays. If you publish this course id again, the progress comes back.
+Files stay on disk: /path/to/library/courses/3F2A9C1E-...
+Files stay on disk: /path/to/library/derivatives/3F2A9C1E-...
+Files stay on disk: /path/to/library/internal/3F2A9C1E-...
+Library: /path/to/library
+```
+
+- Learner progress, the resume lecture and quiz results stay in the library. If you publish the same course id again, the progress comes back.
+- The snapshot folders stay on disk. The command prints one `Files stay on disk:` line for each folder that exists. A later release adds a cleanup.
+- Without `--yes`, `remove` exits 2 and does not open the library. It prints `error: remove deletes course "<id>" from the library. Run it again with --yes to confirm.` and `Library: <path>` on stderr.
+- For an unknown course id, `remove` exits 1 and prints `error: course "<id>" not found` and `Library: <path>` on stderr.
+- If the app is open, the course goes away after Reload Library (Command-R).
+
 ## 7. Commands and exit codes
 
 The app bundle holds the CLI at `Skillgarden.app/Contents/Helpers/skillgarden`. The commands are the same for each copy.
@@ -275,6 +298,7 @@ The app bundle holds the CLI at `Skillgarden.app/Contents/Helpers/skillgarden`. 
 | `skillgarden publish --dry-run <course-folder>` | `Dry run "<title>" (<id>, <state>): ...` with the same counts, one row for each change, `Files:`, `Snapshot:`, `Library: <path>`, `Nothing was written.` |
 | `skillgarden internal list <course-id>` | One tab-separated row for each internal file |
 | `skillgarden inspect <course-id>` | `Course "<title>" (<id>, <state>)`, `Learners:`, `Snapshot:`, `Snapshot path:`, `Internal files:`, `Library: <path>`. See section 6a. |
+| `skillgarden remove <course-id> --yes` | `Removed "<title>" (<id>) from the library.`, the progress line, one `Files stay on disk: <path>` line for each folder, `Library: <path>`. See section 6b. |
 | `skillgarden init <folder> --id <id> --title <title>` | `Created "<title>" (<id>, draft): 4 files in <path>`, then the draft line and the next step |
 | `skillgarden media inspect <file>` | `File: <path>`, `Format: MP4`, `Duration: <m:ss> (<n> seconds)`, `Manifest: duration_seconds: <n>`, `Validate accepts: <min> to <max>`. It does not open the library. |
 | `skillgarden doctor` | Labelled lines: version, CLI, library, source, folder, write access, app library, match, sandbox |
@@ -287,8 +311,8 @@ For a draft course, `validate` and `publish` also print `Draft: learners do not 
 | Exit code | Meaning | Output |
 |---|---|---|
 | 0 | Success | Results on stdout |
-| 1 | Manifest or file errors. For `init`, a folder that is not empty or a path that is not a folder. For `media inspect`, a file that is not MP4 or has no readable length. | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem. List indexes in `<fieldPath>` start at 0: `sections[0]` is the first section. |
-| 2 | Usage error or bad data folder setting | `error: ...` on stderr. A usage error also prints the usage text. |
+| 1 | Manifest or file errors. For `inspect` and `remove`, an unknown course id. For `init`, a folder that is not empty or a path that is not a folder. For `media inspect`, a file that is not MP4 or has no readable length. | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem. List indexes in `<fieldPath>` start at 0: `sections[0]` is the first section. |
+| 2 | Usage error or bad data folder setting. For `remove`, a run without `--yes`. | `error: ...` on stderr. A usage error also prints the usage text. |
 | 3 | I/O or library error. For `validate`, also a missing course folder. For `media inspect`, a file that does not exist or a folder. For `doctor`, a library path that is not a folder. For `schema`, a file that cannot be written. A busy or locked library. | `error: <description>` on stderr. A busy or locked library also prints a `hint:` line and `Library: <path>`. |
 
 `doctor` prints its report on stdout also for exit codes 2 and 3.
@@ -300,17 +324,17 @@ Add `--json` anywhere after the command name, for example `skillgarden validate 
 | Key | Value |
 |---|---|
 | `format_version` | `1`. Later versions add keys only. |
-| `command` | `validate`, `publish`, `internal list`, `inspect`, `media inspect`, `init`, `doctor`, `schema`, or `null` for an unknown command |
+| `command` | `validate`, `publish`, `internal list`, `inspect`, `remove`, `media inspect`, `init`, `doctor`, `schema`, or `null` for an unknown command |
 | `ok` | `true` when `exit_code` is 0 |
 | `exit_code` | The process exit code |
-| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`, `files` (`added`, `changed`, `unchanged`, `removed`), `snapshot` (`state` `new` or `kept`, `id`, `files`, integer `bytes`). `publish --dry-run` adds `dry_run` (`true`), `changes` (each with `action`, `kind`, `id`) and `migration` (`from`, `to`, or `null`). Its `snapshot.id` is `null` for a new snapshot. `internal list`: `files`, each with `title`, `path`, `description`. `inspect`: `title`, `id`, `state`, `draft`, `visible`, `sections`, `visible_sections`, `lectures`, `visible_lectures`, `snapshot` (`id`, `path`), `internal_files`, `library_path`. `media inspect`: `path`, `format` (`mp4`), `duration_seconds`, `accepted_min`, `accepted_max`. `init`: `title`, `id`, `state`, `draft`, `path`, `files`. `schema --output`: `path`, `schema_version`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
+| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`, `files` (`added`, `changed`, `unchanged`, `removed`), `snapshot` (`state` `new` or `kept`, `id`, `files`, integer `bytes`). `publish --dry-run` adds `dry_run` (`true`), `changes` (each with `action`, `kind`, `id`) and `migration` (`from`, `to`, or `null`). Its `snapshot.id` is `null` for a new snapshot. `internal list`: `files`, each with `title`, `path`, `description`. `inspect`: `title`, `id`, `state`, `draft`, `visible`, `sections`, `visible_sections`, `lectures`, `visible_lectures`, `snapshot` (`id`, `path`), `internal_files`, `library_path`. `remove`: `title`, `id`, `progress_kept` (`true`), `folders_kept` (the paths of the `Files stay on disk:` lines), `library_path`. `media inspect`: `path`, `format` (`mp4`), `duration_seconds`, `accepted_min`, `accepted_max`. `init`: `title`, `id`, `state`, `draft`, `path`, `files`. `schema --output`: `path`, `schema_version`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
 | `diagnostics` | One object for each problem: `code`, `severity` (`error`), `message`, `file`, `field_path`, `hint`, `library_path`. `file`, `field_path`, `hint` and `library_path` are `null` when unknown. `library_path` is set for `library.busy` and `library.locked`. |
 
 The `code` values are stable. New versions add codes, but never rename a code.
 
 | Code | Problem |
 |---|---|
-| `usage` | The arguments are wrong |
+| `usage` | The arguments are wrong, or `remove` has no `--yes` |
 | `data_dir.relative` | The data folder setting is not an absolute path |
 | `data_dir.not_folder` | `doctor` finds a file, not a folder, at the library path |
 | `course_folder.missing` | The course folder does not exist |
@@ -322,7 +346,7 @@ The `code` values are stable. New versions add codes, but never rename a code.
 | `id.duplicate`, `order.duplicate`, `reference.unknown` | A duplicate id, a duplicate order, or an id that does not exist |
 | `path.outside`, `path.missing`, `path.not_normalized` | A path leaves its folder, names no file, or is not normalized |
 | `media.invalid` | An image, video, captions, Markdown or bundle file is not valid |
-| `course.not_found` | `internal list` or `inspect` cannot find the course |
+| `course.not_found` | `internal list`, `inspect` or `remove` cannot find the course |
 | `library.busy` | Another process held a write lock on the library for more than 5 seconds. Run the command again when it stops. |
 | `library.locked` | Another operation in the same process locked the library database. Run the command again. |
 | `io` | All other errors |
