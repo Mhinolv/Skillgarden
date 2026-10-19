@@ -165,7 +165,7 @@ private let course = Course(id: "c", title: "Course", state: .published, section
     try old.setCompleted(true, courseID: "c", lectureID: "v")
     try old.saveResumePosition(12, courseID: "c", lectureID: "w")
     let store = try CourseStore(root: root)
-    #expect(try store.schemaVersion == 10)
+    #expect(try store.schemaVersion == CourseStore.currentSchemaVersion)
     #expect(try store.allProgress() == ["c": ["v": LectureProgress(completed: true), "w": LectureProgress(resumeSeconds: 12)]])
 }
 

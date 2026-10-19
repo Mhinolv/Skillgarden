@@ -54,11 +54,14 @@ public struct LectureContext: Equatable, Sendable {
     public let passages: [LecturePassage]
     /// The system message: the framing, then each passage as `[<id>] <text>`.
     public let systemPrompt: String
+    /// The revision of the lecture text (#127). Saved Q&A turns with another revision stay out of new prompts.
+    public let sourceRevision: String
 
     init(courseTitle: String, lectureTitle: String, passages: [LecturePassage]) {
         self.courseTitle = courseTitle
         self.lectureTitle = lectureTitle
         self.passages = passages
+        sourceRevision = Self.sourceRevision(of: passages)
         systemPrompt = """
             You answer questions from a learner about one lecture of the course "\(courseTitle)".
             The lecture is "\(lectureTitle)".
@@ -78,6 +81,7 @@ public struct LectureContext: Equatable, Sendable {
     }
 
     /// The chat request: the system prompt, then the question of the learner.
+    /// `LectureConversation.messages(context:question:budget:)` also adds the saved turns.
     public func messages(question: String) -> [ChatMessage] {
         [ChatMessage(role: .system, content: systemPrompt), ChatMessage(role: .user, content: question)]
     }
