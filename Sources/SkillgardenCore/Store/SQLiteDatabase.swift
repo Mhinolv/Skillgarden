@@ -22,8 +22,10 @@ public enum CourseStoreError: Error, LocalizedError, Equatable {
 final class SQLiteDatabase {
     private var handle: OpaquePointer?
 
-    init(url: URL) throws {
-        guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
+    /// `readOnly` opens a database file that exists and never creates or changes a file.
+    init(url: URL, readOnly: Bool = false) throws {
+        let flags = readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE
+        guard sqlite3_open_v2(url.path, &handle, flags | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
             if let handle { sqlite3_close(handle) }
             handle = nil
             throw CourseStoreError.cannotOpen
