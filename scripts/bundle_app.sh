@@ -2,6 +2,7 @@
 # Build SkillgardenApp and wrap it in build/Skillgarden.app so it launches as a normal Mac app.
 # The skillgarden CLI goes in Contents/Helpers: Contents/MacOS/skillgarden would collide with
 # Contents/MacOS/Skillgarden on a case-insensitive volume.
+# The SkillgardenAIHost helper goes in Contents/Helpers. It runs llama-server and stops it when the app stops (#123).
 # The pinned llama.cpp runtime (assets/llama.cpp/runtime.json) goes in Contents/Helpers/llama.
 # The script copies it from SKILLGARDEN_LLAMA_DIR, or ~/.local/share/skillgarden/llama.cpp/<version>.
 # It never downloads anything. See docs/local-ai.md.
@@ -29,10 +30,12 @@ done
 
 ./scripts/build.sh --product SkillgardenApp
 ./scripts/build.sh --product skillgarden
+./scripts/build.sh --product SkillgardenAIHost
 APP=build/Skillgarden.app
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp ".build/debug/SkillgardenApp" "$APP/Contents/MacOS/Skillgarden"
 cp ".build/debug/skillgarden" "$APP/Contents/Helpers/skillgarden"
+cp ".build/debug/SkillgardenAIHost" "$APP/Contents/Helpers/SkillgardenAIHost"
 cp assets/AppIcon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -45,6 +48,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
 

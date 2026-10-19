@@ -3,12 +3,16 @@ import SwiftUI
 import UniformTypeIdentifiers
 import SkillgardenCore
 
-/// The Settings "Local AI" section (#122): the chosen GGUF model and `Choose Model…`.
+/// The Settings "Local AI" section: `Use local AI` (#123), the chosen GGUF model and `Choose Model…` (#122),
+/// and the status of the owned server (#123).
 struct LocalAISection: View {
     let settings: ModelSettings
+    let localAI: RuntimeSupervisor
 
     var body: some View {
         Section {
+            // Each change is saved at once, as `autoPlays` (#99).
+            Toggle("Use local AI", isOn: Binding(get: { localAI.isEnabled }, set: { localAI.setEnabled($0) }))
             LabeledContent("Model") {
                 HStack(spacing: 12) {
                     modelText
@@ -19,6 +23,7 @@ struct LocalAISection: View {
                     }
                 }
             }
+            LabeledContent("Status") { LocalAIStatusView(localAI: localAI) }
         } header: {
             Text("Local AI")
         } footer: {
@@ -53,6 +58,51 @@ struct LocalAISection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+/// The status row of the owned server: an indicator, the fixed text, and `Try Again` in the Error state.
+struct LocalAIStatusView: View {
+    let localAI: RuntimeSupervisor
+
+    var body: some View {
+        let status = localAI.status
+        HStack(spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                indicator(status)
+                VStack(alignment: .trailing, spacing: 2) {
+                    // `LabeledContent` makes its content secondary. The status text stays primary.
+                    Text(status.text).foregroundStyle(.primary)
+                    if let reason = status.reason {
+                        Text(reason)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.trailing)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(status.accessibilityLabel)
+            if case .failed = status {
+                Button("Try Again") { localAI.retry() }
+            }
+        }
+        // Ready and Error post an announcement. Status changes show no alert.
+        .onChange(of: status) { _, status in
+            guard let announcement = status.announcement else { return }
+            NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                                 userInfo: [.announcement: announcement, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        }
+    }
+
+    @ViewBuilder private func indicator(_ status: LocalAIStatus) -> some View {
+        switch status {
+        case .off, .noModel: Image(systemName: "circle").foregroundStyle(.secondary)
+        case .starting, .stopping: ProgressView().controlSize(.small)
+        case .ready: Image(systemName: "circle.fill").foregroundStyle(.green)
+        case .failed: Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
         }
     }
 }

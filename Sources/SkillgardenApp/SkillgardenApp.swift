@@ -12,7 +12,30 @@ enum SkillgardenMain {
     }
 }
 
+/// Owns the app-wide models. The snapshot harness does not start the app, so it starts no runtime (#123).
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// The Settings "Local AI" model (#122). The bookmark is in Application Support/Skillgarden.
+    let modelSettings = ModelSettings(store: ModelBookmarkStore())
+    /// The owned llama-server (#123). It starts at launch and stops at quit (⌘Q), not when the last window closes.
+    let localAI = RuntimeSupervisor(isEnabled: Skillgarden.savedLocalAI(), backend: BundledRuntime(), saveEnabled: Skillgarden.saveLocalAI)
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // The start runs in the background, so the window opens at once.
+        Task {
+            await modelSettings.load()
+            localAI.setModel(modelSettings.model)
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        localAI.stopForQuit()
+    }
+}
+
 struct SkillgardenApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     var body: some Scene {
         WindowGroup("Skillgarden") {
             ContentView(appearance: appearance, autoPlays: autoPlays)
@@ -76,12 +99,9 @@ struct SkillgardenApp: App {
         // Skillgarden > Settings… (⌘,).
         Settings {
             SettingsView(autoPlays: Binding(get: { autoPlays }, set: { autoPlays = $0; Skillgarden.saveAutoPlay($0) }),
-                         modelSettings: modelSettings)
+                         modelSettings: appDelegate.modelSettings, localAI: appDelegate.localAI)
         }
     }
-
-    /// The Settings "Local AI" model (#122). The bookmark is in Application Support/Skillgarden.
-    @State private var modelSettings = ModelSettings(store: ModelBookmarkStore())
 
     /// The View > Appearance choice. Each change is saved at once.
     @State private var appearance = Skillgarden.savedAppearance()
@@ -365,23 +385,28 @@ struct SettingsView: View {
     @Binding var autoPlays: Bool
     /// The "Local AI" model choice (#122).
     let modelSettings: ModelSettings
+    /// The owned llama-server (#123).
+    let localAI: RuntimeSupervisor
 
     var body: some View {
         Form {
             Toggle("Auto-play next lecture", isOn: $autoPlays)
-            LocalAISection(settings: modelSettings)
+            LocalAISection(settings: modelSettings, localAI: localAI)
         }
         .formStyle(.grouped)
         .frame(width: 460)
         .fixedSize()
         // Each open checks the saved model again, so a moved or deleted file shows at once.
         .task { await modelSettings.load() }
+        // A new model restarts the server: Stopping, Starting, Ready.
+        .onChange(of: modelSettings.model) { _, model in localAI.setModel(model) }
     }
 }
 
 struct SettingsView_Previews: PreviewProvider {
     static var previews: some View {
-        SettingsView(autoPlays: .constant(true), modelSettings: ModelSettings(store: nil))
+        SettingsView(autoPlays: .constant(true), modelSettings: ModelSettings(store: nil),
+                     localAI: RuntimeSupervisor(isEnabled: true, backend: nil, status: .ready(version: "b11669")))
     }
 }
 

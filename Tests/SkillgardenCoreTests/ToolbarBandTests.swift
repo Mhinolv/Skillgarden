@@ -91,10 +91,11 @@ private func runSnapshots(_ screens: [SnapshotScreen], into out: URL) throws -> 
 @Test func settingsSnapshotSkipsTheToolbarMaterialCheck() throws {
     let out = FileManager.default.temporaryDirectory.appending(path: "ToolbarBandTests-\(UUID())")
     defer { try? FileManager.default.removeItem(at: out) }
-    let run = try runSnapshots([.settings, .settingsModelMissing], into: out)
+    let run = try runSnapshots([.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError], into: out)
     #expect(run.errorText.isEmpty)
     #expect(run.status == 0)
-    for name in ["settings-light", "settings-dark", "settings-model-missing-light", "settings-model-missing-dark"] {
+    for name in ["settings-light", "settings-dark", "settings-model-missing-light", "settings-model-missing-dark",
+                 "settings-ai-off-light", "settings-ai-off-dark", "settings-ai-error-light", "settings-ai-error-dark"] {
         #expect(FileManager.default.fileExists(atPath: out.appending(path: "\(name).png").path), "\(name)")
     }
 }
@@ -103,5 +104,5 @@ private func runSnapshots(_ screens: [SnapshotScreen], into out: URL) throws -> 
     for screen in SnapshotScreen.allCases {
         #expect(screen.checksToolbarMaterial == !screen.isSettings, "\(screen)")
     }
-    #expect(SnapshotScreen.allCases.filter(\.isSettings) == [.settings, .settingsModelMissing])
+    #expect(SnapshotScreen.allCases.filter(\.isSettings) == [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError])
 }
