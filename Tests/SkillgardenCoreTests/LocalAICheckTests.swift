@@ -49,6 +49,39 @@ private func fixtureContexts(in folder: URL) async throws -> [String: LectureCon
         out: URL(fileURLWithPath: "/tmp/r"), fixtures: URL(fileURLWithPath: "/f"))))
 }
 
+/// Runs the script itself, not through zsh, as docs/local-ai.md tells the owner to.
+private func script(_ arguments: [String]) throws -> (status: Int32, output: String, errorText: String) {
+    let process = Process()
+    process.executableURL = fixtures.deletingLastPathComponent().deletingLastPathComponent().appending(path: "scripts/check_local_ai.sh")
+    process.arguments = arguments
+    let output = Pipe(), errorText = Pipe()
+    process.standardOutput = output
+    process.standardError = errorText
+    try process.run()
+    let out = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    let err = String(decoding: errorText.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    process.waitUntilExit()
+    return (process.terminationStatus, out, err)
+}
+
+@Test func theScriptIsExecutableAndChecksItsOptionsBeforeTheBuild() throws {
+    let path = fixtures.deletingLastPathComponent().deletingLastPathComponent().appending(path: "scripts/check_local_ai.sh").path
+    try #require(FileManager.default.isExecutableFile(atPath: path), "scripts/check_local_ai.sh is not executable")
+    let help = try script(["--help"])
+    #expect(help.status == 0)
+    #expect(help.output == LocalAICheck.usage + "\n")
+    let noModel = try script([])
+    #expect(noModel.status == 2)
+    #expect(noModel.output.isEmpty)
+    #expect(noModel.errorText == "error: --model is required\n" + LocalAICheck.usage + "\n")
+    let noValue = try script(["--model"])
+    #expect(noValue.status == 2)
+    #expect(noValue.errorText == "error: --model needs a value\n")
+    let unknown = try script(["--fast"])
+    #expect(unknown.status == 2)
+    #expect(unknown.errorText == "error: unknown option --fast\n" + LocalAICheck.usage + "\n")
+}
+
 // MARK: Output
 
 @Test func linesUseTheFixedColumnsOfTheDesignNotes() {
