@@ -113,6 +113,7 @@ enum SnapshotRenderer {
             .environment(\.snapshotStartsTheater, output.screen.startsTheater)
             .environment(\.snapshotShowsQA, output.screen.showsQA)
             .environment(\.snapshotQADraft, output.screen.qaDraft)
+            .environment(\.snapshotOpensCitationExcerpt, output.screen.opensCitationExcerpt)
             .environment(\.snapshotSelectsFirstTranscriptHit, output.screen.selectsFirstTranscriptHit)
             .environment(\.snapshotShowsLandingDetails, output.screen.showsLandingDetails)
             .environment(\.showsReviewInline, true)

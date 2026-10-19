@@ -470,6 +470,15 @@ public final class LibraryModel {
         transcriptSeek = TranscriptSeek(id: seekCount, lectureID: hit.lectureID, seconds: hit.start)
     }
 
+    /// A video source chip of the Q&A panel (#129). The player of the open lecture seeks to the stored cue start
+    /// and stays paused. The transcript does not open, so the Q&A panel stays in its slot.
+    public func seekCitation(lectureID: String, seconds: Double) {
+        guard let lecture = selectedLecture, lecture.id == lectureID, lecture.type == .video, seconds.isFinite, seconds >= 0
+        else { return }
+        seekCount += 1
+        transcriptSeek = TranscriptSeek(id: seekCount, lectureID: lectureID, seconds: seconds, showsTranscript: false)
+    }
+
     // MARK: Local AI
 
     /// The local AI context of a lecture in the selected course (#125). The cache reads the text off the main actor.
@@ -741,6 +750,15 @@ public struct TranscriptSeek: Equatable, Sendable {
     public let id: Int
     public let lectureID: String
     public let seconds: Double
+    /// True opens the transcript with the cue active. A Q&A source seek (#129) keeps the Q&A panel.
+    public let showsTranscript: Bool
+
+    init(id: Int, lectureID: String, seconds: Double, showsTranscript: Bool = true) {
+        self.id = id
+        self.lectureID = lectureID
+        self.seconds = seconds
+        self.showsTranscript = showsTranscript
+    }
 }
 
 /// The data that `LibraryModel` reads from the installed publication folders. Add new fields here.

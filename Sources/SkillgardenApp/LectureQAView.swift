@@ -42,8 +42,11 @@ struct LectureQAView: View {
     var focusChanged: (Bool) -> Void = { _ in }
     @Environment(\.gardenPalette) private var palette
     @Environment(\.snapshotQADraft) private var snapshotDraft
+    @Environment(\.snapshotOpensCitationExcerpt) private var snapshotOpensExcerpt
     @State private var question = ""
     @State private var confirmsClear = false
+    /// The one open article excerpt of the panel (#129).
+    @State private var openExcerpt: OpenExcerpt?
     @FocusState private var fieldFocused: Bool
 
     static let threadHeight: CGFloat = 320
@@ -68,8 +71,13 @@ struct LectureQAView: View {
         }
         .gardenCard(padding: GardenSpacing.s)
         .task(id: qa.key) {
+            openExcerpt = nil
             await qa.load()
             if let snapshotDraft { qa.showSnapshotDraft(question: snapshotDraft.question, text: snapshotDraft.text) }
+            if snapshotOpensExcerpt, let turn = qa.conversation.turns.last,
+               let source = qa.citations(for: turn).sources.first(where: { if case .article = $0.kind { true } else { false } }) {
+                openExcerpt = OpenExcerpt(turnID: turn.id, sourceID: source.id)
+            }
         }
         .onChange(of: fieldFocused) { _, focused in focusChanged(focused) }
         .onDisappear { if fieldFocused { focusChanged(false) } }
@@ -178,11 +186,12 @@ struct LectureQAView: View {
     }
 
     private func turn(_ turn: QATurn) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let citations = qa.citations(for: turn)
+        return VStack(alignment: .leading, spacing: 6) {
             VStack(alignment: .leading, spacing: 6) {
                 QuestionBubble(text: turn.question)
                 if !turn.answer.isEmpty {
-                    Text(turn.answer)
+                    Text(answerText(citations))
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -193,7 +202,10 @@ struct LectureQAView: View {
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(turn.accessibilityLabel)
+            .accessibilityLabel(turn.accessibilityLabel(answer: citations.text))
+            if !citations.sources.isEmpty {
+                SourcesRow(sources: citations.sources, openID: excerptBinding(turn.id), seek: { qa.seek(to: $0) })
+            }
             if qa.conversation.canRetry(turn) {
                 Button("Retry", systemImage: "arrow.clockwise") { qa.retry(turn) }
                     .buttonStyle(.garden(.plain, .small))
@@ -208,13 +220,36 @@ struct LectureQAView: View {
             if draft.text.isEmpty {
                 ProgressView().controlSize(.small).accessibilityLabel("Answering")
             } else {
-                Text(draft.text).fixedSize(horizontal: false, vertical: true)
+                Text(answerText(qa.citations(forDraft: draft.text))).fixedSize(horizontal: false, vertical: true)
             }
             // Escape cancels the answer. Theater does not take Escape while an answer runs.
             Button("Cancel", systemImage: "stop.circle") { qa.cancel() }
                 .buttonStyle(.garden(.plain, .small))
                 .keyboardShortcut(.cancelAction)
         }
+    }
+
+    /// The answer with `[1]`, `[2]` in place of passage IDs. Valid markers use the accent ink, the others the muted color.
+    /// Markers are plain text, not links.
+    private func answerText(_ citations: AnswerCitations) -> AttributedString {
+        var text = AttributedString()
+        for segment in citations.segments {
+            switch segment {
+            case .text(let value):
+                text += AttributedString(value)
+            case .marker(let source):
+                var marker = AttributedString(AnswerCitations.markerText(source))
+                marker.foregroundColor = source.isActionable ? palette.accentInk : palette.muted
+                text += marker
+            }
+        }
+        return text
+    }
+
+    /// The open excerpt of one turn. Opening an excerpt closes the excerpt of any other turn.
+    private func excerptBinding(_ turnID: Int64) -> Binding<String?> {
+        Binding(get: { openExcerpt?.turnID == turnID ? openExcerpt?.sourceID : nil },
+                set: { openExcerpt = $0.map { OpenExcerpt(turnID: turnID, sourceID: $0) } })
     }
 
     private func composer(_ state: LectureQAState) -> some View {
@@ -234,6 +269,86 @@ struct LectureQAView: View {
 
     private func send() {
         if qa.send(question) { question = "" }
+    }
+}
+
+private struct OpenExcerpt: Equatable {
+    let turnID: Int64
+    let sourceID: String
+}
+
+/// The "Sources" row under an answer (#129): one chip for each source, then the open article excerpt.
+/// Stale and unknown sources are faint labels with a tooltip, never buttons.
+private struct SourcesRow: View {
+    let sources: [AnswerSource]
+    @Binding var openID: String?
+    let seek: (AnswerSource) -> Void
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: GardenSpacing.xs) {
+            GardenFlowLayout(spacing: GardenSpacing.xs) {
+                Text("Sources").gardenText(.label)
+                ForEach(sources) { chip($0) }
+            }
+            if let openID, let source = sources.first(where: { $0.id == openID }), case .article(let excerpt) = source.kind {
+                ExcerptView(text: excerpt)
+            }
+        }
+    }
+
+    @ViewBuilder private func chip(_ source: AnswerSource) -> some View {
+        switch source.kind {
+        case .video:
+            Button { seek(source) } label: { Label(source.title, systemImage: "play.circle") }
+                .buttonStyle(.garden(.bordered, .small))
+                .help(source.help ?? "")
+                .accessibilityLabel(source.accessibilityLabel())
+                .accessibilityHint(source.accessibilityHint ?? "")
+        case .article:
+            Toggle(isOn: Binding(get: { openID == source.id }, set: { openID = $0 ? source.id : nil })) {
+                Label(source.title, systemImage: "text.quote")
+            }
+            .toggleStyle(GardenPillToggleStyle(size: .small))
+            .accessibilityLabel(source.accessibilityLabel())
+            .accessibilityHint(source.accessibilityHint ?? "")
+        case .stale, .unknown:
+            Text(source.title)
+                .font(GardenFont.small)
+                .foregroundStyle(palette.faint)
+                .help(source.help ?? "")
+                // Tab reaches the label, so keyboard users hear why it has no action.
+                .focusable()
+                .accessibilityLabel(source.accessibilityLabel())
+        }
+    }
+}
+
+/// An article excerpt in the Markdown quote style: a 2 pt bar and muted text, 160 pt high at most.
+private struct ExcerptView: View {
+    let text: String
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        ViewThatFits(in: .vertical) {
+            excerpt
+            ScrollView { excerpt }
+        }
+        .frame(maxHeight: 160, alignment: .top)
+        .padding(.leading, GardenSpacing.s)
+        .overlay(alignment: .leading) { Capsule().fill(palette.line).frame(width: 2) }
+    }
+
+    /// Inline Markdown styles show, as in the article. Links stay text because the excerpt has no link action.
+    private var excerpt: some View {
+        var styled = (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(text)
+        for run in styled.runs where run.link != nil { styled[run.range].link = nil }
+        return Text(styled)
+            .foregroundStyle(palette.muted)
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -274,6 +389,10 @@ private struct SnapshotQADraftKey: EnvironmentKey {
     static let defaultValue: (question: String, text: String)? = nil
 }
 
+private struct SnapshotOpensCitationExcerptKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
     /// The snapshot harness sets this, so the window opens with the Q&A panel open (#128). The app sets none.
     var snapshotShowsQA: Bool {
@@ -285,5 +404,11 @@ extension EnvironmentValues {
     var snapshotQADraft: (question: String, text: String)? {
         get { self[SnapshotQADraftKey.self] }
         set { self[SnapshotQADraftKey.self] = newValue }
+    }
+
+    /// The snapshot harness sets this, so the first article excerpt of the last answer opens (#129). The app sets none.
+    var snapshotOpensCitationExcerpt: Bool {
+        get { self[SnapshotOpensCitationExcerptKey.self] }
+        set { self[SnapshotOpensCitationExcerptKey.self] = newValue }
     }
 }

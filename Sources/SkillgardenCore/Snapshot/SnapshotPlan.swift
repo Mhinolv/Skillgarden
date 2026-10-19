@@ -98,6 +98,12 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case qaArticle = "qa-article"
     /// The Q&A panel of the video lecture in theater mode, with saved turns.
     case qaTheater = "qa-theater"
+    /// The Q&A panel of the video lecture (#129): an answer with two valid video sources and one unknown source.
+    case qaCitations = "qa-citations"
+    /// The Q&A panel of the article lecture (#129): an answer with two article sources, the first excerpt open.
+    case qaCitationExcerpt = "qa-citation-excerpt"
+    /// The Q&A panel of the video lecture (#129): a turn of an earlier version of the lecture text with stale sources.
+    case qaCitationsStale = "qa-citations-stale"
 
     static let settingsScreens: [SnapshotScreen] = [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError]
 
@@ -163,8 +169,11 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// True when the harness scrolls the lecture page, or the course landing with "Details" open, to the end.
     public var scrollsLectureToEnd: Bool {
         [.courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureSources, .lectureDownloads, .pdfPreview]
-            .contains(self) || (showsQA && self != .qaArticle)
+            .contains(self) || (showsQA && self != .qaArticle && self != .qaCitationExcerpt)
     }
+
+    /// True when the harness opens the first article excerpt of the last Q&A answer (#129).
+    public var opensCitationExcerpt: Bool { self == .qaCitationExcerpt }
 
     /// True when the harness opens the quick-check card of the video lecture.
     public var showsQuickChecks: Bool { self == .videoQuickCheck }
@@ -255,7 +264,8 @@ public enum SnapshotPlan {
             return nil
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
              .videoQuickCheck, .videoTheater, .lectureSources, .videoUpNext, .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft,
-             .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaArticle, .qaTheater:
+             .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaArticle, .qaTheater, .qaCitations, .qaCitationExcerpt,
+             .qaCitationsStale:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -409,9 +419,19 @@ public enum SnapshotPlan {
              ("How long is the course?", "", .httpError(status: 500))]
         case .qaDraft:
             [("What is the goal of this course?", "You plan a course step by step [t1].", .finished)]
+        case .qaCitations:
+            [("How does the course start?", "It starts with a welcome [t0]. Then you plan the course step by step [t1]. "
+                + "The guide has more help [L9].", .finished)]
+        case .qaCitationExcerpt:
+            [("What do I do first?", "Write the goal of the course first [a4]. Keep each lecture short [a6].", .finished)]
+        case .qaCitationsStale:
+            [("How does the course start?", "It starts with a welcome [t0], then a plan [t1].", .finished)]
         default: []
         }
     }
+
+    /// True when the harness saves the Q&A turns of the screen with an earlier revision of the lecture text (#129).
+    public static func qaTurnsAreStale(for screen: SnapshotScreen) -> Bool { screen == .qaCitationsStale }
 
     /// Saves the Q&A turns of the screen for the selected lecture of `library`, after the harness selects it.
     @MainActor
@@ -419,8 +439,13 @@ public enum SnapshotPlan {
         let turns = qaTurns(for: screen)
         guard !turns.isEmpty, let lectureID = library.selectedLecture?.id,
               case .ready(let context) = await library.lectureContext(forLecture: lectureID) else { return }
+        // Other text gives another source revision, so the turns are of an earlier version of the lecture.
+        let asked = qaTurnsAreStale(for: screen)
+            ? LectureContext(courseTitle: context.courseTitle, lectureTitle: context.lectureTitle,
+                             passages: context.passages.map { LecturePassage(id: $0.id, label: $0.label, text: $0.text + " Old.") })
+            : context
         for turn in turns {
-            let saved = try await library.startQATurn(question: turn.question, context: context, lectureID: lectureID)
+            let saved = try await library.startQATurn(question: turn.question, context: asked, lectureID: lectureID)
             library.finishQATurn(saved, outcome: turn.outcome, text: turn.answer)
         }
         await library.waitForWrites()
@@ -495,9 +520,10 @@ public enum SnapshotPlan {
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
              .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions,
-             .qaTheater:
+             .qaTheater, .qaCitations, .qaCitationsStale:
             .lecture(sectionID: "plan", lectureID: "welcome")
-        case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle: .lecture(sectionID: "plan", lectureID: "read")
+        case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle, .qaCitationExcerpt:
+            .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme, .courseLandingDetails, .transcriptSearch, .transcriptSearchSelected,
              .transcriptSearchNoResults: .overview
         case .courseCredits: .credits

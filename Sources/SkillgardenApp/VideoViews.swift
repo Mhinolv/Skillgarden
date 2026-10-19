@@ -495,9 +495,14 @@ struct VideoLectureView: View {
 
     /// Opens the player paused at the cue of the search result and shows the transcript with the cue active.
     /// Before the load ends this does nothing. The load calls it again.
+    /// A Q&A source seek (#129) keeps the Q&A panel, stops "Up next" and scrolls the page to the player.
     private func applySeekRequest() {
         guard let seekRequest, let video, available == true else { return }
-        if captions != nil { showsTranscript = true }
+        if seekRequest.showsTranscript, captions != nil { showsTranscript = true }
+        if !seekRequest.showsTranscript {
+            upNext.cancel()
+            scrollToPlayer()
+        }
         if let playback {
             playback.seek(to: seekRequest.seconds, plays: false)
         } else {
@@ -710,9 +715,11 @@ private struct VideoSkipKeys: NSViewRepresentable {
 
 /// A bordered Garden button for an on and off toggle. "On" adds the neutral fill. It never uses the accent fill.
 struct GardenPillToggleStyle: ToggleStyle {
+    var size: GardenButtonStyle.Size = .regular
+
     func makeBody(configuration: Configuration) -> some View {
         Button { configuration.isOn.toggle() } label: { configuration.label }
-            .buttonStyle(GardenButtonStyle(.bordered, isOn: configuration.isOn))
+            .buttonStyle(GardenButtonStyle(.bordered, size, isOn: configuration.isOn))
             .accessibilityValue(configuration.isOn ? "On" : "Off")
     }
 }

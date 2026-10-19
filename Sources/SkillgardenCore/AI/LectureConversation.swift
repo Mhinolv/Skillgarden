@@ -71,7 +71,10 @@ public struct QATurn: Identifiable, Equatable, Hashable, Sendable {
     }
 
     /// One accessibility element for the turn: "Question: …", then "Answer: …, <status>".
-    public var accessibilityLabel: String {
+    public var accessibilityLabel: String { accessibilityLabel(answer: answer) }
+
+    /// The same label with the answer as the panel shows it: numbered source markers in place of passage IDs (#129).
+    public func accessibilityLabel(answer: String) -> String {
         var answerText = "Answer: \(answer)"
         if let label = status.label { answerText += ", \(label)" }
         return "Question: \(question). \(answerText)"
