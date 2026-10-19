@@ -31,15 +31,17 @@ struct LectureQAPanel {
             .labelStyle(ToolbarLabelStyle(iconOnly: iconOnly))
     }
 
+    /// The page draws again on each caption cue and progress save. The panel skips these redraws (#165).
     func panel(focusChanged: @escaping (Bool) -> Void = { _ in }) -> some View {
-        LectureQAView(qa: qa, localAI: localAI, providers: providers, focusChanged: focusChanged)
+        LectureQAView(qa: qa, localAI: localAI, providers: providers, focusChanged: focusChanged).equatable()
     }
 }
 
 /// The Q&A panel: the header with "Clear History", the thread or the service state, the question field and "Send".
 /// "Send" is bordered, so "Mark as Complete" stays the only accent button of the page.
 /// A question for a provider profile opens the consent sheet first, once for each course and destination (#151).
-struct LectureQAView: View {
+/// The panel observes its models, so a page redraw does not draw it again (#165). The closure is not compared.
+struct LectureQAView: View, Equatable {
     let qa: LectureQA
     let localAI: RuntimeSupervisor
     let providers: ProviderSettings
@@ -59,6 +61,10 @@ struct LectureQAView: View {
 
     static let threadHeight: CGFloat = 320
     private static let endID = "qa-end"
+
+    nonisolated static func == (lhs: LectureQAView, rhs: LectureQAView) -> Bool {
+        lhs.qa === rhs.qa && lhs.localAI === rhs.localAI && lhs.providers === rhs.providers
+    }
 
     /// A provider profile does not use the local runtime, so its state follows the lecture text only (#151).
     private var panelState: LectureQAState {
@@ -82,7 +88,8 @@ struct LectureQAView: View {
             thread(state)
                 .frame(maxWidth: .infinity)
                 .frame(height: Self.threadHeight)
-            composer(state)
+            // The composer reads the question, so a key press draws the composer only.
+            QAComposer(qa: qa, canSendState: state.canSend, question: $question, fieldFocused: $fieldFocused)
             Text(profile?.answerFooter ?? "Answers come from a local model and can be wrong.")
                 .gardenText(.label)
         }
@@ -247,7 +254,8 @@ struct LectureQAView: View {
                         }
                         .accessibilityElement(children: .combine)
                     }
-                    if let draft = qa.draft { draftView(draft) }
+                    // The draft view reads the draft, so a flush draws the draft only (#165).
+                    QADraftView(qa: qa) { proxy.scrollTo(Self.endID, anchor: .bottom) }
                     Color.clear.frame(height: 1).id(Self.endID)
                 }
                 .font(GardenFont.body)
@@ -256,18 +264,57 @@ struct LectureQAView: View {
             }
             .onAppear { proxy.scrollTo(Self.endID, anchor: .bottom) }
             .onChange(of: qa.conversation.turns.count) { proxy.scrollTo(Self.endID, anchor: .bottom) }
-            .onChange(of: qa.draft) { proxy.scrollTo(Self.endID, anchor: .bottom) }
             .onChange(of: qa.notice) { proxy.scrollTo(Self.endID, anchor: .bottom) }
         }
     }
 
     private func turn(_ turn: QATurn) -> some View {
-        let citations = qa.citations(for: turn)
-        return VStack(alignment: .leading, spacing: 6) {
+        let openID = openExcerpt?.turnID == turn.id ? openExcerpt?.sourceID : nil
+        return QATurnView(turn: turn, citations: qa.citations(for: turn), sourceText: providers.sourceText(for: turn.origin),
+                          canRetry: qa.conversation.canRetry(turn), retryDisabled: qa.isAnswering || panelState != .ready,
+                          openID: openID, setOpenID: { openExcerpt = $0.map { OpenExcerpt(turnID: turn.id, sourceID: $0) } },
+                          seek: { qa.seek(to: $0) }, retry: { qa.retry(turn) })
+            .equatable()
+    }
+}
+
+/// The answer with inline Markdown styles (#158) and `[1]`, `[2]` in place of passage IDs.
+/// Valid markers use the accent ink, the others the muted color. Markers and links are plain text, not links.
+@MainActor
+private func answerText(_ citations: AnswerCitations, palette: GardenPalette) -> AttributedString {
+    var text = citations.styled
+    for (source, range) in text.runs[AnswerMarkerAttribute.self] {
+        guard let source else { continue }
+        text[range].foregroundColor = source.isActionable ? palette.accentInk : palette.muted
+    }
+    return text
+}
+
+/// One saved turn (#165). A redraw of the panel skips it when its values are equal. Actions are not compared.
+private struct QATurnView: View, Equatable {
+    let turn: QATurn
+    let citations: AnswerCitations
+    let sourceText: String?
+    let canRetry: Bool
+    let retryDisabled: Bool
+    /// The open excerpt of this turn. Opening an excerpt closes the excerpt of any other turn.
+    let openID: String?
+    let setOpenID: (String?) -> Void
+    let seek: (AnswerSource) -> Void
+    let retry: () -> Void
+    @Environment(\.gardenPalette) private var palette
+
+    nonisolated static func == (lhs: QATurnView, rhs: QATurnView) -> Bool {
+        lhs.turn == rhs.turn && lhs.sourceText == rhs.sourceText && lhs.canRetry == rhs.canRetry
+            && lhs.retryDisabled == rhs.retryDisabled && lhs.openID == rhs.openID && lhs.citations == rhs.citations
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
             VStack(alignment: .leading, spacing: 6) {
                 QuestionBubble(text: turn.question)
                 if !turn.answer.isEmpty {
-                    Text(answerText(citations))
+                    Text(answerText(citations, palette: palette))
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -279,61 +326,65 @@ struct LectureQAView: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(turn.accessibilityLabel(answer: citations.text))
-            if let source = providers.sourceText(for: turn.origin) {
-                Text(source).gardenText(.label)
+            if let sourceText {
+                Text(sourceText).gardenText(.label)
             }
             if !citations.sources.isEmpty {
-                SourcesRow(sources: citations.sources, openID: excerptBinding(turn.id), seek: { qa.seek(to: $0) })
+                SourcesRow(sources: citations.sources, openID: Binding(get: { openID }, set: { setOpenID($0) }), seek: seek)
             }
-            if qa.conversation.canRetry(turn) {
-                Button("Retry", systemImage: "arrow.clockwise") { qa.retry(turn) }
+            if canRetry {
+                Button("Retry", systemImage: "arrow.clockwise", action: retry)
                     .buttonStyle(.garden(.plain, .small))
-                    .disabled(qa.isAnswering || panelState != .ready)
+                    .disabled(retryDisabled)
             }
         }
     }
+}
 
-    private func draftView(_ draft: LectureQA.Draft) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            QuestionBubble(text: draft.question)
-            if draft.text.isEmpty {
-                ProgressView().controlSize(.small).accessibilityLabel("Answering")
-            } else {
-                Text(answerText(qa.citations(forDraft: draft.text))).fixedSize(horizontal: false, vertical: true)
+/// The draft answer of the running request. It alone reads the draft, so a flush draws only this view (#165).
+private struct QADraftView: View {
+    let qa: LectureQA
+    let scrollToEnd: () -> Void
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        Group {
+            if let draft = qa.draft {
+                VStack(alignment: .leading, spacing: 6) {
+                    QuestionBubble(text: draft.question)
+                    if draft.text.isEmpty {
+                        ProgressView().controlSize(.small).accessibilityLabel("Answering")
+                    } else {
+                        Text(answerText(draft.citations, palette: palette)).fixedSize(horizontal: false, vertical: true)
+                    }
+                    // Escape cancels the answer. Theater does not take Escape while an answer runs.
+                    Button("Cancel", systemImage: "stop.circle") { qa.cancel() }
+                        .buttonStyle(.garden(.plain, .small))
+                        .keyboardShortcut(.cancelAction)
+                }
             }
-            // Escape cancels the answer. Theater does not take Escape while an answer runs.
-            Button("Cancel", systemImage: "stop.circle") { qa.cancel() }
-                .buttonStyle(.garden(.plain, .small))
-                .keyboardShortcut(.cancelAction)
         }
+        .onChange(of: qa.draft) { scrollToEnd() }
     }
+}
 
-    /// The answer with inline Markdown styles (#158) and `[1]`, `[2]` in place of passage IDs.
-    /// Valid markers use the accent ink, the others the muted color. Markers and links are plain text, not links.
-    private func answerText(_ citations: AnswerCitations) -> AttributedString {
-        var text = citations.styled
-        for (source, range) in text.runs[AnswerMarkerAttribute.self] {
-            guard let source else { continue }
-            text[range].foregroundColor = source.isActionable ? palette.accentInk : palette.muted
-        }
-        return text
-    }
+/// The question field and "Send". It alone reads the question, so a key press draws only this view (#165).
+private struct QAComposer: View {
+    let qa: LectureQA
+    /// True when the panel state allows "Send".
+    let canSendState: Bool
+    @Binding var question: String
+    var fieldFocused: FocusState<Bool>.Binding
 
-    /// The open excerpt of one turn. Opening an excerpt closes the excerpt of any other turn.
-    private func excerptBinding(_ turnID: Int64) -> Binding<String?> {
-        Binding(get: { openExcerpt?.turnID == turnID ? openExcerpt?.sourceID : nil },
-                set: { openExcerpt = $0.map { OpenExcerpt(turnID: turnID, sourceID: $0) } })
-    }
-
-    private func composer(_ state: LectureQAState) -> some View {
-        let canSend = state.canSend && !qa.isAnswering && !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return HStack(alignment: .bottom, spacing: GardenSpacing.xs) {
+    var body: some View {
+        let canSend = canSendState && !qa.isAnswering && !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        HStack(alignment: .bottom, spacing: GardenSpacing.xs) {
             TextField("Ask about this lecture", text: $question, axis: .vertical)
                 .lineLimit(1...4)
                 .textFieldStyle(.roundedBorder)
-                .focused($fieldFocused)
+                .focused(fieldFocused)
                 .onSubmit { if canSend { send() } }
-                .disabled(!state.canSend)
+                .disabled(!canSendState)
             Button("Send", action: send)
                 .buttonStyle(.garden(.bordered))
                 .disabled(!canSend)
@@ -454,8 +505,17 @@ private struct SourcesRow: View {
 
 /// An article excerpt in the Markdown quote style: a 2 pt bar and muted text, 160 pt high at most.
 private struct ExcerptView: View {
-    let text: String
+    /// The excerpt, parsed once when the excerpt opens (#165). `ViewThatFits` uses it twice.
+    let styled: AttributedString
     @Environment(\.gardenPalette) private var palette
+
+    /// Inline Markdown styles show, as in the article. Links stay text because the excerpt has no link action.
+    init(text: String) {
+        var styled = (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(text)
+        for run in styled.runs where run.link != nil { styled[run.range].link = nil }
+        self.styled = styled
+    }
 
     var body: some View {
         ViewThatFits(in: .vertical) {
@@ -467,12 +527,8 @@ private struct ExcerptView: View {
         .overlay(alignment: .leading) { Capsule().fill(palette.line).frame(width: 2) }
     }
 
-    /// Inline Markdown styles show, as in the article. Links stay text because the excerpt has no link action.
     private var excerpt: some View {
-        var styled = (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(text)
-        for run in styled.runs where run.link != nil { styled[run.range].link = nil }
-        return Text(styled)
+        Text(styled)
             .foregroundStyle(palette.muted)
             .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)

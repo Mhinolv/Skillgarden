@@ -199,7 +199,8 @@ private struct NoTransport: LlamaTransport {
     qa.seek(to: citations.sources[0])
     #expect(library.transcriptSeek == nil)
     // The draft is always of the current text.
-    #expect(qa.citations(forDraft: "Dig [t0]").sources.map(\.title) == ["1 · 0:00"])
+    qa.showSnapshotDraft(question: "Q", text: "Dig [t0]")
+    #expect(qa.draftCitations?.sources.map(\.title) == ["1 · 0:00"])
 }
 
 @MainActor @Test func articleSourcesDoNotSeek() async throws {

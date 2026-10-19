@@ -115,6 +115,14 @@ public final class LectureQA {
     public struct Draft: Equatable, Sendable {
         public let question: String
         public fileprivate(set) var text: String
+        /// The numbered markers of `text` (#165). Each flush parses the text once, so a redraw parses nothing.
+        public fileprivate(set) var citations: AnswerCitations
+
+        fileprivate init(question: String, text: String, context: LectureContext?) {
+            self.question = question
+            self.text = text
+            citations = AnswerCitations(answer: text, context: context, isStale: false)
+        }
     }
 
     /// A question with a fixed answer and no request: no part of the lecture matches it (#126), or the save failed.
@@ -136,6 +144,9 @@ public final class LectureQA {
     public private(set) var conversation = LectureConversation(turns: [], sourceRevision: nil)
     /// Nil when no request runs.
     public private(set) var draft: Draft?
+    /// True while a request runs. It changes only at the start and the end of a request, not on each draft flush (#165),
+    /// so the window and the page do not draw again while the answer streams.
+    public private(set) var isAnswering = false
     public private(set) var notice: Notice?
     /// The consent sheet (#151). A question for a provider other than the bundled model waits here until the learner
     /// allows the course for the destination. Nil when no question waits.
@@ -179,14 +190,11 @@ public final class LectureQA {
         return Key(courseID: courseID, lectureID: lecture.id)
     }
 
-    /// True while a request runs.
-    public var isAnswering: Bool { draft != nil }
-
     /// The provider that answers the next question (#151).
     public var provider: any AnswerProvider { providers?.activeProvider(bundled: bundled) ?? bundled }
 
     /// True when the thread has saved turns, a notice or a draft (#160).
-    public var hasHistory: Bool { !conversation.turns.isEmpty || draft != nil || notice != nil }
+    public var hasHistory: Bool { !conversation.turns.isEmpty || isAnswering || notice != nil }
 
     /// The open lecture changed. A new lecture cancels the request and clears the thread until `load()`.
     public func show(_ key: Key?) {
@@ -307,9 +315,7 @@ public final class LectureQA {
     }
 
     /// The numbered markers of the draft answer. The draft is always of the current lecture text.
-    public func citations(forDraft text: String) -> AnswerCitations {
-        AnswerCitations(answer: text, context: context, isStale: false)
-    }
+    public var draftCitations: AnswerCitations? { draft?.citations }
 
     /// A video source chip: the player of the open lecture seeks to the stored cue start and stays paused.
     /// Other sources do nothing.
@@ -320,7 +326,7 @@ public final class LectureQA {
 
     /// The snapshot harness shows a draft with no request.
     public func showSnapshotDraft(question: String, text: String) {
-        draft = Draft(question: question, text: text)
+        setDraft(Draft(question: question, text: text, context: context))
     }
 
     /// Starts the request of a question. It is the only place that starts a request, so it checks the consent again:
@@ -330,7 +336,7 @@ public final class LectureQA {
         if let destination = provider.destination {
             guard providers?.hasConsent(courseID: key.courseID, destination: destination) == true else { return false }
         }
-        draft = Draft(question: question, text: "")
+        setDraft(Draft(question: question, text: "", context: context))
         cancelRequested = false
         requestProvider = provider
         let generation = generation
@@ -352,21 +358,21 @@ public final class LectureQA {
         flush?.cancel()
         flush = nil
         requestID = nil
-        draft = nil
+        setDraft(nil)
     }
 
     private func run(question: String, context: LectureContext, key: Key, messages: [ChatMessage], answer prepared: PreparedAnswer,
                      generation: Int) async {
         // The store call reads the course id before its first suspension, so the check and the save see the same lecture.
         guard generation == self.generation else { return }
-        guard library.selectedCourseID == key.courseID else { draft = nil; return }
+        guard library.selectedCourseID == key.courseID else { setDraft(nil); return }
         let turn: QATurn
         do {
             turn = try await library.startQATurn(question: question, context: context, origin: prepared.origin,
                                                  lectureID: key.lectureID)
         } catch {
             guard generation == self.generation else { return }
-            draft = nil
+            setDraft(nil)
             notice = Notice(question: question, text: Self.saveFailedText)
             return
         }
@@ -399,14 +405,32 @@ public final class LectureQA {
         }
         guard generation == self.generation else { return }
         requestID = nil
-        draft = nil
+        setDraft(nil)
     }
+
+    /// Sets the draft. `isAnswering` changes only when a request starts or ends.
+    private func setDraft(_ value: Draft?) {
+        draft = value
+        if isAnswering != (value != nil) { isAnswering = value != nil }
+    }
+
+    /// One flush: the new text and its citations, parsed once.
+    private func setDraftText(_ text: String) {
+        guard var value = draft, value.text != text else { return }
+        value.text = text
+        value.citations = AnswerCitations(answer: text, context: context, isStale: false)
+        draftParseCount += 1
+        draft = value
+    }
+
+    /// The parses of draft text. Tests use it.
+    @ObservationIgnored private(set) var draftParseCount = 0
 
     /// Changes the draft at once, or after the rest of the throttle interval with the newest text.
     private func publish(_ text: String, generation: Int) {
         pendingText = text
         guard let delay = throttle.delay(at: .now) else {
-            draft?.text = text
+            setDraftText(text)
             throttle.published(at: .now)
             return
         }
@@ -415,7 +439,7 @@ public final class LectureQA {
             try? await Task.sleep(for: delay)
             guard let self, !Task.isCancelled, generation == self.generation else { return }
             self.flush = nil
-            self.draft?.text = self.pendingText
+            self.setDraftText(self.pendingText)
             self.throttle.published(at: .now)
         }
     }

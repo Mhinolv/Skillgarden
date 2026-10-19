@@ -499,22 +499,31 @@ struct SectionStones: View {
 }
 
 /// Places views left to right and wraps them to a new row when the width is used.
+/// The cache keeps the ideal size of each view, so a layout pass measures each view once (#165).
 struct GardenFlowLayout: Layout {
     var spacing: CGFloat
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = rows(width: proposal.width ?? .infinity, subviews: subviews)
+    func makeCache(subviews: Subviews) -> [CGSize] {
+        subviews.map { $0.sizeThatFits(.unspecified) }
+    }
+
+    func updateCache(_ cache: inout [CGSize], subviews: Subviews) {
+        cache = makeCache(subviews: subviews)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout [CGSize]) -> CGSize {
+        let rows = rows(width: proposal.width ?? .infinity, sizes: cache)
         let width = rows.map(\.width).max() ?? 0
         let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0))
         return CGSize(width: width, height: height)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout [CGSize]) {
         var y = bounds.minY
-        for row in rows(width: bounds.width, subviews: subviews) {
+        for row in rows(width: bounds.width, sizes: cache) {
             var x = bounds.minX
             for index in row.indices {
-                let size = subviews[index].sizeThatFits(.unspecified)
+                let size = cache[index]
                 subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: .unspecified)
                 x += size.width + spacing
             }
@@ -528,11 +537,10 @@ struct GardenFlowLayout: Layout {
         var height: CGFloat = 0
     }
 
-    private func rows(width: CGFloat, subviews: Subviews) -> [Row] {
+    private func rows(width: CGFloat, sizes: [CGSize]) -> [Row] {
         var rows: [Row] = []
         var row = Row()
-        for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
+        for (index, size) in sizes.enumerated() {
             if !row.indices.isEmpty, row.width + spacing + size.width > width {
                 rows.append(row)
                 row = Row()
