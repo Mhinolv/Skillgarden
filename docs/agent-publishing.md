@@ -125,6 +125,17 @@ If the agent cannot write to the library, the agent builds the course folder in 
 
 ## 3. Course folder layout
 
+Create a starter course folder:
+
+```sh
+skillgarden init path/to/new-course --id new-course --title "New Course"
+```
+
+- The command writes `skillgarden.yaml`, `content/welcome.md`, `media/course.svg` and `media/section.svg`. The folder passes `validate`.
+- The course is a draft with one section and one article lecture. To publish it to learners, change the course `state` to `published`.
+- The command creates a missing folder. It refuses a folder that holds entries other than `.DS_Store`, and writes nothing there.
+- `--id` and `--title` are required. The id must not be `start` or `welcome`, because the starter section and lecture use these ids.
+
 A course folder holds one manifest (`skillgarden.yaml` or `skillgarden.json`, not both) and the files that it names:
 
 ```
@@ -222,6 +233,7 @@ The app bundle holds the CLI at `Skillgarden.app/Contents/Helpers/skillgarden`. 
 | `skillgarden validate <course-folder>` | `Valid "<title>" (<id>, <state>): <n> sections, <n> lectures` |
 | `skillgarden publish <course-folder>` | `Published "<title>" (<id>, <state>): created <n>, updated <n>, unchanged <n>, removed <n>`, then `Library: <path>` |
 | `skillgarden internal list <course-id>` | One tab-separated row for each internal file |
+| `skillgarden init <folder> --id <id> --title <title>` | `Created "<title>" (<id>, draft): 4 files in <path>`, then the draft line and the next step |
 | `skillgarden doctor` | Labelled lines: version, CLI, library, source, folder, write access, app library, match, sandbox |
 | `skillgarden --version` | `skillgarden <version>` |
 | `skillgarden --help` | The usage text |
@@ -231,7 +243,7 @@ For a draft course, `validate` and `publish` also print `Draft: learners do not 
 | Exit code | Meaning | Output |
 |---|---|---|
 | 0 | Success | Results on stdout |
-| 1 | Manifest or file errors | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem. List indexes in `<fieldPath>` start at 0: `sections[0]` is the first section. |
+| 1 | Manifest or file errors. For `init`, a folder that is not empty or a path that is not a folder. | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem. List indexes in `<fieldPath>` start at 0: `sections[0]` is the first section. |
 | 2 | Usage error or bad data folder setting | `error: ...` on stderr. A usage error also prints the usage text. |
 | 3 | I/O or library error. For `validate`, also a missing course folder. For `doctor`, a library path that is not a folder. | `error: <description>` on stderr |
 
@@ -244,10 +256,10 @@ Add `--json` anywhere after the command name, for example `skillgarden validate 
 | Key | Value |
 |---|---|
 | `format_version` | `1`. Later versions add keys only. |
-| `command` | `validate`, `publish`, `internal list`, `doctor`, or `null` for an unknown command |
+| `command` | `validate`, `publish`, `internal list`, `init`, `doctor`, or `null` for an unknown command |
 | `ok` | `true` when `exit_code` is 0 |
 | `exit_code` | The process exit code |
-| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`. `internal list`: `files`, each with `title`, `path`, `description`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
+| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`. `internal list`: `files`, each with `title`, `path`, `description`. `init`: `title`, `id`, `state`, `draft`, `path`, `files`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
 | `diagnostics` | One object for each problem: `code`, `severity` (`error`), `message`, `file`, `field_path`, `hint`. `file`, `field_path` and `hint` are `null` when unknown. |
 
 The `code` values are stable. New versions add codes, but never rename a code.
@@ -258,6 +270,7 @@ The `code` values are stable. New versions add codes, but never rename a code.
 | `data_dir.relative` | The data folder setting is not an absolute path |
 | `data_dir.not_folder` | `doctor` finds a file, not a folder, at the library path |
 | `course_folder.missing` | The course folder does not exist |
+| `course_folder.not_empty`, `course_folder.not_folder` | `init` finds entries in the folder, or a file at the path |
 | `manifest.missing`, `manifest.duplicate`, `manifest.syntax` | No manifest, two manifests, or a manifest that cannot be parsed |
 | `field.required`, `field.type`, `field.choice`, `field.not_allowed` | A field is missing or empty, has the wrong type, has an unknown value, or is not allowed for the lecture type |
 | `field.value` | A value breaks a rule, such as a range, a URL or a hex color |
