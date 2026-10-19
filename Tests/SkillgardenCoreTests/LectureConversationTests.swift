@@ -120,17 +120,32 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
     }
 }
 
-@Test func courseDeletionRemovesItsQAHistory() throws {
-    try withStore { (store: CourseStore, _: URL) throws in
-        for id in ["c", "d", "e"] { try store.saveCourse(course(id)) }
-        for id in ["c", "d", "e"] { _ = try store.startQATurn(question: "Q", sourceRevision: "r", courseID: id, lectureID: "a") }
+@Test func courseRemovalKeepsQAHistoryAndARepublishShowsIt() throws {
+    try withStore { (store: CourseStore, root: URL) throws in
+        for id in ["c", "d"] { try store.saveCourse(course(id)) }
+        let pending = try store.startQATurn(question: "Q", sourceRevision: "r", courseID: "c", lectureID: "a")
+        let started = try store.startQATurn(question: "Why?", sourceRevision: "r", courseID: "d", lectureID: "a")
+        try store.finishQATurn(id: started.id, status: .complete, answer: "Because")
+        let done = QATurn(id: started.id, question: "Why?", answer: "Because", status: .complete, sourceRevision: "r",
+                          askedAt: started.askedAt)
         try store.deleteCourse(id: "c")
-        _ = try store.removeCourse(id: "d")
-        #expect(try store.qaTurns(courseID: "c", lectureID: "a").isEmpty)
-        #expect(try store.qaTurns(courseID: "d", lectureID: "a").isEmpty)
-        #expect(try store.qaTurns(courseID: "e", lectureID: "a").count == 1)
-        #expect(try rowCount("qa_threads", store) == 1)
-        #expect(try rowCount("qa_messages", store) == 1)
+        #expect(try store.removeCourse(id: "d")?.title == "Garden Basics")
+        // The rows stay, like learner progress (#118). A removed course starts no new thread.
+        #expect(try rowCount("qa_threads", store) == 2)
+        #expect(try rowCount("qa_messages", store) == 2)
+        #expect(throws: CourseStoreError.databaseFailure) {
+            try store.startQATurn(question: "Q", sourceRevision: "r", courseID: "d", lectureID: "a")
+        }
+        // A publish of the same course id shows the history again, also after a restart.
+        try store.saveCourse(course("d"))
+        try store.saveCourse(course("c"))
+        let reopened = try CourseStore(root: root)
+        #expect(try reopened.qaTurns(courseID: "d", lectureID: "a") == [done])
+        #expect(try reopened.qaTurns(courseID: "c", lectureID: "a") == [pending])
+        // Clear History still removes the turns of its thread.
+        try reopened.clearQAHistory(courseID: "d", lectureID: "a")
+        #expect(try rowCount("qa_threads", reopened) == 1)
+        #expect(try rowCount("qa_messages", reopened) == 1)
     }
 }
 
@@ -189,7 +204,7 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
     #expect(turn(1, .complete, question: "Why?", answer: "Because").accessibilityLabel == "Question: Why?. Answer: Because")
 }
 
-@Test func promptHasOnlyCompleteTurnsOfTheCurrentVersion() {
+@Test func promptHasOnlyCompleteTurnsOfTheCurrentVersion() throws {
     let context = LectureContext(courseTitle: "C", lectureTitle: "L", passages: passages(["Soil holds water."]))
     let now = context.sourceRevision
     let turns = [turn(1, .complete, revision: "old", question: "Old question", answer: "Old answer"),
@@ -199,32 +214,92 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
                  turn(5, .interrupted, revision: now, question: "Q5", answer: "Partial"),
                  turn(6, .complete, revision: now, question: "Q6", answer: "A6"),
                  turn(7, .pending, revision: now, question: "Q7", answer: "")]
-    let messages = LectureConversation(turns: turns, sourceRevision: now).messages(context: context, question: "Next?")
-    #expect(messages == [ChatMessage(role: .system, content: context.systemPrompt),
-                         ChatMessage(role: .user, content: "Q2"), ChatMessage(role: .assistant, content: "A2"),
-                         ChatMessage(role: .user, content: "Q6"), ChatMessage(role: .assistant, content: "A6"),
-                         ChatMessage(role: .user, content: "Next?")])
-    // With no saved turns the prompt is the same as the prompt of #125.
-    #expect(LectureConversation(turns: [], sourceRevision: now).messages(context: context, question: "Next?")
-            == context.messages(question: "Next?"))
+    let prompt = try #require(LectureConversation(turns: turns, sourceRevision: now).prompt(context: context, question: "Next?"))
+    #expect(prompt.messages == [ChatMessage(role: .system, content: prompt.systemPrompt),
+                                ChatMessage(role: .user, content: "Q2"), ChatMessage(role: .assistant, content: "A2"),
+                                ChatMessage(role: .user, content: "Q6"), ChatMessage(role: .assistant, content: "A6"),
+                                ChatMessage(role: .user, content: "Next?")])
+    #expect(prompt.systemPrompt == context.prompt(question: "Next?").systemPrompt)
+    // With no saved turns the prompt is the same as the prompt of #126.
+    #expect(LectureConversation(turns: [], sourceRevision: now).prompt(context: context, question: "Next?")
+            == context.prompt(question: "Next?"))
 }
 
-@Test func promptKeepsTheNewestTurnsThatFitTheBudget() {
-    let context = LectureContext(courseTitle: "C", lectureTitle: "L", passages: passages(["Soil."]))
-    let now = context.sourceRevision
+@Test func promptKeepsTheNewestTurnsThatFitTheBudget() throws {
+    let text = passages(["Soil."])
+    let estimate = LectureContext(courseTitle: "C", lectureTitle: "L", passages: text).estimatedTokens
+    func context(free: Int) -> LectureContext {
+        // The question "Q6" is 1 token, so the free tokens are `free - 1`.
+        LectureContext(courseTitle: "C", lectureTitle: "L", passages: text,
+                       budget: LectureContextBudget(contextTokens: estimate + free, answerTokens: 0, questionTokens: 0))
+    }
+    let now = context(free: 0).sourceRevision
     let long = String(repeating: "x", count: 300)
     let turns = (1...5).map { turn(Int64($0), .complete, revision: now, question: "Q\($0)", answer: long) }
-    // Room for two turns of about 101 tokens each, but not three.
-    let budget = LectureContextBudget(contextTokens: context.estimatedTokens + 250, answerTokens: 0, questionTokens: 0)
-    let messages = LectureConversation(turns: turns, sourceRevision: now).messages(context: context, question: "Q6", budget: budget)
-    #expect(messages.filter { $0.role == .user }.map(\.content) == ["Q4", "Q5", "Q6"])
-    let none = LectureContextBudget(contextTokens: context.estimatedTokens, answerTokens: 0, questionTokens: 0)
-    #expect(LectureConversation(turns: turns, sourceRevision: now).messages(context: context, question: "Q6", budget: none).count == 2)
+    func users(_ turns: [QATurn], free: Int) throws -> [String] {
+        let prompt = try #require(LectureConversation(turns: turns, sourceRevision: now).prompt(context: context(free: free), question: "Q6"))
+        #expect(!prompt.isPartial)
+        return prompt.messages.filter { $0.role == .user }.map(\.content)
+    }
+    // Room for two turns of 101 tokens each, but not three.
+    #expect(try users(turns, free: 250) == ["Q4", "Q5", "Q6"])
+    #expect(try users(turns, free: 203) == ["Q4", "Q5", "Q6"])
+    #expect(try users(turns, free: 202) == ["Q5", "Q6"])
+    #expect(try users(turns, free: 1) == ["Q6"])
     // An old turn that is too long stops the history, so the turns stay in order with no gap.
     var gap = turns
     gap[3] = turn(4, .complete, revision: now, question: "Q4", answer: String(repeating: "y", count: 3000))
-    #expect(LectureConversation(turns: gap, sourceRevision: now).messages(context: context, question: "Q6", budget: budget)
-        .filter { $0.role == .user }.map(\.content) == ["Q5", "Q6"])
+    #expect(try users(gap, free: 250) == ["Q5", "Q6"])
+}
+
+@Test func longLecturePromptWithHistoryFitsTheBudget() throws {
+    // 2,000 cues, about 7 times the passage budget of 1,000 tokens. Cue 1,900 is the only cue about compost.
+    let cues = (0..<2_000).map { index in
+        LecturePassage(id: "t\(index)", label: "0:00", text: index == 1_900 ? "Add compost in late autumn." : "Water the bed, step \(index).")
+    }
+    let budget = LectureContextBudget(contextTokens: 1_600, answerTokens: 400, questionTokens: 200)
+    let context = LectureContext(courseTitle: "C", lectureTitle: "L", passages: cues, budget: budget)
+    #expect(!context.fitsBudget)
+    let now = context.sourceRevision
+    let complete = (1...30).map { turn(Int64($0 + 2), .complete, revision: now, question: "Is step \($0) in late autumn?", answer: "Yes.") }
+    let turns = [turn(1, .complete, revision: "old", question: "Which tractor?", answer: "Old answer"),
+                 turn(2, .failed(reason: "x"), revision: now, question: "When do I add compost?", answer: "")] + complete
+    let conversation = LectureConversation(turns: turns, sourceRevision: now)
+    // "Why?" alone matches no cue. The questions of the current-version turns find the compost cue.
+    #expect(context.prompt(question: "Why?").noEvidence)
+    let prompt = try #require(conversation.prompt(context: context, question: "Why?"))
+    let priorQuestions = turns.dropFirst().map(\.question)
+    let retrieval = context.prompt(question: "Why?", priorQuestions: priorQuestions, historyTokens: 22 * 11)
+    #expect(prompt.isPartial && !prompt.noEvidence)
+    #expect(prompt.passages == retrieval.passages && prompt.systemPrompt == retrieval.systemPrompt)
+    // The reserve leaves out some passages of the selection without history. It adds none.
+    let all = context.prompt(question: "Why?", priorQuestions: priorQuestions).passages
+    #expect(prompt.passages.count < all.count && Set(prompt.passages).isSubset(of: all))
+    #expect(prompt.passages.contains { $0.id == "t1900" })
+    #expect(prompt.messages.first == ChatMessage(role: .system, content: prompt.systemPrompt))
+    #expect(prompt.messages.last == ChatMessage(role: .user, content: "Why?"))
+    // The history is the newest complete turns that fit the free tokens. Old and failed turns stay out.
+    let history = Array(prompt.messages.dropFirst().dropLast())
+    let pairs = complete.flatMap { [ChatMessage(role: .user, content: $0.question), ChatMessage(role: .assistant, content: $0.answer)] }
+    // Retrieval keeps a quarter of the passage budget free for the newest turns: 22 turns of 11 tokens.
+    #expect(history.count >= 2 * 22 && history.count < pairs.count)
+    #expect(history == Array(pairs.suffix(history.count)))
+    let free = budget.contextTokens - budget.answerTokens - budget.questionTokens - prompt.estimatedTokens
+    func tokens(_ messages: [ChatMessage]) -> Int { messages.map { LectureContextBudget.estimatedTokens($0.content) }.reduce(0, +) }
+    #expect(tokens(history) <= free)
+    #expect(tokens(Array(pairs.suffix(history.count + 2))) > free)
+    // A match that fits only without the history reserve still gives a prompt. The passages take the history tokens.
+    let big = LecturePassage(id: "a0", label: "Soil", text: "Compost " + String(repeating: "dirt ", count: 280))
+    let small = LectureContext(courseTitle: "C", lectureTitle: "L", passages: [big] + passages(Array(repeating: "Water the bed.", count: 20)).dropFirst(),
+                               budget: LectureContextBudget(contextTokens: 1_000, answerTokens: 200, questionTokens: 100))
+    #expect(!small.fitsBudget)
+    let saved = [turn(1, .complete, revision: small.sourceRevision, question: "Compost?", answer: String(repeating: "y", count: 450))]
+    let fallback = try #require(LectureConversation(turns: saved, sourceRevision: small.sourceRevision).prompt(context: small, question: "Compost?"))
+    #expect(fallback.passages.contains(big) && fallback.isPartial)
+    #expect(fallback.passages == small.prompt(question: "Compost?", priorQuestions: ["Compost?"]).passages)
+    #expect(fallback.messages.count == 2)
+    // A question with no match in the lecture or the history gives no request.
+    #expect(LectureConversation(turns: [], sourceRevision: now).prompt(context: context, question: "Which tractor?") == nil)
 }
 
 // MARK: Library
@@ -285,7 +360,7 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
         return
     }
     #expect(newContext.sourceRevision != context.sourceRevision)
-    #expect(republished.messages(context: newContext, question: "Q") == newContext.messages(question: "Q"))
+    #expect(republished.prompt(context: newContext, question: "Q") == newContext.prompt(question: "Q"))
 
     // A lecture that leaves the published outline shows no history. The history comes back with the lecture.
     try yaml.replacingOccurrences(of: "state: published\n        order: 1\n        article:", with: "state: draft\n        order: 1\n        article:")

@@ -107,19 +107,40 @@ public struct LectureConversation: Equatable, Sendable {
         turn.status.isRetryable && !isEarlierVersion(turn)
     }
 
-    /// The chat request: the system prompt, then the newest complete turns of this lecture version that fit the budget,
-    /// oldest first, then the question. Earlier-version turns and turns without a full answer are never in the prompt.
-    public func messages(context: LectureContext, question: String, budget: LectureContextBudget = .standard) -> [ChatMessage] {
-        var free = budget.promptTokens - context.estimatedTokens
+    /// The prompt of `context` for the question, with the saved turns in its messages. Nil when the prompt has no evidence,
+    /// so the app sends no request and shows `LecturePrompt.noEvidenceText`.
+    /// The questions of the current-version turns, oldest first, help retrieval. The messages are the system prompt,
+    /// then the newest complete turns of this lecture version that fit the free tokens, oldest first, then the question.
+    /// Earlier-version turns and turns without a full answer are never in the prompt.
+    /// Retrieval on a long lecture fills the passage budget, so it keeps free the tokens of the newest complete turns,
+    /// up to a quarter of the passage budget.
+    public func prompt(context: LectureContext, question: String) -> LecturePrompt? {
+        let current = turns.filter { $0.sourceRevision == context.sourceRevision }
+        let complete = current.filter { $0.status == .complete }
+        func cost(_ turn: QATurn) -> Int {
+            LectureContextBudget.estimatedTokens(turn.question) + LectureContextBudget.estimatedTokens(turn.answer)
+        }
+        let budget = context.budget
+        var reserve = 0
+        for turn in complete.reversed() {
+            guard reserve + cost(turn) <= budget.promptTokens / 4 else { break }
+            reserve += cost(turn)
+        }
+        let prompt = context.prompt(question: question, priorQuestions: current.map(\.question), historyTokens: reserve)
+        guard !prompt.noEvidence else { return nil }
+        var free = budget.contextTokens - budget.answerTokens
+            - max(budget.questionTokens, LectureContextBudget.estimatedTokens(question)) - prompt.estimatedTokens
         var history: [ChatMessage] = []
-        for turn in turns.reversed() where turn.status == .complete && turn.sourceRevision == context.sourceRevision {
-            let cost = LectureContextBudget.estimatedTokens(turn.question) + LectureContextBudget.estimatedTokens(turn.answer)
-            guard cost <= free else { break }
-            free -= cost
+        for turn in complete.reversed() {
+            guard cost(turn) <= free else { break }
+            free -= cost(turn)
             history.insert(contentsOf: [ChatMessage(role: .user, content: turn.question),
                                         ChatMessage(role: .assistant, content: turn.answer)], at: 0)
         }
-        return [ChatMessage(role: .system, content: context.systemPrompt)] + history + [ChatMessage(role: .user, content: question)]
+        return LecturePrompt(passages: prompt.passages, systemPrompt: prompt.systemPrompt,
+                             messages: [ChatMessage(role: .system, content: prompt.systemPrompt)] + history
+                                 + [ChatMessage(role: .user, content: question)],
+                             isPartial: prompt.isPartial, noEvidence: false)
     }
 }
 

@@ -90,7 +90,7 @@ public final class CourseStore: @unchecked Sendable {
     }
 
     /// Deletes a course like `deleteCourse` and returns its title and publication folders. Nil for an unknown course.
-    /// Learner progress has no foreign key to `courses`, so it stays (#118). Q&A history goes with the course (#127).
+    /// Learner progress and Q&A history have no foreign key to `courses`, so they stay (#118, #127).
     func removeCourse(id: String) throws -> (title: String, directory: String?, internalDirectory: String?)? {
         try lock.withLock {
             try database.transaction {
@@ -412,11 +412,14 @@ public final class CourseStore: @unchecked Sendable {
     // MARK: Q&A history (#127)
 
     /// Saves the question with an empty pending answer before the request starts. The thread of the lecture
-    /// starts with its first turn. A course that is not in the library throws, because the thread needs the course row.
+    /// starts with its first turn. A course that is not in the library throws, so no new thread starts for it.
     public func startQATurn(question: String, sourceRevision: String, courseID: String, lectureID: String,
                             askedAt: Date = Date()) throws -> QATurn {
         try lock.withLock {
             try database.transaction {
+                guard try !database.query("SELECT 1 FROM courses WHERE id = ?", [courseID], row: { _ in () }).isEmpty else {
+                    throw CourseStoreError.databaseFailure
+                }
                 try database.execute("INSERT OR IGNORE INTO qa_threads (course_id, lecture_id) VALUES (?, ?)", [courseID, lectureID])
                 let ids = try database.query("""
                     INSERT INTO qa_messages (course_id, lecture_id, question, status, source_revision, asked_at)
@@ -602,11 +605,11 @@ public final class CourseStore: @unchecked Sendable {
         // Progress saved before this version keeps the automatic complete on.
         "ALTER TABLE lecture_progress ADD COLUMN auto_complete_off INTEGER NOT NULL DEFAULT 0 CHECK(auto_complete_off IN (0, 1))",
     ], [
-        // One Q&A thread for each lecture (#127). A course deletion removes its threads and turns.
-        // No foreign key to `lectures`, because a republish replaces the lecture rows and the thread must stay.
+        // One Q&A thread for each lecture (#127). Like learner progress, it has no foreign key to `courses` or `lectures`.
+        // A republish and a course removal keep the thread, so the history comes back when the course id is published again.
         """
         CREATE TABLE qa_threads (
-            course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE, lecture_id TEXT NOT NULL,
+            course_id TEXT NOT NULL, lecture_id TEXT NOT NULL,
             PRIMARY KEY(course_id, lecture_id)
         )
         """,

@@ -21,9 +21,9 @@ public struct LectureContextBudget: Hashable, Sendable {
     /// The most tokens that the system prompt with its passages can use.
     public var promptTokens: Int { max(0, contextTokens - answerTokens - questionTokens) }
 
-    /// A source file larger than this is too long without a read. Each token is 3 bytes or more, and a
-    /// caption cue has about 30 bytes of timing for each line of text, so 8 times the text size is a safe limit.
-    var maximumFileBytes: Int { promptTokens * 3 * 8 }
+    /// A source file larger than this is too long without a read (#126). Retrieval selects passages from
+    /// smaller files. A caption file of 10 hours is about 3 MB.
+    static let maximumFileBytes = 8 * 1024 * 1024
 
     /// A high estimate of the tokens of `text`: one token for each 3 UTF-8 bytes.
     /// Most tokenizers give one token for each 4 characters of English.
@@ -47,43 +47,69 @@ public struct LecturePassage: Equatable, Hashable, Sendable, Identifiable {
     }
 }
 
-/// The prompt context of one published lecture: all of its text, in passages that fit the budget.
+/// The prompt context of one published lecture: all of its text, in passages.
+/// `prompt(question:priorQuestions:)` makes the prompt that fits the budget (#126).
 public struct LectureContext: Equatable, Sendable {
     public let courseTitle: String
     public let lectureTitle: String
+    /// All passages of the lecture, in lecture order.
     public let passages: [LecturePassage]
-    /// The system message: the framing, then each passage as `[<id>] <text>`.
-    public let systemPrompt: String
+    public let budget: LectureContextBudget
     /// The revision of the lecture text (#127). Saved Q&A turns with another revision stay out of new prompts.
     public let sourceRevision: String
+    /// The retrieval index when all the text does not fit the passage budget. It is made once, off the main actor.
+    let retrievalIndex: LectureRetrievalIndex?
 
-    init(courseTitle: String, lectureTitle: String, passages: [LecturePassage]) {
+    init(courseTitle: String, lectureTitle: String, passages: [LecturePassage], budget: LectureContextBudget = .standard) {
         self.courseTitle = courseTitle
         self.lectureTitle = lectureTitle
         self.passages = passages
+        self.budget = budget
         sourceRevision = Self.sourceRevision(of: passages)
-        systemPrompt = """
-            You answer questions from a learner about one lecture of the course "\(courseTitle)".
-            The lecture is "\(lectureTitle)".
-            Answer only from the passages below. Each passage starts with its ID in square brackets.
-            If the passages do not hold the answer, say that this lecture does not cover it. Do not guess.
-            After each fact, put the ID of its passage in square brackets, for example [\(passages.first?.id ?? "t0")].
-
-            Passages:
-            """ + passages.map { "\n[\($0.id)] \($0.text)" }.joined()
+        let full = Self.systemPrompt(courseTitle: courseTitle, lectureTitle: lectureTitle, passages: passages, isPartial: false)
+        retrievalIndex = LectureContextBudget.estimatedTokens(full) <= budget.promptTokens ? nil : LectureRetrievalIndex(passages: passages)
     }
 
-    public var estimatedTokens: Int { LectureContextBudget.estimatedTokens(systemPrompt) }
+    /// The tokens of a prompt with all passages of the lecture.
+    public var estimatedTokens: Int {
+        LectureContextBudget.estimatedTokens(Self.systemPrompt(courseTitle: courseTitle, lectureTitle: lectureTitle,
+                                                               passages: passages, isPartial: false))
+    }
+
+    /// True when all passages fit the passage budget, so no answer is partial for a question of normal length.
+    public var fitsBudget: Bool { retrievalIndex == nil }
 
     /// The passage of a citation ID, or nil if the context has no such passage.
     public func passage(id: String) -> LecturePassage? {
         passages.first { $0.id == id }
     }
 
-    /// The chat request: the system prompt, then the question of the learner.
-    /// `LectureConversation.messages(context:question:budget:)` also adds the saved turns.
-    public func messages(question: String) -> [ChatMessage] {
-        [ChatMessage(role: .system, content: systemPrompt), ChatMessage(role: .user, content: question)]
+    public static func == (lhs: LectureContext, rhs: LectureContext) -> Bool {
+        lhs.courseTitle == rhs.courseTitle && lhs.lectureTitle == rhs.lectureTitle && lhs.passages == rhs.passages
+            && lhs.budget == rhs.budget
+    }
+
+    /// The system message: the framing, then each passage as `[<id>] <text>`.
+    static func systemPrompt(courseTitle: String, lectureTitle: String, passages: [LecturePassage], isPartial: Bool) -> String {
+        framing(courseTitle: courseTitle, lectureTitle: lectureTitle, exampleID: passages.first?.id ?? "t0", isPartial: isPartial)
+            + passages.map(line).joined()
+    }
+
+    static func framing(courseTitle: String, lectureTitle: String, exampleID: String, isPartial: Bool) -> String {
+        """
+        You answer questions from a learner about one lecture of the course "\(courseTitle)".
+        The lecture is "\(lectureTitle)".
+        Answer only from the passages below. Each passage starts with its ID in square brackets.
+        If the passages do not hold the answer, say that this lecture does not cover it. Do not guess.
+        After each fact, put the ID of its passage in square brackets, for example [\(exampleID)].
+        \(isPartial ? "The passages are only the parts of the lecture that match the question. Do not summarize the whole lecture.\n" : "")
+        Passages:
+        """
+    }
+
+    /// One passage in the system message.
+    static func line(_ passage: LecturePassage) -> String {
+        "\n[\(passage.id)] \(passage.text)"
     }
 }
 
@@ -92,7 +118,7 @@ public enum LectureContextOutcome: Equatable, Sendable {
     case ready(LectureContext)
     /// A video with no captions or transcript, or an article with no text.
     case noText
-    /// The text does not fit the budget. #126 adds retrieval for long lectures.
+    /// The text file is larger than `LectureContextBudget.maximumFileBytes`. Retrieval (#126) handles smaller long lectures.
     case tooLong
     /// A draft lecture, a lecture outside the published outline, or a lecture type without text for AI.
     case notAvailable
@@ -104,7 +130,7 @@ public enum LectureContextOutcome: Equatable, Sendable {
         switch self {
         case .ready, .notAvailable: nil
         case .noText: "This lecture has no transcript, so local AI can't answer questions about it."
-        case .tooLong: "This lecture is too long for local AI. Questions about long lectures are not available yet."
+        case .tooLong: "This lecture is too long for local AI."
         case .cantLoad: "Skillgarden can't read the text of this lecture."
         }
     }
@@ -129,7 +155,7 @@ public enum LectureContextBuilder {
         case .video:
             guard let video else { return .cantLoad }
             guard let captionsURL = video.captionsURL else { return .noText }
-            switch read(captionsURL, folder: video.folder, budget: budget) {
+            switch read(captionsURL, folder: video.folder) {
             case .failure(let outcome): return outcome
             case .success(let data):
                 guard let text = String(data: data, encoding: .utf8), let captions = try? WebVTT(text: text) else { return .cantLoad }
@@ -137,7 +163,7 @@ public enum LectureContextBuilder {
             }
         case .article:
             guard let article else { return .cantLoad }
-            switch read(article.url, folder: article.folder, budget: budget) {
+            switch read(article.url, folder: article.folder) {
             case .failure(let outcome): return outcome
             case .success(let data):
                 guard let text = String(data: data, encoding: .utf8) else { return .cantLoad }
@@ -147,8 +173,7 @@ public enum LectureContextBuilder {
             return .notAvailable
         }
         guard !passages.isEmpty else { return .noText }
-        let context = LectureContext(courseTitle: course.title, lectureTitle: lecture.title, passages: passages)
-        return context.estimatedTokens <= budget.promptTokens ? .ready(context) : .tooLong
+        return .ready(LectureContext(courseTitle: course.title, lectureTitle: lecture.title, passages: passages, budget: budget))
     }
 
     /// The cues of the Transcript panel and transcript search, so citation times match.
@@ -191,10 +216,10 @@ public enum LectureContextBuilder {
 
     /// Reads `url` after a new check that its real path is a regular file inside the snapshot and not in `internal/`.
     /// A file over the byte limit is too long, so it is not read.
-    private static func read(_ url: URL, folder: URL, budget: LectureContextBudget) -> ReadResult {
+    private static func read(_ url: URL, folder: URL) -> ReadResult {
         guard let file = resolvedFile(url, folder: folder) else { return .failure(.cantLoad) }
         let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-        guard size <= budget.maximumFileBytes else { return .failure(.tooLong) }
+        guard size <= LectureContextBudget.maximumFileBytes else { return .failure(.tooLong) }
         guard let data = try? Data(contentsOf: file) else { return .failure(.cantLoad) }
         return .success(data)
     }

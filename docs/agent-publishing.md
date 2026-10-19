@@ -281,7 +281,7 @@ Files stay on disk: /path/to/library/internal/3F2A9C1E-...
 Library: /path/to/library
 ```
 
-- Learner progress, the resume lecture and quiz results stay in the library. If you publish the same course id again, the progress comes back.
+- Learner progress, the resume lecture, quiz results and the Q&A history of each lecture stay in the library. If you publish the same course id again, the progress and the Q&A history come back.
 - The snapshot folders stay on disk. The command prints one `Files stay on disk:` line for each folder that exists. A later release adds a cleanup.
 - Without `--yes`, `remove` exits 2 and does not open the library. It prints `error: remove deletes course "<id>" from the library. Run it again with --yes to confirm.` and `Library: <path>` on stderr.
 - For an unknown course id, `remove` exits 1 and prints `error: course "<id>" not found` and `Library: <path>` on stderr.
