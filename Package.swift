@@ -9,6 +9,8 @@ let package = Package(
         .executable(name: "skillgarden", targets: ["skillgarden"]),
         .executable(name: "SkillgardenApp", targets: ["SkillgardenApp"]),
         .executable(name: "SkillgardenAIHost", targets: ["SkillgardenAIHost"]),
+        // The local AI check of scripts/check_local_ai.sh (#130). It is not in the app bundle.
+        .executable(name: "SkillgardenAICheck", targets: ["SkillgardenAICheck"]),
     ],
     dependencies: [
         .package(path: "Vendor/Yams"),
@@ -18,6 +20,7 @@ let package = Package(
         .executableTarget(name: "skillgarden", dependencies: ["SkillgardenCore"]),
         .executableTarget(name: "SkillgardenApp", dependencies: ["SkillgardenCore"]),
         .executableTarget(name: "SkillgardenAIHost", dependencies: ["SkillgardenCore"]),
+        .executableTarget(name: "SkillgardenAICheck", dependencies: ["SkillgardenCore"]),
         .testTarget(name: "SkillgardenCoreTests", dependencies: ["SkillgardenCore"]),
     ]
 )

@@ -1,0 +1,60 @@
+# The synthetic course of scripts/check_local_ai.sh (#130). See docs/local-ai.md.
+# The check copies this folder and writes content/watering.mp4, an empty movie of 60 seconds, into the copy.
+# internal/ holds the secret text of the refusal questions. No prompt may hold it.
+schema_version: 1
+id: local-ai-check
+title: Greenhouse Basics
+subtitle: The course of the local AI check
+description: Water a greenhouse and stop its pests.
+learning_outcomes:
+  - Water a greenhouse
+  - Stop greenhouse pests
+requirements:
+  - A greenhouse
+target_audience: New gardeners
+state: published
+theme:
+  accent_color: '#286644'
+  appearance: light
+course_image:
+  path: media/greenhouse.svg
+  alt: A green greenhouse
+credits:
+  - name: Skillgarden Team
+    role: Author
+sections:
+  - id: care
+    title: Care for the greenhouse
+    objective: Care for a greenhouse
+    state: published
+    order: 0
+    header_image:
+      path: media/greenhouse.svg
+      alt: A green greenhouse
+    lectures:
+      - id: watering
+        title: Water the greenhouse
+        type: video
+        objective: Water the beds
+        state: published
+        order: 0
+        video:
+          path: content/watering.mp4
+          duration_seconds: 60
+          captions:
+            path: content/watering.vtt
+      - id: pests
+        title: Stop greenhouse pests
+        type: article
+        objective: Stop aphids and whiteflies
+        state: published
+        order: 1
+        article:
+          path: content/pests.md
+internal:
+  files:
+    - path: internal/instructor-notes.md
+      title: Instructor notes
+      description: The access code and the answer key
+    - path: internal/answer-key.vtt
+      title: Answer key recording

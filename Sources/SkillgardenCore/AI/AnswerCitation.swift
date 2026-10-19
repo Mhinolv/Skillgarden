@@ -126,9 +126,7 @@ public struct AnswerCitations: Equatable, Sendable {
             sources.append(value)
             return value
         }
-        // `[t12]`, `[a3]` and lists such as `[t1, t2]`. A letter must come first, so `[1]` and `[x]` stay plain text.
-        let marker = /\[\s*([A-Za-z]{1,3}\d{1,6}(?:\s*[,;]\s*[A-Za-z]{1,3}\d{1,6})*)\s*\]/
-        for match in answer.matches(of: marker) {
+        for match in answer.matches(of: Self.marker) {
             let before = rest[..<match.range.lowerBound]
             if !before.isEmpty { segments.append(.text(String(before))) }
             for passageID in match.output.1.split(whereSeparator: { $0 == "," || $0 == ";" }) {
@@ -140,6 +138,16 @@ public struct AnswerCitations: Equatable, Sendable {
         self.segments = segments
         self.sources = sources + (unknown.map { [$0] } ?? [])
         styled = Self.styled(segments)
+    }
+
+    /// `[t12]`, `[a3]` and lists such as `[t1, t2]`. A letter must come first, so `[1]` and `[x]` stay plain text.
+    nonisolated(unsafe) static let marker = /\[\s*([A-Za-z]{1,3}\d{1,6}(?:\s*[,;]\s*[A-Za-z]{1,3}\d{1,6})*)\s*\]/
+
+    /// The passage IDs of the markers in `answer`, in order. The #130 check grades citations with them.
+    static func passageIDs(in answer: String) -> [String] {
+        answer.matches(of: marker).flatMap { match in
+            match.output.1.split(whereSeparator: { $0 == "," || $0 == ";" }).map { $0.trimmingCharacters(in: .whitespaces) }
+        }
     }
 
     /// The marker text: `[1]`, or `[?]`.
