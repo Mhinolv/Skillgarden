@@ -29,6 +29,71 @@ struct ManifestValidator {
     }
 
     mutating func validate(_ value: ManifestValue) {
+        check(value, rule: Self.rootRule, path: "$")
+        checkQuizzes(value)
+        checkQuickChecks(value)
+        checkRubrics(value)
+        checkSources(value)
+        checkOrders(value)
+        for (id, path) in recommendations where !lectureIDs.contains(id) {
+            add(path, "must refer to a lecture id in this course")
+        }
+        // Keep reference errors beside their fields, even though targets require a complete scan.
+        var ranks: [String: Int] = [:]
+        var ends: [String: Int] = [:]
+        var cursor = 0
+        func visit(_ value: ManifestValue, path: String) {
+            ranks[path] = cursor
+            cursor += 1
+            switch value {
+            case .object(let object):
+                for key in fieldOrders[path] ?? object.keys.sorted() {
+                    if let child = object[key] {
+                        visit(child, path: path == "$" ? key : "\(path).\(key)")
+                    }
+                }
+            case .array(let values):
+                for (index, child) in values.enumerated() { visit(child, path: "\(path)[\(index)]") }
+            default: break
+            }
+            ends[path] = cursor
+        }
+        visit(value, path: "$")
+        func rank(_ path: String) -> Int {
+            if let rank = ranks[path] { return rank }
+            if let dot = path.lastIndex(of: ".") { return ends[String(path[..<dot])] ?? cursor }
+            return cursor
+        }
+        errors = errors.enumerated().sorted {
+            let left = rank($0.element.fieldPath), right = rank($1.element.fieldPath)
+            return left == right ? $0.offset < $1.offset : left < right
+        }.map(\.element)
+    }
+
+    /// The field rules as a JSON Schema outline with only `type`, `required`, `properties`, `items` and `enum`.
+    /// An optional field also allows `null`. The schema drift test compares this outline with `ManifestSchema` (#112).
+    static var schemaOutline: [String: Any] {
+        func outline(_ rule: FieldRule, nullable: Bool = false) -> [String: Any] {
+            if case .optional(let inner) = rule { return outline(inner, nullable: true) }
+            var node: [String: Any] = ["type": nullable ? [rule.type, "null"] : [rule.type]]
+            switch rule {
+            case .optional: break
+            case .choices(let choices): node["enum"] = choices
+            case .object(let fields):
+                node["properties"] = Dictionary(uniqueKeysWithValues: fields.map { ($0.0, outline($0.1)) })
+                node["required"] = fields.compactMap { field -> String? in
+                    if case .optional = field.1 { return nil }
+                    return field.0
+                }.sorted()
+            case .array(let item): node["items"] = outline(item)
+            case .string, .altText, .integer, .boolean: break
+            }
+            return node
+        }
+        return outline(rootRule)
+    }
+
+    private static var rootRule: FieldRule {
         let state = FieldRule.choices(["draft", "published"])
         let image = FieldRule.object([("path", .string), ("alt", .altText)])
         let choice = FieldRule.object([("id", .string), ("text", .string)])
@@ -70,7 +135,7 @@ struct ManifestValidator {
             ("id", .string), ("title", .string), ("objective", .string),
             ("state", state), ("order", .integer), ("header_image", image), ("lectures", .array(lecture)),
         ])
-        let root = FieldRule.object([
+        return .object([
             ("schema_version", .integer), ("id", .string), ("title", .string),
             ("subtitle", .string), ("description", .string), ("learning_outcomes", .array(.string)),
             ("requirements", .array(.string)), ("target_audience", .string), ("state", state),
@@ -82,45 +147,6 @@ struct ManifestValidator {
                 ("path", .string), ("title", .string), ("description", .optional(.string)),
             ])))]))),
         ])
-        check(value, rule: root, path: "$")
-        checkQuizzes(value)
-        checkQuickChecks(value)
-        checkRubrics(value)
-        checkSources(value)
-        checkOrders(value)
-        for (id, path) in recommendations where !lectureIDs.contains(id) {
-            add(path, "must refer to a lecture id in this course")
-        }
-        // Keep reference errors beside their fields, even though targets require a complete scan.
-        var ranks: [String: Int] = [:]
-        var ends: [String: Int] = [:]
-        var cursor = 0
-        func visit(_ value: ManifestValue, path: String) {
-            ranks[path] = cursor
-            cursor += 1
-            switch value {
-            case .object(let object):
-                for key in fieldOrders[path] ?? object.keys.sorted() {
-                    if let child = object[key] {
-                        visit(child, path: path == "$" ? key : "\(path).\(key)")
-                    }
-                }
-            case .array(let values):
-                for (index, child) in values.enumerated() { visit(child, path: "\(path)[\(index)]") }
-            default: break
-            }
-            ends[path] = cursor
-        }
-        visit(value, path: "$")
-        func rank(_ path: String) -> Int {
-            if let rank = ranks[path] { return rank }
-            if let dot = path.lastIndex(of: ".") { return ends[String(path[..<dot])] ?? cursor }
-            return cursor
-        }
-        errors = errors.enumerated().sorted {
-            let left = rank($0.element.fieldPath), right = rank($1.element.fieldPath)
-            return left == right ? $0.offset < $1.offset : left < right
-        }.map(\.element)
     }
 
     private mutating func add(_ path: String, _ message: String) {
