@@ -223,7 +223,7 @@ See `Tests/Fixtures/sample-course/skillgarden.yaml` for a full example.
 
 | Type | Field | Notes |
 |---|---|---|
-| `video` | `video.path`, `video.duration_seconds` | An `.mp4` file. `duration_seconds` is the video length in seconds. Validate accepts a value within 2 seconds of the real length. Optional: `captions.path` (`.vtt`), `poster` (`path`, `alt`), `free_preview` (accepted, and the app ignores it). |
+| `video` | `video.path`, `video.duration_seconds` | An `.mp4` file. `duration_seconds` is the video length in seconds. Validate accepts a value within 2 seconds of the real length. Run `skillgarden media inspect <file>` to get the value. Optional: `captions.path` (`.vtt`), `poster` (`path`, `alt`), `free_preview` (accepted, and the app ignores it). |
 | `article` | `article.path` | A UTF-8 Markdown file. Each Markdown image needs an entry in `article.images` with `alt`. |
 | `quiz` | `quiz.questions` | Each question has `id`, `prompt`, `objective_tag`, `choices` (`id`, `text`), `correct_choice_id`, `explanation`. Optional: `image`. |
 | `assignment` | `assignment.brief.path`, `assignment.rubric` | The brief is a UTF-8 Markdown file with the article rules (optional `brief.images`). The rubric has one or more rows with `id`, `criterion`, `guidance`. |
@@ -276,6 +276,7 @@ The app bundle holds the CLI at `Skillgarden.app/Contents/Helpers/skillgarden`. 
 | `skillgarden internal list <course-id>` | One tab-separated row for each internal file |
 | `skillgarden inspect <course-id>` | `Course "<title>" (<id>, <state>)`, `Learners:`, `Snapshot:`, `Snapshot path:`, `Internal files:`, `Library: <path>`. See section 6a. |
 | `skillgarden init <folder> --id <id> --title <title>` | `Created "<title>" (<id>, draft): 4 files in <path>`, then the draft line and the next step |
+| `skillgarden media inspect <file>` | `File: <path>`, `Format: MP4`, `Duration: <m:ss> (<n> seconds)`, `Manifest: duration_seconds: <n>`, `Validate accepts: <min> to <max>`. It does not open the library. |
 | `skillgarden doctor` | Labelled lines: version, CLI, library, source, folder, write access, app library, match, sandbox |
 | `skillgarden schema [--output <file>]` | The manifest JSON Schema. With `--output`: `Wrote manifest schema 1 to <path>`. See section 8. |
 | `skillgarden --version` | `skillgarden <version>` |
@@ -286,9 +287,9 @@ For a draft course, `validate` and `publish` also print `Draft: learners do not 
 | Exit code | Meaning | Output |
 |---|---|---|
 | 0 | Success | Results on stdout |
-| 1 | Manifest or file errors. For `init`, a folder that is not empty or a path that is not a folder. | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem. List indexes in `<fieldPath>` start at 0: `sections[0]` is the first section. |
+| 1 | Manifest or file errors. For `init`, a folder that is not empty or a path that is not a folder. For `media inspect`, a file that is not MP4 or has no readable length. | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem. List indexes in `<fieldPath>` start at 0: `sections[0]` is the first section. |
 | 2 | Usage error or bad data folder setting | `error: ...` on stderr. A usage error also prints the usage text. |
-| 3 | I/O or library error. For `validate`, also a missing course folder. For `doctor`, a library path that is not a folder. For `schema`, a file that cannot be written. | `error: <description>` on stderr |
+| 3 | I/O or library error. For `validate`, also a missing course folder. For `media inspect`, a file that does not exist or a folder. For `doctor`, a library path that is not a folder. For `schema`, a file that cannot be written. | `error: <description>` on stderr |
 
 `doctor` prints its report on stdout also for exit codes 2 and 3.
 
@@ -299,10 +300,10 @@ Add `--json` anywhere after the command name, for example `skillgarden validate 
 | Key | Value |
 |---|---|
 | `format_version` | `1`. Later versions add keys only. |
-| `command` | `validate`, `publish`, `internal list`, `inspect`, `init`, `doctor`, `schema`, or `null` for an unknown command |
+| `command` | `validate`, `publish`, `internal list`, `inspect`, `media inspect`, `init`, `doctor`, `schema`, or `null` for an unknown command |
 | `ok` | `true` when `exit_code` is 0 |
 | `exit_code` | The process exit code |
-| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`, `files` (`added`, `changed`, `unchanged`, `removed`), `snapshot` (`state` `new` or `kept`, `id`, `files`, integer `bytes`). `publish --dry-run` adds `dry_run` (`true`), `changes` (each with `action`, `kind`, `id`) and `migration` (`from`, `to`, or `null`). Its `snapshot.id` is `null` for a new snapshot. `internal list`: `files`, each with `title`, `path`, `description`. `inspect`: `title`, `id`, `state`, `draft`, `visible`, `sections`, `visible_sections`, `lectures`, `visible_lectures`, `snapshot` (`id`, `path`), `internal_files`, `library_path`. `init`: `title`, `id`, `state`, `draft`, `path`, `files`. `schema --output`: `path`, `schema_version`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
+| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`, `files` (`added`, `changed`, `unchanged`, `removed`), `snapshot` (`state` `new` or `kept`, `id`, `files`, integer `bytes`). `publish --dry-run` adds `dry_run` (`true`), `changes` (each with `action`, `kind`, `id`) and `migration` (`from`, `to`, or `null`). Its `snapshot.id` is `null` for a new snapshot. `internal list`: `files`, each with `title`, `path`, `description`. `inspect`: `title`, `id`, `state`, `draft`, `visible`, `sections`, `visible_sections`, `lectures`, `visible_lectures`, `snapshot` (`id`, `path`), `internal_files`, `library_path`. `media inspect`: `path`, `format` (`mp4`), `duration_seconds`, `accepted_min`, `accepted_max`. `init`: `title`, `id`, `state`, `draft`, `path`, `files`. `schema --output`: `path`, `schema_version`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
 | `diagnostics` | One object for each problem: `code`, `severity` (`error`), `message`, `file`, `field_path`, `hint`. `file`, `field_path` and `hint` are `null` when unknown. |
 
 The `code` values are stable. New versions add codes, but never rename a code.
@@ -314,6 +315,7 @@ The `code` values are stable. New versions add codes, but never rename a code.
 | `data_dir.not_folder` | `doctor` finds a file, not a folder, at the library path |
 | `course_folder.missing` | The course folder does not exist |
 | `course_folder.not_empty`, `course_folder.not_folder` | `init` finds entries in the folder, or a file at the path |
+| `file_not_found`, `not_mp4`, `no_video_length` | `media inspect` finds no file, a file that is not MP4, or an MP4 file with no readable length |
 | `manifest.missing`, `manifest.duplicate`, `manifest.syntax` | No manifest, two manifests, or a manifest that cannot be parsed |
 | `field.required`, `field.type`, `field.choice`, `field.not_allowed` | A field is missing or empty, has the wrong type, has an unknown value, or is not allowed for the lecture type |
 | `field.value` | A value breaks a rule, such as a range, a URL or a hex color |

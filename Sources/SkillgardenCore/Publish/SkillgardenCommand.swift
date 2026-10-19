@@ -36,6 +36,7 @@ public enum SkillgardenCommand {
                skillgarden internal list <course-id> [--json]
                skillgarden inspect <course-id> [--json]
                skillgarden init <folder> --id <id> --title <title> [--json]
+               skillgarden media inspect <file> [--json]
                skillgarden doctor [--json]
                skillgarden schema [--output <file>]
 
@@ -53,7 +54,8 @@ public enum SkillgardenCommand {
             return CommandResult(exitCode: 0, stdout: "skillgarden \(Skillgarden.version)\n", stderr: "")
         }
         if arguments == ["publish", "--help"] || arguments == ["validate", "--help"] || arguments == ["doctor", "--help"]
-            || arguments == ["init", "--help"] || arguments == ["schema", "--help"] || arguments == ["inspect", "--help"] || arguments == ["--help"] {
+            || arguments == ["init", "--help"] || arguments == ["schema", "--help"] || arguments == ["inspect", "--help"]
+            || arguments == ["media", "--help"] || arguments == ["media", "inspect", "--help"] || arguments == ["--help"] {
             return CommandResult(exitCode: 0, stdout: usage, stderr: "")
         }
         // `--json` can come anywhere after the command name.
@@ -74,6 +76,10 @@ public enum SkillgardenCommand {
             command = "inspect"
             outcome = arguments.count == 2 && !arguments[1].hasPrefix("-")
                 ? withRoot(root) { inspect(courseID: arguments[1], root: $0) } : usageError("expected inspect <course-id>")
+        case "media":
+            command = "media inspect"
+            outcome = arguments.count == 3 && arguments[1] == "inspect" && !arguments[2].isEmpty && !arguments[2].hasPrefix("-")
+                ? inspectMedia(file: arguments[2]) : usageError("expected media inspect <file>")
         case "init":
             command = "init"
             outcome = initArguments(Array(arguments.dropFirst())).map(initCourse)
@@ -233,6 +239,33 @@ public enum SkillgardenCommand {
             "lectures": inspection.lectures, "visible_lectures": inspection.visibleLectures,
             "snapshot": ["id": inspection.snapshotID, "path": inspection.snapshotPath] as [String: Any],
             "internal_files": inspection.internalFiles, "library_path": root.path,
+        ])
+    }
+
+    /// Shows the MP4 length and the `duration_seconds` value that validate accepts (#116). It does not open the library.
+    private static func inspectMedia(file path: String) -> CommandOutcome {
+        let file = URL(fileURLWithPath: path).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            return .failure(3, [CommandDiagnostic(code: .fileNotFound, file: file.path, message: "file does not exist: \(file.path)")])
+        }
+        guard LectureVideo.isMP4(file) else {
+            var outcome = CommandOutcome.failure(1, [CommandDiagnostic(code: .notMP4, file: file.path,
+                                                                       message: "\(file.path): file is not an MP4 video",
+                                                                       hint: "Skillgarden plays MP4 video only.")])
+            outcome.showsHints = true
+            return outcome
+        }
+        guard let length = LectureVideo.length(of: file) else {
+            return .failure(1, [CommandDiagnostic(code: .noVideoLength, file: file.path, message: "\(file.path): cannot read the video length")])
+        }
+        let tolerance = CoursePublisher.durationTolerance
+        let lowest = max(length - tolerance, 0), highest = length + tolerance
+        let lines = ["File: \(file.path)", "Format: MP4",
+                     "Duration: \(LectureVideo.durationLabel(seconds: length)) (\(length) \(length == 1 ? "second" : "seconds"))",
+                     "Manifest: duration_seconds: \(length)", "Validate accepts: \(lowest) to \(highest)"]
+        return CommandOutcome(exitCode: 0, text: lines.map { $0 + "\n" }.joined(), result: [
+            "path": file.path, "format": "mp4", "duration_seconds": length, "accepted_min": lowest, "accepted_max": highest,
         ])
     }
 
