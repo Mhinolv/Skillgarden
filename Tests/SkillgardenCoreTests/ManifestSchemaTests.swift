@@ -205,9 +205,10 @@ private func containsKey(_ key: String, in value: Any) -> Bool {
 }
 
 @Test func schemaCommandUsage() throws {
-    let usage = SkillgardenCommand.run(arguments: ["--help"], root: unusedRoot).stdout
-    #expect(usage.hasSuffix("       skillgarden doctor [--json]\n       skillgarden schema [--output <file>]\n"))
-    #expect(SkillgardenCommand.run(arguments: ["schema", "--help"], root: unusedRoot) == CommandResult(exitCode: 0, stdout: usage, stderr: ""))
+    let usage = SkillgardenCommand.usage + SkillgardenCommand.usageMore
+    #expect(usage.contains("       skillgarden doctor [--json]\n       skillgarden schema [--output <file>]\n"))
+    #expect(SkillgardenCommand.run(arguments: ["schema", "--help"], root: unusedRoot)
+            == CommandResult(exitCode: 0, stdout: SkillgardenCommand.help, stderr: ""))
     for arguments in [["schema", "extra"], ["schema", "--bogus"], ["schema", "--output"], ["schema", "--output", ""],
                       ["schema", "--output", "-x"], ["schema", "--output", "a", "b"], ["schema", "a", "--output"]] {
         #expect(SkillgardenCommand.run(arguments: arguments, root: unusedRoot) == CommandResult(
