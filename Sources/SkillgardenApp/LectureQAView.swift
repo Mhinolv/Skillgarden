@@ -7,14 +7,17 @@ import SkillgardenCore
 struct LectureQAPanel {
     let qa: LectureQA
     let localAI: RuntimeSupervisor
+    /// The "Answer with" choice (#151).
+    let providers: ProviderSettings
     let isOn: Binding<Bool>
     /// The value of `isOn` when the page made the panel. A plain struct does not track a binding,
     /// so the value makes the page draw again when the panel opens or closes.
     let isShown: Bool
 
-    init(qa: LectureQA, localAI: RuntimeSupervisor, isOn: Binding<Bool>) {
+    init(qa: LectureQA, localAI: RuntimeSupervisor, providers: ProviderSettings, isOn: Binding<Bool>) {
         self.qa = qa
         self.localAI = localAI
+        self.providers = providers
         self.isOn = isOn
         isShown = isOn.wrappedValue
     }
@@ -29,20 +32,25 @@ struct LectureQAPanel {
     }
 
     func panel(focusChanged: @escaping (Bool) -> Void = { _ in }) -> some View {
-        LectureQAView(qa: qa, localAI: localAI, focusChanged: focusChanged)
+        LectureQAView(qa: qa, localAI: localAI, providers: providers, focusChanged: focusChanged)
     }
 }
 
 /// The Q&A panel: the header with "Clear History", the thread or the service state, the question field and "Send".
 /// "Send" is bordered, so "Mark as Complete" stays the only accent button of the page.
+/// A question for a provider profile opens the consent sheet first, once for each course and destination (#151).
 struct LectureQAView: View {
     let qa: LectureQA
     let localAI: RuntimeSupervisor
+    let providers: ProviderSettings
     /// Gets true while the question field has focus, so Space types text and does not start the video.
     var focusChanged: (Bool) -> Void = { _ in }
     @Environment(\.gardenPalette) private var palette
     @Environment(\.snapshotQADraft) private var snapshotDraft
     @Environment(\.snapshotOpensCitationExcerpt) private var snapshotOpensExcerpt
+    @Environment(\.snapshotQAConsentQuestion) private var snapshotConsentQuestion
+    /// The snapshot harness draws the consent sheet in the window, so the panel shows no real sheet.
+    @Environment(\.showsReviewInline) private var showsSheetsInline
     @State private var question = ""
     @State private var confirmsClear = false
     /// The one open article excerpt of the panel (#129).
@@ -52,11 +60,20 @@ struct LectureQAView: View {
     static let threadHeight: CGFloat = 320
     private static let endID = "qa-end"
 
+    /// A provider profile does not use the local runtime, so its state follows the lecture text only (#151).
+    private var panelState: LectureQAState {
+        qa.provider.kind == .local ? LectureQAState(status: localAI.status, content: qa.content) : LectureQAState(content: qa.content)
+    }
+
     var body: some View {
-        let state = LectureQAState(status: localAI.status, content: qa.content)
+        let state = panelState
+        let profile = providers.selected
         VStack(alignment: .leading, spacing: GardenSpacing.xs) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text("Q&A").gardenText(.cardTitle).accessibilityAddTraits(.isHeader)
+                if let profile {
+                    Text(profile.title).gardenText(.label).lineLimit(1).help(profile.host)
+                }
                 Spacer()
                 Button("Clear History", systemImage: "trash") { confirmsClear = true }
                     .buttonStyle(.garden(.plain))
@@ -66,7 +83,7 @@ struct LectureQAView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: Self.threadHeight)
             composer(state)
-            Text("Answers come from a local model and can be wrong.")
+            Text(profile.map { "Answers come from \($0.vendor) and can be wrong." } ?? "Answers come from a local model and can be wrong.")
                 .gardenText(.label)
         }
         .gardenCard(padding: GardenSpacing.s)
@@ -74,6 +91,7 @@ struct LectureQAView: View {
             openExcerpt = nil
             await qa.load()
             if let snapshotDraft { qa.showSnapshotDraft(question: snapshotDraft.question, text: snapshotDraft.text) }
+            if let snapshotConsentQuestion { qa.send(snapshotConsentQuestion) }
             if snapshotOpensExcerpt, let turn = qa.conversation.turns.last,
                let source = qa.citations(for: turn).sources.first(where: { if case .article = $0.kind { true } else { false } }) {
                 openExcerpt = OpenExcerpt(turnID: turn.id, sourceID: source.id)
@@ -85,6 +103,10 @@ struct LectureQAView: View {
             Button("Clear History", role: .destructive) { qa.clearHistory() }
         } message: {
             Text("You cannot undo this.")
+        }
+        .sheet(item: Binding(get: { showsSheetsInline ? nil : qa.consentRequest }, set: { if $0 == nil { qa.cancelConsent() } })) { request in
+            RemoteConsentSheet(request: request, showsText: false,
+                               allow: { if qa.allowAndSend() { question = "" } }, cancel: { qa.cancelConsent() })
         }
     }
 
@@ -257,13 +279,16 @@ struct LectureQAView: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(turn.accessibilityLabel(answer: citations.text))
+            if let source = providers.sourceText(for: turn.origin) {
+                Text(source).gardenText(.label)
+            }
             if !citations.sources.isEmpty {
                 SourcesRow(sources: citations.sources, openID: excerptBinding(turn.id), seek: { qa.seek(to: $0) })
             }
             if qa.conversation.canRetry(turn) {
                 Button("Retry", systemImage: "arrow.clockwise") { qa.retry(turn) }
                     .buttonStyle(.garden(.plain, .small))
-                    .disabled(qa.isAnswering || LectureQAState(status: localAI.status, content: qa.content) != .ready)
+                    .disabled(qa.isAnswering || panelState != .ready)
             }
         }
     }
@@ -317,6 +342,60 @@ struct LectureQAView: View {
 
     private func send() {
         if qa.send(question) { question = "" }
+    }
+}
+
+/// The consent sheet (#151): the destination, what leaves the Mac and the exact text of the request.
+/// "Cancel" keeps the question in the field. "Allow and Send" saves the consent of the course, then sends.
+struct RemoteConsentSheet: View {
+    let request: RemoteConsentRequest
+    @State var showsText: Bool
+    let allow: () -> Void
+    let cancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(request.title).font(.headline)
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+                row("Provider", request.providerName)
+                row("Host", request.destination.host)
+                row("Model", request.destination.modelID)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Skillgarden sends:")
+                ForEach(request.items, id: \.self) { item in
+                    Text("• " + item).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Text("Provider charges and data policies apply.").font(.caption).foregroundStyle(.secondary)
+            DisclosureGroup("Show exact text", isExpanded: $showsText) {
+                ScrollView {
+                    Text(request.exactText)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(6)
+                }
+                .frame(height: 240)
+                .background(.background.secondary, in: .rect(cornerRadius: 6))
+                .accessibilityLabel(request.exactText)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
+                Button("Allow and Send", action: allow).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 480)
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        GridRow {
+            Text(label).foregroundStyle(.secondary)
+            Text(value).textSelection(.enabled)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -441,6 +520,10 @@ private struct SnapshotOpensCitationExcerptKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct SnapshotQAConsentQuestionKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
 extension EnvironmentValues {
     /// The snapshot harness sets this, so the window opens with the Q&A panel open (#128). The app sets none.
     var snapshotShowsQA: Bool {
@@ -458,5 +541,11 @@ extension EnvironmentValues {
     var snapshotOpensCitationExcerpt: Bool {
         get { self[SnapshotOpensCitationExcerptKey.self] }
         set { self[SnapshotOpensCitationExcerptKey.self] = newValue }
+    }
+
+    /// The snapshot harness sets this, so the Q&A panel sends the question and the consent sheet opens (#151). The app sets none.
+    var snapshotQAConsentQuestion: String? {
+        get { self[SnapshotQAConsentQuestionKey.self] }
+        set { self[SnapshotQAConsentQuestionKey.self] = newValue }
     }
 }

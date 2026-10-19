@@ -53,13 +53,21 @@ public protocol AnswerProvider: AnyObject {
     var id: String { get }
     var displayName: String { get }
     var kind: AnswerProviderKind { get }
+    /// The place that lecture text goes to (#151). Nil for the bundled model, which needs no consent.
+    /// Each other provider sends only after the learner allows the course for this destination.
+    var destination: RemoteDestination? { get }
     /// The request that the provider can start now. Nil when it can't answer now, for example when no server is ready.
+    /// It sends nothing. Only `PreparedAnswer.ask(_:)` sends.
     func prepare() -> PreparedAnswer?
     /// Ends the request with `id` at once, with the partial answer. It does nothing for an old id.
     func cancel(_ id: UUID)
 }
 
-/// The bundled llama.cpp runtime (#123, #124) as an answer provider. It is the only provider of this release.
+extension AnswerProvider {
+    public var destination: RemoteDestination? { nil }
+}
+
+/// The bundled llama.cpp runtime (#123, #124) as an answer provider. It is the default provider (#151).
 @MainActor
 public final class BundledAnswerProvider: AnswerProvider {
     /// The store migration of #150 writes this ID on older turns. Do not change it.
