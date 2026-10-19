@@ -17,6 +17,9 @@ public enum AnswerOutcome: Equatable, Sendable {
     case untrusted
     /// Another request is active. Only one request runs at a time.
     case busy
+    /// A provider other than the bundled model refused the request (#152). `reason` is the design-note text.
+    /// It never holds the response body.
+    case refused(reason: String)
 
     /// The design-note text for the learner. Nil when the answer shows no extra text.
     public var learnerText: String? {
@@ -29,6 +32,7 @@ public enum AnswerOutcome: Equatable, Sendable {
         case .httpError(let status): "Local AI returned an error (\(status)). Try again."
         case .untrusted: "Skillgarden stopped the request. The server is not the one that it started."
         case .busy: "Local AI is answering another question. Wait, or cancel it."
+        case .refused(let reason): reason
         }
     }
 
@@ -36,7 +40,7 @@ public enum AnswerOutcome: Equatable, Sendable {
     var keepsText: Bool {
         switch self {
         case .finished, .canceled, .disconnected, .malformed: true
-        case .empty, .httpError, .untrusted, .busy: false
+        case .empty, .httpError, .untrusted, .busy, .refused: false
         }
     }
 }
@@ -95,6 +99,38 @@ struct ServerSentEventDecoder {
     }
 }
 
+/// Reads the body of an OpenAI-style chat stream: the owned llama-server (#124) and the external local servers (#152).
+struct ChatStreamReader {
+    private var decoder = ServerSentEventDecoder()
+    /// The full answer so far.
+    private(set) var text = ""
+
+    /// Reads one chunk of the body. `send` gets the full text after each delta and gives false when the request ended.
+    /// The outcome when the chunk ends the answer. Nil when the answer goes on.
+    mutating func read(_ data: Data, send: (String) -> Bool) -> AnswerOutcome? {
+        for event in decoder.decode(data) {
+            switch ChatStreamEvent(data: event) {
+            case .content(let delta):
+                guard !delta.isEmpty else { continue }
+                text += delta
+                guard send(text) else { return .canceled }
+            case .finished(let delta):
+                text += delta
+                if !delta.isEmpty { guard send(text) else { return .canceled } }
+                return text.isEmpty ? .empty : .finished
+            case .error(let status):
+                return .httpError(status: status)
+            case .malformed:
+                return .malformed
+            }
+        }
+        return nil
+    }
+
+    /// The outcome of a body that ended with no finish event.
+    var unfinishedOutcome: AnswerOutcome { text.isEmpty ? .empty : .disconnected }
+}
+
 /// The meaning of one event of the OpenAI-style chat stream of llama-server.
 enum ChatStreamEvent: Equatable {
     case content(String)
@@ -124,7 +160,15 @@ enum ChatStreamEvent: Equatable {
             let finishReason: String?
             enum CodingKeys: String, CodingKey { case delta, finishReason = "finish_reason" }
         }
-        struct Failure: Decodable { let code: Int? }
+        /// An error object with a number code, or another form: LM Studio and Ollama can send a text code or a plain text (#152).
+        struct Failure: Decodable {
+            let code: Int?
+
+            init(from decoder: any Decoder) throws {
+                struct Object: Decodable { let code: Int? }
+                code = (try? Object(from: decoder))?.code
+            }
+        }
         struct Present: Decodable {}
         let choices: [Choice]?
         let error: Failure?

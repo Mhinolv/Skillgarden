@@ -299,9 +299,9 @@ private func withLecture(_ body: (LibraryModel, URL) async throws -> Void) async
     #expect(profile.caption == "api.openai.com · gpt-5 · API")
     #expect(profile.accessibilityLabel == "OpenAI API, api.openai.com, gpt-5")
     let local = ProviderProfile(id: "lm", kind: .externalLocal, name: "LM Studio", vendor: "LM Studio",
-                                origin: "http://localhost:1234", modelID: "qwen")
-    #expect(local.host == "localhost:1234")
-    #expect(local.caption == "localhost:1234 · qwen · External local server")
+                                origin: "http://127.0.0.1:1234/v1", modelID: "qwen")
+    #expect(local.host == "127.0.0.1:1234")
+    #expect(local.caption == "127.0.0.1:1234 · qwen · External local server")
     #expect(AnswerProviderKind.allCases.map(\.title) == ["Local", "External local server", "API", "Subscription"])
 
     #expect(profile.isValid(hasSecret: true))

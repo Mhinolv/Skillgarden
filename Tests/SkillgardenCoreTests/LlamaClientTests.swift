@@ -150,6 +150,9 @@ private func answer(status: Int = 200, _ body: String..., end: (any Error)? = ni
     #expect(event("[DONE]") == .finished(""))
     #expect(event(#"{"error":{"code":503,"message":"Loading model","type":"unavailable_error"}}"#) == .error(status: 503))
     #expect(event(#"{"error":{"message":"no code"}}"#) == .error(status: 500))
+    // #152: LM Studio and Ollama can send a text code or a plain text.
+    #expect(event(#"{"error":{"code":"model_not_found","message":"x"}}"#) == .error(status: 500))
+    #expect(event(#"{"error":"Model crashed"}"#) == .error(status: 500))
     #expect(event(#"{"choices":[{"delta":{"content":"Hi"#) == .malformed)
     #expect(event("not json") == .malformed)
     #expect(event(#"{"id":"x"}"#) == .malformed)
@@ -335,7 +338,7 @@ private func answer(status: Int = 200, _ body: String..., end: (any Error)? = ni
 // MARK: - Real transport with a stub server
 
 /// An HTTP/1.1 server on 127.0.0.1 for the transport tests. It reads each request, then runs `respond` on the socket.
-private final class StubServer: @unchecked Sendable {
+final class StubServer: @unchecked Sendable {
     let port: Int
     private let listener: Int32
     private let lock = NSLock()
