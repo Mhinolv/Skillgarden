@@ -18,6 +18,8 @@ private struct CommandOutcome {
     var jsonText: String?
     /// Text mode prints the usage text after the diagnostics.
     var showsUsage = false
+    /// Text mode prints a `hint:` line after each diagnostic that has a hint.
+    var showsHints = false
 
     static func failure(_ exitCode: Int32, _ diagnostics: [CommandDiagnostic], showsUsage: Bool = false) -> CommandOutcome {
         CommandOutcome(exitCode: exitCode, diagnostics: diagnostics, showsUsage: showsUsage)
@@ -27,6 +29,7 @@ private struct CommandOutcome {
 public enum SkillgardenCommand {
     private static let usage = """
         usage: skillgarden publish <course-folder> [--json]
+               skillgarden publish --dry-run <course-folder> [--json]
                skillgarden validate <course-folder> [--json]
                skillgarden internal list <course-id> [--json]
                skillgarden init <folder> --id <id> --title <title> [--json]
@@ -80,16 +83,27 @@ public enum SkillgardenCommand {
             } else {
                 outcome = usageError("expected schema [--output <file>]")
             }
+        case "publish":
+            command = "publish"
+            // `--dry-run` can come before or after the course folder.
+            let dryRun = arguments.filter { $0 == "--dry-run" }.count == 1
+            let rest = arguments.dropFirst().filter { $0 != "--dry-run" }
+            if rest.count == 1, !rest[0].hasPrefix("-"), arguments.count == (dryRun ? 3 : 2) {
+                outcome = withRoot(root) { dryRun ? planPublish(courseFolder: rest[0], root: $0) : publish(courseFolder: rest[0], root: $0) }
+            } else {
+                outcome = usageError("expected publish <course-folder>")
+            }
         default:
-            command = arguments.first == "publish" ? "publish" : nil
-            outcome = arguments.count == 2 && arguments[0] == "publish" && !arguments[1].hasPrefix("-")
-                ? withRoot(root) { publish(courseFolder: arguments[1], root: $0) } : usageError("expected publish <course-folder>")
+            command = nil
+            outcome = usageError("expected publish <course-folder>")
         }
         return json ? jsonResult(outcome, command: command) : textResult(outcome)
     }
 
     private static func textResult(_ outcome: CommandOutcome) -> CommandResult {
-        let errors = outcome.diagnostics.map { "error: \($0.text)\n" }.joined()
+        let errors = outcome.diagnostics.map {
+            "error: \($0.text)\n" + (outcome.showsHints ? $0.hint.map { "hint: \($0)\n" } ?? "" : "")
+        }.joined()
         return CommandResult(exitCode: outcome.exitCode, stdout: outcome.text, stderr: errors + (outcome.showsUsage ? usage : ""))
     }
 
@@ -144,6 +158,36 @@ public enum SkillgardenCommand {
         } catch {
             return failure(error)
         }
+    }
+
+    /// Prints what publish would change (#114). It reads the library and writes nothing.
+    private static func planPublish(courseFolder path: String, root: URL) -> CommandOutcome {
+        let plan: PublishPlan
+        do {
+            plan = try CoursePublisher.plan(courseFolder: URL(fileURLWithPath: path), root: root)
+        } catch let error as CourseStoreError {
+            guard case .unsupportedSchema = error else { return failure(error) }
+            var outcome = CommandOutcome.failure(3, [CommandDiagnostic(code: .io, message: error.localizedDescription,
+                                                                       hint: "Update skillgarden. Dry run does not change the library.")])
+            outcome.showsHints = true
+            return outcome
+        } catch {
+            return failure(error)
+        }
+        let lines = [plan.summary] + plan.changes.map(\.line) + [plan.files.line, plan.snapshot.line] + [plan.migrationLine].compactMap { $0 }
+        let text = lines.map { $0 + "\n" }.joined() + draftText(plan.state) + "Library: \(root.path)\nNothing was written.\n"
+        let snapshot = plan.snapshot
+        return CommandOutcome(exitCode: 0, text: text, result: [
+            "title": plan.title, "id": plan.id, "state": plan.state.rawValue, "draft": plan.state == .draft,
+            "created": plan.created, "updated": plan.updated, "unchanged": plan.unchanged, "removed": plan.removed,
+            "library_path": root.path, "dry_run": true,
+            "changes": plan.changes.map { ["action": $0.action.rawValue, "kind": $0.kind, "id": $0.id] },
+            "files": ["added": plan.files.added, "changed": plan.files.changed, "unchanged": plan.files.unchanged,
+                      "removed": plan.files.removed],
+            "snapshot": ["state": snapshot.keptID == nil ? "new" : "kept", "id": snapshot.keptID ?? NSNull(),
+                         "files": snapshot.files, "bytes": snapshot.bytes] as [String: Any],
+            "migration": plan.migrationFrom.map { ["from": $0, "to": CourseStore.currentSchemaVersion] as Any } ?? NSNull(),
+        ])
     }
 
     /// Checks the course folder like publish does. It does not open or write the library.

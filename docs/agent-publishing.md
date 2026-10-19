@@ -48,6 +48,25 @@ The example course is `Tests/Fixtures/sample-course`.
 
 Publish is idempotent. If you publish the same folder again, the counts show `unchanged`.
 
+To see the changes before you publish, add `--dry-run`. The command reads the library and writes nothing:
+
+```
+Dry run "Local Course Basics" (sample-course, published): created 1, updated 1, unchanged 5, removed 1
+  create  lecture  check-2
+  update  lecture  read
+  remove  lecture  check
+Files: added 1, changed 2, unchanged 10, removed 1
+Snapshot: new, 13 files, <size, such as 48 KB>
+Library: /Users/<name>/Library/Application Support/Skillgarden
+Nothing was written.
+```
+
+- The rows list each changed record. Unchanged records are not listed.
+- `Files:` compares the course files with the installed snapshot, internal files included.
+- `Snapshot: kept <snapshot-id>` means that publish keeps the installed snapshot.
+- If the library uses an older store version, a `Migration:` line shows. Dry run does not migrate.
+- If the library uses a newer store version, the command stops with exit code 3 and a `hint:` line.
+
 ### Install script
 
 `scripts/install_cli.sh [--app <Skillgarden.app>] [<destination>]`
@@ -232,6 +251,7 @@ The app bundle holds the CLI at `Skillgarden.app/Contents/Helpers/skillgarden`. 
 |---|---|
 | `skillgarden validate <course-folder>` | `Valid "<title>" (<id>, <state>): <n> sections, <n> lectures` |
 | `skillgarden publish <course-folder>` | `Published "<title>" (<id>, <state>): created <n>, updated <n>, unchanged <n>, removed <n>`, then `Library: <path>` |
+| `skillgarden publish --dry-run <course-folder>` | `Dry run "<title>" (<id>, <state>): ...` with the same counts, one row for each change, `Files:`, `Snapshot:`, `Library: <path>`, `Nothing was written.` |
 | `skillgarden internal list <course-id>` | One tab-separated row for each internal file |
 | `skillgarden init <folder> --id <id> --title <title>` | `Created "<title>" (<id>, draft): 4 files in <path>`, then the draft line and the next step |
 | `skillgarden doctor` | Labelled lines: version, CLI, library, source, folder, write access, app library, match, sandbox |
@@ -260,7 +280,7 @@ Add `--json` anywhere after the command name, for example `skillgarden validate 
 | `command` | `validate`, `publish`, `internal list`, `init`, `doctor`, `schema`, or `null` for an unknown command |
 | `ok` | `true` when `exit_code` is 0 |
 | `exit_code` | The process exit code |
-| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`. `internal list`: `files`, each with `title`, `path`, `description`. `init`: `title`, `id`, `state`, `draft`, `path`, `files`. `schema --output`: `path`, `schema_version`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
+| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`. `publish --dry-run` adds `dry_run` (`true`), `changes` (each with `action`, `kind`, `id`), `files` (`added`, `changed`, `unchanged`, `removed`), `snapshot` (`state` `new` or `kept`, `id`, `files`, integer `bytes`) and `migration` (`from`, `to`, or `null`). `internal list`: `files`, each with `title`, `path`, `description`. `init`: `title`, `id`, `state`, `draft`, `path`, `files`. `schema --output`: `path`, `schema_version`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
 | `diagnostics` | One object for each problem: `code`, `severity` (`error`), `message`, `file`, `field_path`, `hint`. `file`, `field_path` and `hint` are `null` when unknown. |
 
 The `code` values are stable. New versions add codes, but never rename a code.

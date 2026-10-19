@@ -14,6 +14,79 @@ public struct PublishResult: Equatable, Sendable {
     }
 }
 
+/// The course files compared with the installed snapshot, internal files included. #115 prints the same line.
+public struct FileCounts: Equatable, Sendable {
+    public let added: Int
+    public let changed: Int
+    public let unchanged: Int
+    public let removed: Int
+
+    public var line: String { "Files: added \(added), changed \(changed), unchanged \(unchanged), removed \(removed)" }
+}
+
+/// The snapshot that publish installs. #115 prints the same line.
+public struct SnapshotSummary: Equatable, Sendable {
+    /// The id of the installed snapshot that publish keeps, or nil for a new snapshot.
+    public let keptID: String?
+    /// The course files that publish copies, internal files included.
+    public let files: Int
+    public let bytes: Int64
+
+    public var line: String {
+        if let keptID { return "Snapshot: kept \(keptID)" }
+        return "Snapshot: new, \(files) \(files == 1 ? "file" : "files"), "
+            + ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+}
+
+/// What `publish` would do, from a read-only look at the library (#114). Nothing is written.
+public struct PublishPlan: Equatable, Sendable {
+    /// The order of the cases is the order of the rows.
+    public enum Action: String, Comparable, Sendable {
+        case create, update, remove
+
+        public static func < (lhs: Action, rhs: Action) -> Bool {
+            [Action.create, .update, .remove].firstIndex(of: lhs)! < [Action.create, .update, .remove].firstIndex(of: rhs)!
+        }
+    }
+
+    /// One changed manifest record. `kind` is `course`, `section` or `lecture`.
+    public struct Change: Equatable, Sendable {
+        public let action: Action
+        public let kind: String
+        public let id: String
+
+        public var line: String {
+            "  " + action.rawValue.padding(toLength: 8, withPad: " ", startingAt: 0)
+                + kind.padding(toLength: 9, withPad: " ", startingAt: 0) + id
+        }
+    }
+
+    public let title: String
+    public let id: String
+    public let state: ManifestState
+    /// Sorted by action, then kind, then id. Unchanged records are not listed.
+    public let changes: [Change]
+    public let unchanged: Int
+    public let files: FileCounts
+    public let snapshot: SnapshotSummary
+    /// The store version that publish migrates from, or nil when publish does not migrate.
+    public let migrationFrom: Int?
+
+    public var created: Int { changes.filter { $0.action == .create }.count }
+    public var updated: Int { changes.filter { $0.action == .update }.count }
+    public var removed: Int { changes.filter { $0.action == .remove }.count }
+
+    /// The same count keys as `PublishResult.summary`, so one parser reads both.
+    public var summary: String {
+        "Dry run \"\(title)\" (\(id), \(state.rawValue)): created \(created), updated \(updated), unchanged \(unchanged), removed \(removed)"
+    }
+
+    public var migrationLine: String? {
+        migrationFrom.map { "Migration: publish will update the library from version \($0) to \(CourseStore.currentSchemaVersion)." }
+    }
+}
+
 public struct ValidationResult: Equatable, Sendable {
     public let title: String
     public let id: String
@@ -48,13 +121,13 @@ public enum CoursePublisher {
         let oldManifest = try previous.map { try JSONDecoder().decode(CourseManifest.self, from: $0.manifest) }
         let counts = difference(old: oldManifest, new: manifest)
         let result = PublishResult(title: manifest.title, id: manifest.id, state: manifest.state,
-                                   created: counts.0, updated: counts.1, unchanged: counts.2, removed: counts.3)
+                                   created: counts.changes.filter { $0.action == .create }.count,
+                                   updated: counts.changes.filter { $0.action == .update }.count, unchanged: counts.unchanged,
+                                   removed: counts.changes.filter { $0.action == .remove }.count)
         // Courses saved before media metadata get their images on the next publish.
         if let previous, oldManifest == manifest, try store.loadCourse(id: manifest.id, includeDrafts: true)?.image != nil,
-           try equalFiles(learnerFiles, source: source, snapshot: destination.appending(path: previous.directory)),
-           try previous.internalDirectory.map({
-               try equalFiles(internalFiles, source: source, snapshot: destination.appending(path: $0), target: insideInternal)
-           }) ?? internalFiles.isEmpty {
+           try snapshotMatches(learnerFiles, internalFiles, source: source, root: destination, directory: previous.directory,
+                               internalDirectory: previous.internalDirectory) {
             // Courses saved before the transcript index (#18) get it from the installed snapshot.
             if try !store.hasTranscriptIndex(courseID: manifest.id) {
                 let cues = try? transcriptCues(manifest, snapshot: destination.appending(path: previous.directory))
@@ -101,6 +174,53 @@ public enum CoursePublisher {
         let manifest = try check(courseFolder: courseFolder, library: library).manifest
         return ValidationResult(title: manifest.title, id: manifest.id, state: manifest.state, sections: manifest.sections.count,
                                 lectures: manifest.sections.reduce(0) { $0 + $1.lectures.count })
+    }
+
+    /// Runs the publish checks and compares the course with the installed publication (#114).
+    /// It writes nothing: no folder, no database, no migration and no snapshot.
+    /// A library with no database plans as a course that is not installed.
+    public static func plan(courseFolder: URL, root: URL = Skillgarden.defaultDataDirectory) throws -> PublishPlan {
+        let destination = root.resolvingSymlinksInPath().standardizedFileURL
+        let (manifest, source, files, _) = try check(courseFolder: courseFolder, library: destination)
+        let learnerFiles = files.filter { !isInternal($0) }
+        let internalFiles = files.filter(isInternal)
+        let reader = try LibraryReader.open(root: destination)
+        let previous = try reader?.publication(id: manifest.id)
+        let oldManifest = try previous.map { try JSONDecoder().decode(CourseManifest.self, from: $0.manifest) }
+        let counts = difference(old: oldManifest, new: manifest)
+        // Manifest paths name the internal folder in lowercase. Installed internal files have no folder name.
+        let sourcePaths = Dictionary(files.map { (isInternal($0) ? "internal/" + insideInternal($0) : $0, source.appending(path: $0)) },
+                                     uniquingKeysWith: { first, _ in first })
+        var installed: [String: URL] = [:]
+        if let previous {
+            let snapshot = destination.appending(path: previous.directory)
+            for path in (try? sourceFiles(in: snapshot)) ?? [] { installed[path] = snapshot.appending(path: path) }
+            if let internalDirectory = previous.internalDirectory {
+                let folder = destination.appending(path: internalDirectory)
+                for path in (try? sourceFiles(in: folder)) ?? [] { installed["internal/" + path] = folder.appending(path: path) }
+            }
+        }
+        let shared = sourcePaths.keys.filter { installed[$0] != nil }
+        let changed = shared.filter { !FileManager.default.contentsEqual(atPath: sourcePaths[$0]!.path, andPath: installed[$0]!.path) }
+        let fileCounts = FileCounts(added: sourcePaths.count - shared.count, changed: changed.count,
+                                    unchanged: shared.count - changed.count, removed: installed.count - shared.count)
+        // The same rule as publish: a course saved before media metadata gets a new snapshot.
+        var keptID: String?
+        if let previous, oldManifest == manifest, previous.hasImage,
+           try snapshotMatches(learnerFiles, internalFiles, source: source, root: destination, directory: previous.directory,
+                               internalDirectory: previous.internalDirectory) {
+            keptID = (previous.directory as NSString).lastPathComponent
+        }
+        let bytes = try files.reduce(Int64(0)) { total, path in
+            let size = try? source.appending(path: path).resourceValues(forKeys: [.fileSizeKey]).fileSize
+            guard let size else { throw diagnostic(courseFolder, "cannot read course files") }
+            return total + Int64(size)
+        }
+        let version = reader?.schemaVersion
+        return PublishPlan(title: manifest.title, id: manifest.id, state: manifest.state, changes: counts.changes,
+                           unchanged: counts.unchanged, files: fileCounts,
+                           snapshot: SnapshotSummary(keptID: keptID, files: files.count, bytes: bytes),
+                           migrationFrom: version.flatMap { $0 < CourseStore.migrations.count ? $0 : nil })
     }
 
     /// Loads the manifest and checks every file it names. `library` must be outside the course folder.
@@ -386,7 +506,7 @@ public enum CoursePublisher {
         ManifestValidationError(diagnostics: [ManifestDiagnostic(file: folder.path, fieldPath: "$", message: message)])
     }
 
-    private static func difference(old: CourseManifest?, new: CourseManifest) -> (Int, Int, Int, Int) {
+    private static func difference(old: CourseManifest?, new: CourseManifest) -> (changes: [PublishPlan.Change], unchanged: Int) {
         func rows(_ manifest: CourseManifest?) -> [String: Data] {
             guard let manifest else { return [:] }
             let encoder = JSONEncoder()
@@ -404,11 +524,28 @@ public enum CoursePublisher {
             return result
         }
         let before = rows(old), after = rows(new)
-        let created = after.keys.filter { before[$0] == nil }.count
-        let updated = after.keys.filter { before[$0] != nil && before[$0] != after[$0] }.count
-        let unchanged = after.count - created - updated
-        let removed = before.keys.filter { after[$0] == nil }.count
-        return (created, updated, unchanged, removed)
+        let keys = Set(before.keys).union(after.keys)
+        let changes = keys.compactMap { key -> PublishPlan.Change? in
+            let action: PublishPlan.Action
+            switch (before[key], after[key]) {
+            case (nil, _): action = .create
+            case (_, nil): action = .remove
+            case let (old, new) where old != new: action = .update
+            default: return nil
+            }
+            let parts = key.split(separator: ":", maxSplits: 1)
+            return PublishPlan.Change(action: action, kind: String(parts[0]), id: String(parts[1]))
+        }.sorted { ($0.action, $0.kind, $0.id) < ($1.action, $1.kind, $1.id) }
+        return (changes, after.count - changes.filter { $0.action != .remove }.count)
+    }
+
+    /// True when the installed snapshot and internal folder hold the same files as the course folder.
+    private static func snapshotMatches(_ learnerFiles: [String], _ internalFiles: [String], source: URL, root: URL,
+                                        directory: String, internalDirectory: String?) throws -> Bool {
+        try equalFiles(learnerFiles, source: source, snapshot: root.appending(path: directory))
+            && (try internalDirectory.map {
+                try equalFiles(internalFiles, source: source, snapshot: root.appending(path: $0), target: insideInternal)
+            } ?? internalFiles.isEmpty)
     }
 
     /// `images` holds the course image first, then one header image for each section in manifest order.

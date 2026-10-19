@@ -4,6 +4,7 @@ import SQLite3
 /// A synchronous local store. The lock protects the connection and each complete operation.
 public final class CourseStore: @unchecked Sendable {
     public static let currentSchemaVersion = 10
+    static let databaseName = "library.sqlite"
     public let databaseURL: URL
     private let database: SQLiteDatabase
     private let lock = NSLock()
@@ -14,7 +15,7 @@ public final class CourseStore: @unchecked Sendable {
 
     // Tests append a migration to prove that a prior database still loads.
     init(root: URL, migrations: [[String]]) throws {
-        databaseURL = root.appending(path: "library.sqlite")
+        databaseURL = root.appending(path: Self.databaseName)
         do {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         } catch {
@@ -500,4 +501,49 @@ public final class CourseStore: @unchecked Sendable {
         // Progress saved before this version keeps the automatic complete on.
         "ALTER TABLE lecture_progress ADD COLUMN auto_complete_off INTEGER NOT NULL DEFAULT 0 CHECK(auto_complete_off IN (0, 1))",
     ]]
+}
+
+/// The shared read-only store path for plan and inspect commands (#114).
+/// It never creates a folder or a file, never migrates and never writes.
+final class LibraryReader {
+    /// The version of the database file. A file with no version table is version 0.
+    let schemaVersion: Int
+    private let database: SQLiteDatabase
+
+    /// Nil when the library has no database file. A newer store throws `unsupportedSchema`.
+    static func open(root: URL) throws -> LibraryReader? {
+        let url = root.appending(path: CourseStore.databaseName)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try LibraryReader(url: url)
+    }
+
+    private init(url: URL) throws {
+        database = try SQLiteDatabase(url: url, readOnly: true)
+        let tables = try database.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'") { _ in true }
+        let versions = tables.isEmpty ? []
+            : try database.query("SELECT version FROM schema_version") { Int(sqlite3_column_int64($0, 0)) }
+        guard versions.count <= 1 else { throw CourseStoreError.invalidData }
+        let version = versions.first ?? 0
+        guard version >= 0 else { throw CourseStoreError.invalidData }
+        guard version <= CourseStore.migrations.count else {
+            throw CourseStoreError.unsupportedSchema(found: version, supported: CourseStore.migrations.count)
+        }
+        schemaVersion = version
+    }
+
+    /// The installed publication of a course, read with the columns of `schemaVersion`.
+    /// `hasImage` is false for a course saved before schema version 3.
+    func publication(id: String) throws -> (manifest: Data, directory: String, internalDirectory: String?, hasImage: Bool)? {
+        // Stores before version 2 have no publications. A column added in a later version reads as NULL.
+        guard schemaVersion >= 2 else { return nil }
+        let internalColumn = schemaVersion >= 4 ? "p.internal_directory" : "NULL"
+        let imageColumn = schemaVersion >= 3 ? "c.image IS NOT NULL" : "0"
+        return try database.query("""
+            SELECT p.manifest, p.directory, \(internalColumn), \(imageColumn)
+            FROM course_publications p JOIN courses c ON c.id = p.course_id WHERE p.course_id = ?
+            """, [id]) {
+            (Data(SQLiteDatabase.text($0, 0).utf8), SQLiteDatabase.text($0, 1),
+             sqlite3_column_type($0, 2) == SQLITE_NULL ? nil : SQLiteDatabase.text($0, 2), sqlite3_column_int64($0, 3) != 0)
+        }.first
+    }
 }
