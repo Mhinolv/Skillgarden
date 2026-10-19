@@ -199,5 +199,6 @@ private func diagnostics(_ object: [String: Any]) -> [[String: Any]] {
         "field.required", "field.type", "field.choice", "field.not_allowed", "field.value", "id.duplicate", "order.duplicate",
         "reference.unknown", "path.outside", "path.missing", "path.not_normalized", "media.invalid", "course.not_found",
         "library.busy", "io", "data_dir.not_folder", "course_folder.not_empty", "course_folder.not_folder",
+        "file_not_found", "not_mp4", "no_video_length",
     ])
 }
