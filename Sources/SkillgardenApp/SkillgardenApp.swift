@@ -74,18 +74,18 @@ struct SkillgardenApp: App {
                 .keyboardShortcut("r", modifiers: .command)
                 // A reload during an import could skip the reload after the publish (#111).
                 .disabled(focusedLibrary == nil || focusedLibrary?.isLoading == true || focusedLibrary?.isImporting == true)
-                Button(showsTranscript == true ? "Hide Transcript" : "Show Transcript", systemImage: "text.quote") {
+                Button(showsTranscript?.isOn == true ? "Hide Transcript" : "Show Transcript", systemImage: "text.quote") {
                     showsTranscript?.toggle()
                 }
                 .keyboardShortcut("t", modifiers: [.option, .command])
                 .disabled(showsTranscript == nil)
-                Button(showsQA == true ? "Hide Q&A" : "Show Q&A", systemImage: LectureQAPanel.symbol) {
+                Button(showsQA?.isOn == true ? "Hide Q&A" : "Show Q&A", systemImage: LectureQAPanel.symbol) {
                     showsQA?.toggle()
                 }
                 .keyboardShortcut("a", modifiers: [.option, .command])
                 .disabled(showsQA == nil)
                 // AVKit has no public API to start full screen from code, so the player button is the only full-screen control (#85).
-                Button(theaterMode == true ? "Exit Theater Mode" : "Enter Theater Mode", systemImage: "tv") {
+                Button(theaterMode?.isOn == true ? "Exit Theater Mode" : "Enter Theater Mode", systemImage: "tv") {
                     theaterMode?.toggle()
                 }
                 .keyboardShortcut("t", modifiers: [.shift, .command])
@@ -128,11 +128,11 @@ struct SkillgardenApp: App {
     @State private var autoPlays = Skillgarden.savedAutoPlay()
     @FocusedValue(\.library) private var focusedLibrary
     /// Nil when no video lecture with captions shows.
-    @FocusedBinding(\.showsTranscript) private var showsTranscript
+    @FocusedValue(\.showsTranscript) private var showsTranscript
     /// Nil when no video or article lecture shows (#128).
-    @FocusedBinding(\.showsQA) private var showsQA
+    @FocusedValue(\.showsQA) private var showsQA
     /// Nil when no video lecture with an available video shows.
-    @FocusedBinding(\.theaterMode) private var theaterMode
+    @FocusedValue(\.theaterMode) private var theaterMode
     /// Nil when no course outline shows.
     @FocusedValue(\.searchTranscripts) private var searchTranscripts
 }

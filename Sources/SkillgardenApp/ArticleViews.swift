@@ -76,7 +76,7 @@ struct ArticleLectureView: View {
                 ProgressView().frame(maxWidth: .infinity)
             }
         }
-        .focusedSceneValue(\.showsQA, content == nil ? nil : qaPanel?.isOn)
+        .focusedSceneValue(\.showsQA, content == nil ? nil : qaPanel.map { MenuToggle($0.isOn) })
         .task(id: article) {
             content = nil
             unavailable = false
