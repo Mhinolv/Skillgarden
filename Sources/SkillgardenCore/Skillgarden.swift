@@ -98,6 +98,18 @@ public enum Skillgarden {
         CFPreferencesSetAppValue(autoPlayKey as CFString, on ? kCFBooleanTrue : kCFBooleanFalse, defaultsDomain as CFString)
         CFPreferencesAppSynchronize(defaultsDomain as CFString)
     }
+
+    /// The key of the Settings "Use local AI" choice (#123). A missing value or a value that is not a Boolean is on.
+    public static let localAIKey = "LocalAI"
+
+    public static func savedLocalAI() -> Bool {
+        autoPlay(savedValue: CFPreferencesCopyAppValue(localAIKey as CFString, defaultsDomain as CFString))
+    }
+
+    public static func saveLocalAI(_ on: Bool) {
+        CFPreferencesSetAppValue(localAIKey as CFString, on ? kCFBooleanTrue : kCFBooleanFalse, defaultsDomain as CFString)
+        CFPreferencesAppSynchronize(defaultsDomain as CFString)
+    }
 }
 
 /// The app appearance of the View menu (#83). Dark and Light win over a course manifest appearance (#93).

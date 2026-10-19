@@ -50,6 +50,8 @@ private func temporaryFolder() throws -> URL {
         "outline-durations-light.png", "outline-durations-dark.png", "outline-durations-unthemed-dark.png",
         "settings-light.png", "settings-dark.png",
         "settings-model-missing-light.png", "settings-model-missing-dark.png",
+        "settings-ai-off-light.png", "settings-ai-off-dark.png",
+        "settings-ai-error-light.png", "settings-ai-error-dark.png",
     ])
     // #82: every course screen except the dark-theme screen gets one dark capture with no course theme.
     #expect(SnapshotScreen.allCases.filter { $0.selectsCourse && !$0.hasUnthemedCapture } == [.courseLandingDarkTheme])
@@ -83,7 +85,7 @@ private func temporaryFolder() throws -> URL {
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: []).isEmpty)
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: nil) == outputs)
     #expect(SnapshotScreen.allCases.filter { !$0.selectsCourse } == [.libraryEmpty, .libraryEmptyCustomFolder, .library, .settings,
-                                                                    .settingsModelMissing])
+                                                                    .settingsModelMissing, .settingsAIOff, .settingsAIError])
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
@@ -100,7 +102,7 @@ private func temporaryFolder() throws -> URL {
         await library.reload()
         #expect(library.errorMessage == nil)
         switch screen {
-        case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing:
+        case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError:
             #expect(courseID == nil)
             #expect(!screen.selectsCourse)
             #expect(SnapshotPlan.imageLoads(for: screen) == 0)

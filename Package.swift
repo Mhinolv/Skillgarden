@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "SkillgardenCore", targets: ["SkillgardenCore"]),
         .executable(name: "skillgarden", targets: ["skillgarden"]),
         .executable(name: "SkillgardenApp", targets: ["SkillgardenApp"]),
+        .executable(name: "SkillgardenAIHost", targets: ["SkillgardenAIHost"]),
     ],
     dependencies: [
         .package(path: "Vendor/Yams"),
@@ -16,6 +17,7 @@ let package = Package(
         .target(name: "SkillgardenCore", dependencies: [.product(name: "Yams", package: "Yams")]),
         .executableTarget(name: "skillgarden", dependencies: ["SkillgardenCore"]),
         .executableTarget(name: "SkillgardenApp", dependencies: ["SkillgardenCore"]),
+        .executableTarget(name: "SkillgardenAIHost", dependencies: ["SkillgardenCore"]),
         .testTarget(name: "SkillgardenCoreTests", dependencies: ["SkillgardenCore"]),
     ]
 )

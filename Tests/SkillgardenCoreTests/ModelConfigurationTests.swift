@@ -158,7 +158,11 @@ private func write(_ data: Data, _ name: String, in folder: URL) throws -> URL {
     })
     #expect(model.detailText(home: home) == "2.1 GB · ~/Library/Application Support/Skillgarden/Models/qwen2.5-3b-instruct-q4_k_m.gguf")
     #expect(SnapshotScreen.settingsModelMissing.modelState(home: home) == .problem(.missing("qwen2.5-3b-instruct-q4_k_m.gguf")))
-    #expect(SnapshotScreen.allCases.filter { $0.modelState(home: home) != nil } == [.settings, .settingsModelMissing])
+    #expect(SnapshotScreen.allCases.filter { $0.modelState(home: home) != nil } == [.settings, .settingsModelMissing, .settingsAIOff,
+                                                                                    .settingsAIError])
+    // #123: the AI screens show the same valid model.
+    #expect(SnapshotScreen.settingsAIOff.modelState(home: home) == SnapshotScreen.settings.modelState(home: home))
+    #expect(SnapshotScreen.settingsAIError.modelState(home: home) == SnapshotScreen.settings.modelState(home: home))
 }
 
 /// Saved data stays readable: a file with no version or path decodes. A damaged file is no model.

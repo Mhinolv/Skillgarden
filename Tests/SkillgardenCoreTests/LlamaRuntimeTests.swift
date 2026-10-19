@@ -94,6 +94,7 @@ private func bundleRepository(in root: URL) throws -> URL {
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
     try Data("app".utf8).write(to: debug.appending(path: "SkillgardenApp"))
     try Data("cli".utf8).write(to: debug.appending(path: "skillgarden"))
+    try Data("host".utf8).write(to: debug.appending(path: "SkillgardenAIHost"))
     try Data("icon".utf8).write(to: icon.appending(path: "AppIcon.icns"))
     return scripts.appending(path: "bundle_app.sh")
 }
@@ -125,6 +126,12 @@ private func bundleRepository(in root: URL) throws -> URL {
     let licenses = contents.appending(path: "Resources/Licenses/llama.cpp")
     #expect(try FileManager.default.contentsOfDirectory(atPath: licenses.path) == ["LICENSE"])
     #expect(FileManager.default.fileExists(atPath: contents.appending(path: "Helpers/skillgarden").path))
+    // #123: the helper that owns llama-server, and loopback HTTP for the health check.
+    #expect(try String(contentsOf: contents.appending(path: "Helpers/SkillgardenAIHost"), encoding: .utf8) == "host")
+    #expect(try String(contentsOf: root.appending(path: "build.log"), encoding: .utf8)
+        == "build --product SkillgardenApp\nbuild --product skillgarden\nbuild --product SkillgardenAIHost\n")
+    let plist = try #require(NSDictionary(contentsOf: contents.appending(path: "Info.plist")))
+    #expect((plist["NSAppTransportSecurity"] as? [String: Any])?["NSAllowsLocalNetworking"] as? Bool == true)
 }
 
 @Test func bundleScriptStopsWhenTheRuntimeIsMissing() throws {
