@@ -27,6 +27,7 @@ public enum SkillgardenCommand {
         usage: skillgarden publish <course-folder> [--json]
                skillgarden validate <course-folder> [--json]
                skillgarden internal list <course-id> [--json]
+               skillgarden init <folder> --id <id> --title <title> [--json]
                skillgarden doctor [--json]
 
         """
@@ -43,7 +44,7 @@ public enum SkillgardenCommand {
             return CommandResult(exitCode: 0, stdout: "skillgarden \(Skillgarden.version)\n", stderr: "")
         }
         if arguments == ["publish", "--help"] || arguments == ["validate", "--help"] || arguments == ["doctor", "--help"]
-            || arguments == ["--help"] {
+            || arguments == ["init", "--help"] || arguments == ["--help"] {
             return CommandResult(exitCode: 0, stdout: usage, stderr: "")
         }
         // `--json` can come anywhere after the command name.
@@ -60,6 +61,10 @@ public enum SkillgardenCommand {
             command = "internal list"
             outcome = arguments.count == 3 && arguments[1] == "list" && !arguments[2].hasPrefix("-")
                 ? withRoot(root) { listInternal(courseID: arguments[2], root: $0) } : usageError("expected internal list <course-id>")
+        case "init":
+            command = "init"
+            outcome = initArguments(Array(arguments.dropFirst())).map(initCourse)
+                ?? usageError("expected init <folder> --id <id> --title <title>")
         case "doctor":
             command = "doctor"
             outcome = arguments.count == 1 ? diagnose(doctor()) : usageError("expected doctor")
@@ -146,6 +151,71 @@ public enum SkillgardenCommand {
         } catch {
             return failure(error)
         }
+    }
+
+    /// The folder, `--id` and `--title` in any order. Nil for a missing, empty or repeated value, or an unknown flag.
+    private static func initArguments(_ arguments: [String]) -> (folder: String, id: String, title: String)? {
+        var folder: String?, values: [String: String] = [:]
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--id" || argument == "--title" {
+                guard index + 1 < arguments.count, values[argument] == nil else { return nil }
+                values[argument] = arguments[index + 1]
+                index += 2
+            } else {
+                guard folder == nil, !argument.hasPrefix("-"), !argument.isEmpty else { return nil }
+                folder = argument
+                index += 1
+            }
+        }
+        func value(_ text: String?) -> String? {
+            guard let text, !text.hasPrefix("--"), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !text.contains(where: \.isNewline) else { return nil }
+            return text
+        }
+        guard let folder, let id = value(values["--id"]), let title = value(values["--title"]) else { return nil }
+        return (folder, id, title)
+    }
+
+    /// Writes the starter course. It does not open the library.
+    private static func initCourse(_ arguments: (folder: String, id: String, title: String)) -> CommandOutcome {
+        guard !CourseScaffold.reservedIDs.contains(arguments.id) else {
+            return usageError("--id must not be \(CourseScaffold.reservedIDs.map { "\"\($0)\"" }.joined(separator: " or ")), "
+                + "because the starter section and lecture use these ids")
+        }
+        let folder = URL(fileURLWithPath: arguments.folder).standardizedFileURL
+        let scaffold = CourseScaffold(id: arguments.id, title: arguments.title)
+        do {
+            try scaffold.create(at: folder)
+        } catch {
+            switch error {
+            case .notEmpty(let path):
+                return .failure(1, [CommandDiagnostic(code: .courseFolderNotEmpty, file: path, message: "folder is not empty: \(path)",
+                                                      hint: "Use a new or empty folder. Init does not overwrite files.")])
+            case .notAFolder(let path):
+                return .failure(1, [CommandDiagnostic(code: .courseFolderNotFolder, file: path, message: "not a folder: \(path)",
+                                                      hint: "Use the path of a new or empty folder.")])
+            case .write(let description):
+                return .failure(3, [CommandDiagnostic(code: .io, file: folder.path, message: description)])
+            }
+        }
+        let files = scaffold.files.map(\.path)
+        return CommandOutcome(exitCode: 0, text: """
+            Created "\(scaffold.title)" (\(scaffold.id), draft): \(files.count) files in \(folder.path)
+            \(draftText(.draft))Next: edit skillgarden.yaml, then run: skillgarden validate \(shellWord(arguments.folder))
+
+            """, result: [
+                "title": scaffold.title, "id": scaffold.id, "state": ManifestState.draft.rawValue, "draft": true,
+                "path": folder.path, "files": files,
+            ])
+    }
+
+    /// Quotes a path for the shell when it holds characters other than letters, digits and `/._-+@:,`.
+    private static func shellWord(_ text: String) -> String {
+        let safe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "/._-+@:,"))
+        if text.unicodeScalars.allSatisfy(safe.contains) { return text }
+        return "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// The report goes to stdout for every exit code, so an agent sees the lines that explain the error.

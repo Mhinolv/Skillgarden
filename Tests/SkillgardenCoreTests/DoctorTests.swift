@@ -177,7 +177,7 @@ private func run(_ doctor: Doctor, _ arguments: [String] = ["doctor"]) -> Comman
 @Test func doctorUsage() throws {
     try withBase { base in
         let usage = run(doctor(base), ["--help"]).stdout
-        #expect(usage.hasSuffix("       skillgarden internal list <course-id> [--json]\n       skillgarden doctor [--json]\n"))
+        #expect(usage.hasSuffix("       skillgarden internal list <course-id> [--json]\n       skillgarden init <folder> --id <id> --title <title> [--json]\n       skillgarden doctor [--json]\n"))
         #expect(run(doctor(base), ["doctor", "--help"]) == CommandResult(exitCode: 0, stdout: usage, stderr: ""))
         for arguments in [["doctor", "extra"], ["doctor", "--bogus"]] {
             #expect(run(doctor(base), arguments) == CommandResult(exitCode: 2, stdout: "", stderr: "error: expected doctor\n" + usage))
