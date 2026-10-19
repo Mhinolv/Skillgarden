@@ -55,7 +55,7 @@ private func runJSON(_ arguments: [String], root: URL) throws -> [String: Any] {
     return try #require(try JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any])
 }
 
-private let usage = SkillgardenCommand.run(arguments: ["--help"], root: URL(fileURLWithPath: "/unused")).stdout
+private let usage = SkillgardenCommand.usage + SkillgardenCommand.usageMore
 
 @Test func publishReceiptShowsTheFilesAndTheNewSnapshot() throws {
     try withCourse { folder, root, _ in
@@ -198,6 +198,6 @@ private let usage = SkillgardenCommand.run(arguments: ["--help"], root: URL(file
         #expect(SkillgardenCommand.run(arguments: ["inspect", "a", "b"], root: root) == error)
         #expect(SkillgardenCommand.run(arguments: ["inspect", "--all"], root: root) == error)
         #expect(usage.contains("skillgarden inspect <course-id> [--json]\n"))
-        #expect(SkillgardenCommand.run(arguments: ["inspect", "--help"], root: root).stdout == usage)
+        #expect(SkillgardenCommand.run(arguments: ["inspect", "--help"], root: root).stdout == SkillgardenCommand.help)
     }
 }

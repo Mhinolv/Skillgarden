@@ -174,14 +174,52 @@ private func counts(_ result: PublishResult) -> [Int] {
 
 @Test func commandUsageAndHelp() throws {
     let root = FileManager.default.temporaryDirectory.appending(path: "SkillgardenUnused-\(UUID())")
-    let usage = "usage: skillgarden publish <course-folder> [--json]\n       skillgarden publish --dry-run <course-folder> [--json]\n       skillgarden validate <course-folder> [--json]\n       skillgarden internal list <course-id> [--json]\n       skillgarden inspect <course-id> [--json]\n       skillgarden remove <course-id> --yes [--json]\n       skillgarden init <folder> --id <id> --title <title> [--json]\n       skillgarden media inspect <file> [--json]\n       skillgarden doctor [--json]\n       skillgarden schema [--output <file>]\n"
+    let usage = """
+        usage: skillgarden publish <course-folder> [--json]
+               skillgarden publish --dry-run <course-folder> [--json]
+               skillgarden validate <course-folder> [--json]
+               skillgarden internal list <course-id> [--json]
+               skillgarden inspect <course-id> [--json]
+               skillgarden remove <course-id> --yes [--json]
+               skillgarden init <folder> --id <id> --title <title> [--json]
+               skillgarden media inspect <file> [--json]
+               skillgarden doctor [--json]
+               skillgarden schema [--output <file>]
+               skillgarden --version
+
+        """
+    let help = usage + """
+
+        Examples:
+          skillgarden validate ./my-course
+          SKILLGARDEN_DATA_DIR="$PWD/.skillgarden-library" \\
+            skillgarden publish ./my-course
+
+        Library folder (first match wins):
+          1. SKILLGARDEN_DATA_DIR (absolute path)
+          2. defaults: dev.skillgarden.app DataDirectory
+          3. ~/Library/Application Support/Skillgarden
+
+        Exit codes:
+          0  success
+          1  manifest or file errors
+          2  usage error or bad library folder setting
+          3  I/O or library error
+
+        Guide: docs/agent-publishing.md
+        Skill: docs/agent-skill/SKILL.md
+
+        """
     for arguments in [["publish", "--help"], ["--help"]] {
-        #expect(SkillgardenCommand.run(arguments: arguments, root: root) == CommandResult(exitCode: 0, stdout: usage, stderr: ""))
+        #expect(SkillgardenCommand.run(arguments: arguments, root: root) == CommandResult(exitCode: 0, stdout: help, stderr: ""))
     }
+    #expect(help.split(separator: "\n", omittingEmptySubsequences: false).allSatisfy { $0.count <= 80 })
     #expect(SkillgardenCommand.run(arguments: ["--version"], root: root).stdout == "skillgarden \(Skillgarden.version)\n")
+    // A usage error prints the usage lines only, then the pointer to --help.
     for arguments in [[], ["publish"], ["publish", "a", "b"], ["publish", "--bogus"], ["delete", "a"]] {
         let result = SkillgardenCommand.run(arguments: arguments, root: root)
-        #expect(result == CommandResult(exitCode: 2, stdout: "", stderr: "error: expected publish <course-folder>\n" + usage))
+        #expect(result == CommandResult(exitCode: 2, stdout: "", stderr: "error: expected publish <course-folder>\n" + usage
+                                        + "Run \"skillgarden --help\" for more.\n"))
     }
     #expect(!FileManager.default.fileExists(atPath: root.path))
 }

@@ -29,7 +29,8 @@ private struct CommandOutcome {
 }
 
 public enum SkillgardenCommand {
-    private static let usage = """
+    /// The `usage:` lines. A usage error prints them on stderr, then `usageMore`.
+    public static let usage = """
         usage: skillgarden publish <course-folder> [--json]
                skillgarden publish --dry-run <course-folder> [--json]
                skillgarden validate <course-folder> [--json]
@@ -40,6 +41,33 @@ public enum SkillgardenCommand {
                skillgarden media inspect <file> [--json]
                skillgarden doctor [--json]
                skillgarden schema [--output <file>]
+               skillgarden --version
+
+        """
+
+    public static let usageMore = "Run \"skillgarden --help\" for more.\n"
+
+    /// The `--help` text (#113). No line is longer than 80 columns.
+    public static let help = usage + """
+
+        Examples:
+          skillgarden validate ./my-course
+          SKILLGARDEN_DATA_DIR="$PWD/.skillgarden-library" \\
+            skillgarden publish ./my-course
+
+        Library folder (first match wins):
+          1. \(Skillgarden.dataDirectoryVariable) (absolute path)
+          2. defaults: \(Skillgarden.defaultsDomain) \(Skillgarden.dataDirectoryKey)
+          3. ~/Library/Application Support/Skillgarden
+
+        Exit codes:
+          0  success
+          1  manifest or file errors
+          2  usage error or bad library folder setting
+          3  I/O or library error
+
+        Guide: docs/agent-publishing.md
+        Skill: docs/agent-skill/SKILL.md
 
         """
 
@@ -58,7 +86,7 @@ public enum SkillgardenCommand {
             || arguments == ["init", "--help"] || arguments == ["schema", "--help"] || arguments == ["inspect", "--help"]
             || arguments == ["remove", "--help"]
             || arguments == ["media", "--help"] || arguments == ["media", "inspect", "--help"] || arguments == ["--help"] {
-            return CommandResult(exitCode: 0, stdout: usage, stderr: "")
+            return CommandResult(exitCode: 0, stdout: help, stderr: "")
         }
         // `--json` can come anywhere after the command name.
         let json = arguments.dropFirst().contains("--json")
@@ -129,7 +157,7 @@ public enum SkillgardenCommand {
         let errors = outcome.diagnostics.map {
             "error: \($0.text)\n" + (outcome.showsHints ? $0.hint.map { "hint: \($0)\n" } ?? "" : "")
         }.joined()
-        return CommandResult(exitCode: outcome.exitCode, stdout: outcome.text, stderr: errors + outcome.errorFooter + (outcome.showsUsage ? usage : ""))
+        return CommandResult(exitCode: outcome.exitCode, stdout: outcome.text, stderr: errors + outcome.errorFooter + (outcome.showsUsage ? usage + usageMore : ""))
     }
 
     /// One JSON document on stdout for every exit code. Stderr stays empty (#109 owner decision).

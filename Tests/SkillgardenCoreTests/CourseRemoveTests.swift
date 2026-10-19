@@ -46,7 +46,7 @@ private func course(_ root: URL, _ id: String) throws -> Course? {
     try CourseStore(root: root).loadCourse(id: id, includeDrafts: true)
 }
 
-private let usage = SkillgardenCommand.run(arguments: ["--help"], root: URL(fileURLWithPath: "/unused")).stdout
+private let usage = SkillgardenCommand.usage + SkillgardenCommand.usageMore
 
 @Test func removeDeletesTheCourseAndKeepsTheOtherCourse() throws {
     try withCourse { folder, root, base in
@@ -138,7 +138,7 @@ private let usage = SkillgardenCommand.run(arguments: ["--help"], root: URL(file
             #expect(run(arguments, root) == CommandResult(exitCode: 2, stdout: "", stderr: error))
         }
         #expect(usage.contains("       skillgarden inspect <course-id> [--json]\n       skillgarden remove <course-id> --yes [--json]\n"))
-        #expect(run(["remove", "--help"], root) == CommandResult(exitCode: 0, stdout: usage, stderr: ""))
+        #expect(run(["remove", "--help"], root) == CommandResult(exitCode: 0, stdout: SkillgardenCommand.help, stderr: ""))
         #expect(!FileManager.default.fileExists(atPath: root.path))
     }
 }
