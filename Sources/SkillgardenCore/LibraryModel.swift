@@ -66,6 +66,8 @@ public final class LibraryModel {
     public private(set) var sectionReview: SectionReview?
     /// Picks the review questions. Tests and the snapshot harness pass a seeded generator.
     @ObservationIgnored private var reviewRandom: any RandomNumberGenerator
+    /// Lecture contexts for local AI by course, lecture and source revision (#125).
+    @ObservationIgnored private let lectureContexts = LectureContextCache()
     public let root: URL
     /// The store of the last reload. Progress writes use it off the main actor, one at a time.
     private var store: CourseStore?
@@ -464,6 +466,17 @@ public final class LibraryModel {
         open(hit.destination)
         seekCount += 1
         transcriptSeek = TranscriptSeek(id: seekCount, lectureID: hit.lectureID, seconds: hit.start)
+    }
+
+    // MARK: Local AI
+
+    /// The local AI context of a lecture in the selected course (#125). The cache reads the text off the main actor.
+    /// A lecture that the learner cannot see is not available.
+    public func lectureContext(forLecture lectureID: String,
+                               budget: LectureContextBudget = .standard) async -> LectureContextOutcome {
+        guard let course = selectedCourse else { return .notAvailable }
+        return await lectureContexts.context(course: course, lectureID: lectureID, video: videos[course.id]?[lectureID],
+                                             article: articles[course.id]?[lectureID], budget: budget)
     }
 
     /// Waits until all queued progress writes finish.
