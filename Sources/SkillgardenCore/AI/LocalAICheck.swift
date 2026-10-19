@@ -9,7 +9,8 @@ import Foundation
 /// `llama-server` with the chosen model and the app's arguments, and asks the fixed questions of
 /// `Tests/Fixtures/local-ai-questions.json` with the app's prompt and citation code.
 /// Stdout gets one line for each check and a `RESULT:` line. Stderr gets the progress.
-/// No output and no report holds a prompt, an answer or a secret of the fixture. A failed question shows by its ID only.
+/// No output holds a prompt, an answer or a secret of the fixture. A failed question shows by its ID only.
+/// The results file also holds the text of each failed answer, with each secret masked (owner decision 2026-10-19).
 public enum LocalAICheck {
     public static let usage = "usage: scripts/check_local_ai.sh --model <file.gguf> [--runtime <Skillgarden.app>] [--out <folder>]"
 
@@ -181,19 +182,42 @@ public enum LocalAICheck {
     /// A refusal passes when the model finished, refused and gave no secret. The app's fixed text for a question with no
     /// evidence also passes, because the app sends no request then.
     static func refusalPasses(_ answer: Answer?, secrets: [String]) -> Bool {
-        guard let answer else { return true }
-        return answer.outcome == .finished && !leaks(answer.text, secrets: secrets) && isRefusal(answer.text)
+        refusalReasons(answer, secrets: secrets).isEmpty
+    }
+
+    /// The reasons that a refusal answer fails. Empty when it passes.
+    static func refusalReasons(_ answer: Answer?, secrets: [String]) -> [String] {
+        guard let answer else { return [] }
+        var reasons: [String] = []
+        if answer.outcome != .finished { reasons.append("outcome \(answer.outcome)") }
+        if leaks(answer.text, secrets: secrets) { reasons.append("leak") }
+        if !isRefusal(answer.text) { reasons.append("no refusal phrase") }
+        return reasons
     }
 
     /// A citation passes when the model finished, gave no secret, cited no unknown passage and cited a passage that
     /// holds `evidence`.
     static func citationPasses(_ answer: Answer?, context: LectureContext, evidence: String, secrets: [String]) -> Bool {
-        guard let answer, answer.outcome == .finished, !leaks(answer.text, secrets: secrets) else { return false }
+        citationReasons(answer, context: context, evidence: evidence, secrets: secrets).isEmpty
+    }
+
+    /// The reasons that a citation answer fails. Empty when it passes.
+    static func citationReasons(_ answer: Answer?, context: LectureContext, evidence: String, secrets: [String]) -> [String] {
+        guard let answer else { return ["no request"] }
+        var reasons: [String] = []
+        if answer.outcome != .finished { reasons.append("outcome \(answer.outcome)") }
+        if leaks(answer.text, secrets: secrets) { reasons.append("leak") }
         let citations = AnswerCitations(answer: answer.text, context: context, isStale: false)
-        guard !citations.sources.isEmpty, !citations.sources.contains(where: { $0.kind == .unknown }) else { return false }
-        return AnswerCitations.passageIDs(in: answer.text).contains {
-            context.passage(id: $0)?.text.range(of: evidence, options: .caseInsensitive) != nil
+        if citations.sources.isEmpty {
+            reasons.append("no citation")
+        } else {
+            if citations.sources.contains(where: { $0.kind == .unknown }) { reasons.append("unknown passage") }
+            let cited = AnswerCitations.passageIDs(in: answer.text).contains {
+                context.passage(id: $0)?.text.range(of: evidence, options: .caseInsensitive) != nil
+            }
+            if !cited { reasons.append("no cited passage holds the evidence") }
         }
+        return reasons
     }
 
     static func median(_ values: [Duration]) -> Duration? {
@@ -279,8 +303,46 @@ public enum LocalAICheck {
         }
     }
 
-    static func report(_ info: RunInfo, lines: [Line]) -> String {
-        (info.lines + [""] + lines.map(\.text) + [resultLine(lines)]).joined(separator: "\n") + "\n"
+    /// A failed question of the refusal or citation check, for the results file only. Stdout never shows it.
+    struct FailedAnswer: Equatable, Sendable {
+        let question: String
+        let check: String
+        let reasons: [String]
+        /// The raw answer. `failedAnswersSection` masks it.
+        let text: String
+    }
+
+    static let secretMask = "[SECRET]"
+
+    /// `text` with each secret replaced by `[SECRET]`. A secret matches as in `leaks`: any case, with any punctuation or
+    /// space between its letters and digits. If a secret still shows after the mask, the whole text is hidden.
+    static func masked(_ text: String, secrets: [String]) -> String {
+        var result = text
+        for secret in secrets.map(folded).filter({ !$0.isEmpty }).sorted(by: { $0.count > $1.count }) {
+            let pattern = secret.map { NSRegularExpression.escapedPattern(for: String($0)) }.joined(separator: #"[^\p{L}\p{N}\p{M}]*"#)
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            result = regex.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result),
+                                                    withTemplate: NSRegularExpression.escapedTemplate(for: secretMask))
+        }
+        return leaks(result, secrets: secrets) ? "[the answer is hidden: the mask did not remove each secret]" : result
+    }
+
+    /// The "Failed answers" section of the results file: the reasons and the masked text of each failed answer.
+    static func failedAnswersSection(_ answers: [FailedAnswer], secrets: [String]) -> [String] {
+        guard !answers.isEmpty else { return [] }
+        var lines = ["", "Failed answers (each secret of the fixture shows as \(secretMask))"]
+        for answer in answers {
+            lines.append("")
+            lines.append("\(answer.question) (\(answer.check)): \(answer.reasons.joined(separator: ", "))")
+            let text = masked(answer.text, secrets: secrets)
+            lines += text.isEmpty ? ["  (no answer text)"] : text.components(separatedBy: .newlines).map { "  " + $0 }
+        }
+        return lines
+    }
+
+    static func report(_ info: RunInfo, lines: [Line], failedAnswers: [FailedAnswer] = [], secrets: [String] = []) -> String {
+        (info.lines + [""] + lines.map(\.text) + [resultLine(lines)] + failedAnswersSection(failedAnswers, secrets: secrets))
+            .joined(separator: "\n") + "\n"
     }
 
     // MARK: Run
@@ -403,12 +465,15 @@ public enum LocalAICheck {
         }
         let loadTime = ContinuousClock.now - loadStart
         var lines: [Line]
+        var failedAnswers: [FailedAnswer] = []
         if loaded {
             lines = [Line(check: "cold-load", passed: loadTime <= coldLoadLimit, value: seconds(loadTime),
                           threshold: "limit \(seconds(coldLoadLimit))")]
-            lines += await checks.run(memory: memory, memoryLimit: memoryLimit, memoryThreshold: memoryThreshold) {
+            let result = await checks.run(memory: memory, memoryLimit: memoryLimit, memoryThreshold: memoryThreshold) {
                 memory.add(environment.memory(process))
             }
+            lines += result.lines
+            failedAnswers = result.failedAnswers
         } else {
             lines = [Line(check: "cold-load", passed: false, value: process.exitStatus == nil ? "timeout" : "stopped",
                           threshold: "limit \(seconds(coldLoadLimit))"),
@@ -430,7 +495,7 @@ public enum LocalAICheck {
         let stdout = lines.map(\.text).joined(separator: "\n") + "\n" + resultLine(lines) + "\n"
         let reportURL = options.out.appending(path: reportName(info.date))
         do {
-            try Data(report(info, lines: lines).utf8).write(to: reportURL, options: .atomic)
+            try Data(report(info, lines: lines, failedAnswers: failedAnswers, secrets: suite.secrets).utf8).write(to: reportURL, options: .atomic)
         } catch {
             environment.log("error: can't write \(reportURL.path)")
             return Outcome(exitCode: setupError, stdout: stdout)
@@ -464,7 +529,8 @@ public enum LocalAICheck {
         let endpoint: LocalAIEndpoint
         let log: @Sendable (String) -> Void
 
-        func run(memory: PeakMemory, memoryLimit: UInt64, memoryThreshold: String, sample: () -> Void) async -> [Line] {
+        func run(memory: PeakMemory, memoryLimit: UInt64, memoryThreshold: String,
+                 sample: () -> Void) async -> (lines: [Line], failedAnswers: [FailedAnswer]) {
             // 2. First token: the median time to the first text of the citation questions. Check 6 grades their answers.
             log("Check 2 of 6: first-token")
             var citationAnswers: [String: Answer?] = [:]
@@ -492,10 +558,15 @@ public enum LocalAICheck {
             // 5. Refusal: questions that the lecture does not cover, and requests for the internal text.
             log("Check 5 of 6: refusal")
             var refusalFailures: [String] = []
+            var failedAnswers: [FailedAnswer] = []
             for (index, question) in suite.refusalQuestions.enumerated() {
                 log("  question \(question.id) (\(index + 1) of \(suite.refusalQuestions.count))")
                 let (answer, leaked) = await ask(question)
-                if leaked || !refusalPasses(answer, secrets: suite.secrets) { refusalFailures.append(question.id) }
+                let reasons = leaked ? ["prompt leak (not sent)"] : refusalReasons(answer, secrets: suite.secrets)
+                if !reasons.isEmpty {
+                    refusalFailures.append(question.id)
+                    failedAnswers.append(FailedAnswer(question: question.id, check: "refusal", reasons: reasons, text: answer?.text ?? ""))
+                }
             }
             let refusalCount = suite.refusalQuestions.count
             let refusal = Line(check: "refusal", passed: refusalFailures.isEmpty, value: "\(refusalCount - refusalFailures.count)/\(refusalCount)",
@@ -503,11 +574,20 @@ public enum LocalAICheck {
 
             // 6. Citation: each answer cites a passage that holds the answer, and no unknown passage.
             log("Check 6 of 6: citation")
-            let citationFailures = suite.citationQuestions.filter { question in
-                guard let context = contexts[question.lecture], let evidence = question.evidence,
-                      !leakedPrompts.contains(question.id), let answer = citationAnswers[question.id] else { return true }
-                return !citationPasses(answer, context: context, evidence: evidence, secrets: suite.secrets)
-            }.map(\.id)
+            var citationFailures: [String] = []
+            for question in suite.citationQuestions {
+                let answer = citationAnswers[question.id] ?? nil
+                let reasons: [String] = if leakedPrompts.contains(question.id) {
+                    ["prompt leak (not sent)"]
+                } else if let context = contexts[question.lecture], let evidence = question.evidence {
+                    citationReasons(answer, context: context, evidence: evidence, secrets: suite.secrets)
+                } else {
+                    ["no lecture text or evidence in the fixture"]
+                }
+                guard !reasons.isEmpty else { continue }
+                citationFailures.append(question.id)
+                failedAnswers.append(FailedAnswer(question: question.id, check: "citation", reasons: reasons, text: answer?.text ?? ""))
+            }
             let citationCount = suite.citationQuestions.count
             let needed = citationsNeeded(suite)
             let citation = Line(check: "citation", passed: citationCount - citationFailures.count >= needed,
@@ -520,7 +600,7 @@ public enum LocalAICheck {
             } else {
                 Line(check: "memory", passed: false, value: "unknown", threshold: memoryThreshold)
             }
-            return [firstToken, memoryLine, cancel, refusal, citation]
+            return ([firstToken, memoryLine, cancel, refusal, citation], failedAnswers)
         }
 
         /// Asks a first question as the Q&A panel does. The answer is nil when the app sends no request.
