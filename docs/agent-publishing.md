@@ -243,6 +243,27 @@ List the internal files of a published course:
 skillgarden internal list sample-course
 ```
 
+## 6a. Inspect an installed course
+
+Show the state of an installed course, and whether learners see it. The command opens the library read-only:
+
+```sh
+skillgarden inspect sample-course
+```
+
+```
+Course "Local Course Basics" (sample-course, published)
+Learners: can see this course. 2 of 4 lectures in 1 of 2 sections are visible (2 draft).
+Snapshot: 3F2A9C1E-...
+Snapshot path: /path/to/library/courses/3F2A9C1E-...
+Internal files: 2
+Library: /path/to/library
+```
+
+- The visible counts use the learner rules of the app. A lecture in a draft section is not visible.
+- For a draft course, the `Learners:` line tells you why learners cannot see the course and how to fix it.
+- For an unknown course id, `inspect` exits 1 and prints `error: course "<id>" not found`, a hint and `Library: <path>` on stderr.
+
 ## 7. Commands and exit codes
 
 The app bundle holds the CLI at `Skillgarden.app/Contents/Helpers/skillgarden`. The commands are the same for each copy.
@@ -250,9 +271,10 @@ The app bundle holds the CLI at `Skillgarden.app/Contents/Helpers/skillgarden`. 
 | Command | Output on success |
 |---|---|
 | `skillgarden validate <course-folder>` | `Valid "<title>" (<id>, <state>): <n> sections, <n> lectures` |
-| `skillgarden publish <course-folder>` | `Published "<title>" (<id>, <state>): created <n>, updated <n>, unchanged <n>, removed <n>`, then `Library: <path>` |
+| `skillgarden publish <course-folder>` | `Published "<title>" (<id>, <state>): created <n>, updated <n>, unchanged <n>, removed <n>`, then `Files: added <n>, changed <n>, unchanged <n>, removed <n>`, `Snapshot: new <id>, <n> files, <size>` (or `Snapshot: kept <id>` when no file changed) and `Library: <path>` |
 | `skillgarden publish --dry-run <course-folder>` | `Dry run "<title>" (<id>, <state>): ...` with the same counts, one row for each change, `Files:`, `Snapshot:`, `Library: <path>`, `Nothing was written.` |
 | `skillgarden internal list <course-id>` | One tab-separated row for each internal file |
+| `skillgarden inspect <course-id>` | `Course "<title>" (<id>, <state>)`, `Learners:`, `Snapshot:`, `Snapshot path:`, `Internal files:`, `Library: <path>`. See section 6a. |
 | `skillgarden init <folder> --id <id> --title <title>` | `Created "<title>" (<id>, draft): 4 files in <path>`, then the draft line and the next step |
 | `skillgarden doctor` | Labelled lines: version, CLI, library, source, folder, write access, app library, match, sandbox |
 | `skillgarden schema [--output <file>]` | The manifest JSON Schema. With `--output`: `Wrote manifest schema 1 to <path>`. See section 8. |
@@ -277,10 +299,10 @@ Add `--json` anywhere after the command name, for example `skillgarden validate 
 | Key | Value |
 |---|---|
 | `format_version` | `1`. Later versions add keys only. |
-| `command` | `validate`, `publish`, `internal list`, `init`, `doctor`, `schema`, or `null` for an unknown command |
+| `command` | `validate`, `publish`, `internal list`, `inspect`, `init`, `doctor`, `schema`, or `null` for an unknown command |
 | `ok` | `true` when `exit_code` is 0 |
 | `exit_code` | The process exit code |
-| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`. `publish --dry-run` adds `dry_run` (`true`), `changes` (each with `action`, `kind`, `id`), `files` (`added`, `changed`, `unchanged`, `removed`), `snapshot` (`state` `new` or `kept`, `id`, `files`, integer `bytes`) and `migration` (`from`, `to`, or `null`). `internal list`: `files`, each with `title`, `path`, `description`. `init`: `title`, `id`, `state`, `draft`, `path`, `files`. `schema --output`: `path`, `schema_version`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
+| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`, `files` (`added`, `changed`, `unchanged`, `removed`), `snapshot` (`state` `new` or `kept`, `id`, `files`, integer `bytes`). `publish --dry-run` adds `dry_run` (`true`), `changes` (each with `action`, `kind`, `id`) and `migration` (`from`, `to`, or `null`). Its `snapshot.id` is `null` for a new snapshot. `internal list`: `files`, each with `title`, `path`, `description`. `inspect`: `title`, `id`, `state`, `draft`, `visible`, `sections`, `visible_sections`, `lectures`, `visible_lectures`, `snapshot` (`id`, `path`), `internal_files`, `library_path`. `init`: `title`, `id`, `state`, `draft`, `path`, `files`. `schema --output`: `path`, `schema_version`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
 | `diagnostics` | One object for each problem: `code`, `severity` (`error`), `message`, `file`, `field_path`, `hint`. `file`, `field_path` and `hint` are `null` when unknown. |
 
 The `code` values are stable. New versions add codes, but never rename a code.
@@ -298,7 +320,7 @@ The `code` values are stable. New versions add codes, but never rename a code.
 | `id.duplicate`, `order.duplicate`, `reference.unknown` | A duplicate id, a duplicate order, or an id that does not exist |
 | `path.outside`, `path.missing`, `path.not_normalized` | A path leaves its folder, names no file, or is not normalized |
 | `media.invalid` | An image, video, captions, Markdown or bundle file is not valid |
-| `course.not_found` | `internal list` cannot find the course |
+| `course.not_found` | `internal list` or `inspect` cannot find the course |
 | `library.busy` | Another process uses the library |
 | `io` | All other errors |
 

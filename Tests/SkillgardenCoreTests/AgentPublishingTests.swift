@@ -71,11 +71,11 @@ private func contents(of folder: URL) throws -> [String: Data] {
         let library = base.appending(path: "agent library")
         let root = { try Skillgarden.dataDirectory(environment: ["SKILLGARDEN_DATA_DIR": library.path], savedSetting: nil) }
         let result = SkillgardenCommand.run(arguments: ["publish", folder.path], root: try root())
-        #expect(result == CommandResult(exitCode: 0, stdout: """
-            Published "Local Course Basics" (sample-course, published): created 7, updated 0, unchanged 0, removed 0
-            Library: \(library.path)
-
-            """, stderr: ""))
+        #expect(result.exitCode == 0 && result.stderr.isEmpty)
+        let lines = result.stdout.split(separator: "\n")
+        #expect(lines.count == 4)
+        #expect(lines.first == "Published \"Local Course Basics\" (sample-course, published): created 7, updated 0, unchanged 0, removed 0")
+        #expect(lines.last.map(String.init) == "Library: \(library.path)")
         #expect(FileManager.default.fileExists(atPath: library.appending(path: "library.sqlite").path))
         #expect(try CourseStore(root: try root()).listCourses().map(\.id) == ["sample-course"])
     }
@@ -163,7 +163,7 @@ private func contents(of folder: URL) throws -> [String: Data] {
 
 @Test func validateUsage() {
     let root = FileManager.default.temporaryDirectory.appending(path: "SkillgardenUnused-\(UUID())")
-    let usage = "usage: skillgarden publish <course-folder> [--json]\n       skillgarden publish --dry-run <course-folder> [--json]\n       skillgarden validate <course-folder> [--json]\n       skillgarden internal list <course-id> [--json]\n       skillgarden init <folder> --id <id> --title <title> [--json]\n       skillgarden doctor [--json]\n       skillgarden schema [--output <file>]\n"
+    let usage = "usage: skillgarden publish <course-folder> [--json]\n       skillgarden publish --dry-run <course-folder> [--json]\n       skillgarden validate <course-folder> [--json]\n       skillgarden internal list <course-id> [--json]\n       skillgarden inspect <course-id> [--json]\n       skillgarden init <folder> --id <id> --title <title> [--json]\n       skillgarden doctor [--json]\n       skillgarden schema [--output <file>]\n"
     #expect(SkillgardenCommand.run(arguments: ["validate", "--help"], root: root) == CommandResult(exitCode: 0, stdout: usage, stderr: ""))
     for arguments in [["validate"], ["validate", "a", "b"], ["validate", "--bogus"]] {
         #expect(SkillgardenCommand.run(arguments: arguments, root: root) == CommandResult(

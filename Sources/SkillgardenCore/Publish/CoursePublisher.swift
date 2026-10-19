@@ -8,6 +8,10 @@ public struct PublishResult: Equatable, Sendable {
     public let updated: Int
     public let unchanged: Int
     public let removed: Int
+    /// The course files compared with the snapshot that was installed before this publish (#115).
+    public let files: FileCounts
+    /// The installed snapshot after this publish: a new one, or the kept one when no file changed.
+    public let snapshot: SnapshotSummary
 
     public var summary: String {
         "Published \"\(title)\" (\(id), \(state.rawValue)): created \(created), updated \(updated), unchanged \(unchanged), removed \(removed)"
@@ -31,10 +35,15 @@ public struct SnapshotSummary: Equatable, Sendable {
     /// The course files that publish copies, internal files included.
     public let files: Int
     public let bytes: Int64
+    /// The id of the new snapshot after publish wrote it (#115). Nil for a kept snapshot and for a dry run.
+    public var newID: String? = nil
+
+    /// The id of the installed snapshot, or nil for a dry run that plans a new snapshot.
+    public var id: String? { keptID ?? newID }
 
     public var line: String {
         if let keptID { return "Snapshot: kept \(keptID)" }
-        return "Snapshot: new, \(files) \(files == 1 ? "file" : "files"), "
+        return "Snapshot: new\(newID.map { " " + $0 } ?? ""), \(files) \(files == 1 ? "file" : "files"), "
             + ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }
@@ -106,6 +115,35 @@ public struct InternalFile: Equatable, Sendable {
     public let description: String?
 }
 
+/// An installed course as `skillgarden inspect` shows it (#115).
+/// The visible counts use the learner rules of `CourseStore.loadCourse` without drafts.
+public struct CourseInspection: Equatable, Sendable {
+    public let title: String
+    public let id: String
+    public let state: ManifestState
+    public let sections: Int
+    /// Zero for a draft course, because learners see none of its sections.
+    public let visibleSections: Int
+    public let lectures: Int
+    /// Zero for a draft course. A lecture in a draft section is not visible.
+    public let visibleLectures: Int
+    /// The `courses/` folder name of the installed snapshot.
+    public let snapshotID: String
+    public let snapshotPath: String
+    public let internalFiles: Int
+
+    public var heading: String { "Course \"\(title)\" (\(id), \(state.rawValue))" }
+
+    public var learnersLine: String {
+        guard state == .published else {
+            return "Learners: cannot see this course because its state is draft. Set state: published and publish again."
+        }
+        let hidden = lectures - visibleLectures
+        return "Learners: can see this course. \(visibleLectures) of \(lectures) lectures in \(visibleSections) of \(sections) "
+            + "sections are visible\(hidden > 0 ? " (\(hidden) draft)" : "")."
+    }
+}
+
 /// Publishes immutable asset snapshots before the database refers to them.
 public enum CoursePublisher {
     public static func publish(courseFolder: URL, root: URL = Skillgarden.defaultDataDirectory) throws -> PublishResult {
@@ -120,10 +158,16 @@ public enum CoursePublisher {
         let previous = try store.publication(id: manifest.id)
         let oldManifest = try previous.map { try JSONDecoder().decode(CourseManifest.self, from: $0.manifest) }
         let counts = difference(old: oldManifest, new: manifest)
-        let result = PublishResult(title: manifest.title, id: manifest.id, state: manifest.state,
-                                   created: counts.changes.filter { $0.action == .create }.count,
-                                   updated: counts.changes.filter { $0.action == .update }.count, unchanged: counts.unchanged,
-                                   removed: counts.changes.filter { $0.action == .remove }.count)
+        // The manifest counts do not see an asset edit, so the receipt also compares the files (#115).
+        let fileCounts = compare(files, source: source, root: destination, directory: previous?.directory,
+                                 internalDirectory: previous?.internalDirectory)
+        let bytes = try size(files, source: source, folder: courseFolder)
+        func result(_ snapshot: SnapshotSummary) -> PublishResult {
+            PublishResult(title: manifest.title, id: manifest.id, state: manifest.state,
+                          created: counts.changes.filter { $0.action == .create }.count,
+                          updated: counts.changes.filter { $0.action == .update }.count, unchanged: counts.unchanged,
+                          removed: counts.changes.filter { $0.action == .remove }.count, files: fileCounts, snapshot: snapshot)
+        }
         // Courses saved before media metadata get their images on the next publish.
         if let previous, oldManifest == manifest, try store.loadCourse(id: manifest.id, includeDrafts: true)?.image != nil,
            try snapshotMatches(learnerFiles, internalFiles, source: source, root: destination, directory: previous.directory,
@@ -133,7 +177,7 @@ public enum CoursePublisher {
                 let cues = try? transcriptCues(manifest, snapshot: destination.appending(path: previous.directory))
                 try store.saveTranscriptIndex(cues ?? [], courseID: manifest.id)
             }
-            return result
+            return result(SnapshotSummary(keptID: (previous.directory as NSString).lastPathComponent, files: files.count, bytes: bytes))
         }
         let name = UUID().uuidString
         let relative = "courses/\(name)"
@@ -161,7 +205,7 @@ public enum CoursePublisher {
             throw CourseStoreError.databaseFailure
         }
         // Prior snapshots remain valid for readers that already hold their paths.
-        return result
+        return result(SnapshotSummary(keptID: nil, files: files.count, bytes: bytes, newID: name))
     }
 
     /// Runs every publish-time check and writes nothing. The library root is not used.
@@ -188,22 +232,8 @@ public enum CoursePublisher {
         let previous = try reader?.publication(id: manifest.id)
         let oldManifest = try previous.map { try JSONDecoder().decode(CourseManifest.self, from: $0.manifest) }
         let counts = difference(old: oldManifest, new: manifest)
-        // Manifest paths name the internal folder in lowercase. Installed internal files have no folder name.
-        let sourcePaths = Dictionary(files.map { (isInternal($0) ? "internal/" + insideInternal($0) : $0, source.appending(path: $0)) },
-                                     uniquingKeysWith: { first, _ in first })
-        var installed: [String: URL] = [:]
-        if let previous {
-            let snapshot = destination.appending(path: previous.directory)
-            for path in (try? sourceFiles(in: snapshot)) ?? [] { installed[path] = snapshot.appending(path: path) }
-            if let internalDirectory = previous.internalDirectory {
-                let folder = destination.appending(path: internalDirectory)
-                for path in (try? sourceFiles(in: folder)) ?? [] { installed["internal/" + path] = folder.appending(path: path) }
-            }
-        }
-        let shared = sourcePaths.keys.filter { installed[$0] != nil }
-        let changed = shared.filter { !FileManager.default.contentsEqual(atPath: sourcePaths[$0]!.path, andPath: installed[$0]!.path) }
-        let fileCounts = FileCounts(added: sourcePaths.count - shared.count, changed: changed.count,
-                                    unchanged: shared.count - changed.count, removed: installed.count - shared.count)
+        let fileCounts = compare(files, source: source, root: destination, directory: previous?.directory,
+                                 internalDirectory: previous?.internalDirectory)
         // The same rule as publish: a course saved before media metadata gets a new snapshot.
         var keptID: String?
         if let previous, oldManifest == manifest, previous.hasImage,
@@ -211,16 +241,58 @@ public enum CoursePublisher {
                                internalDirectory: previous.internalDirectory) {
             keptID = (previous.directory as NSString).lastPathComponent
         }
-        let bytes = try files.reduce(Int64(0)) { total, path in
-            let size = try? source.appending(path: path).resourceValues(forKeys: [.fileSizeKey]).fileSize
-            guard let size else { throw diagnostic(courseFolder, "cannot read course files") }
-            return total + Int64(size)
-        }
+        let bytes = try size(files, source: source, folder: courseFolder)
         let version = reader?.schemaVersion
         return PublishPlan(title: manifest.title, id: manifest.id, state: manifest.state, changes: counts.changes,
                            unchanged: counts.unchanged, files: fileCounts,
                            snapshot: SnapshotSummary(keptID: keptID, files: files.count, bytes: bytes),
                            migrationFrom: version.flatMap { $0 < CourseStore.migrations.count ? $0 : nil })
+    }
+
+    /// Compares the course files with the installed snapshot and internal folder. `directory` is nil for a new course.
+    private static func compare(_ files: [String], source: URL, root: URL, directory: String?,
+                                internalDirectory: String?) -> FileCounts {
+        // Manifest paths name the internal folder in lowercase. Installed internal files have no folder name.
+        let sourcePaths = Dictionary(files.map { (isInternal($0) ? "internal/" + insideInternal($0) : $0, source.appending(path: $0)) },
+                                     uniquingKeysWith: { first, _ in first })
+        var installed: [String: URL] = [:]
+        if let directory {
+            let snapshot = root.appending(path: directory)
+            for path in (try? sourceFiles(in: snapshot)) ?? [] { installed[path] = snapshot.appending(path: path) }
+            if let internalDirectory {
+                let folder = root.appending(path: internalDirectory)
+                for path in (try? sourceFiles(in: folder)) ?? [] { installed["internal/" + path] = folder.appending(path: path) }
+            }
+        }
+        let shared = sourcePaths.keys.filter { installed[$0] != nil }
+        let changed = shared.filter { !FileManager.default.contentsEqual(atPath: sourcePaths[$0]!.path, andPath: installed[$0]!.path) }
+        return FileCounts(added: sourcePaths.count - shared.count, changed: changed.count,
+                          unchanged: shared.count - changed.count, removed: installed.count - shared.count)
+    }
+
+    /// The total size in bytes of the course files, internal files included.
+    private static func size(_ files: [String], source: URL, folder: URL) throws -> Int64 {
+        try files.reduce(Int64(0)) { total, path in
+            let size = try? source.appending(path: path).resourceValues(forKeys: [.fileSizeKey]).fileSize
+            guard let size else { throw diagnostic(folder, "cannot read course files") }
+            return total + Int64(size)
+        }
+    }
+
+    /// A read-only look at an installed course (#115). Nil when the library has no such course.
+    /// It writes nothing: no folder, no database and no migration.
+    public static func inspect(courseID: String, root: URL = Skillgarden.defaultDataDirectory) throws -> CourseInspection? {
+        guard let reader = try LibraryReader.open(root: root), let publication = try reader.publication(id: courseID),
+              let outline = try reader.outline(courseID: courseID) else { return nil }
+        guard let manifest = try? JSONDecoder().decode(CourseManifest.self, from: publication.manifest) else {
+            throw CourseStoreError.invalidData
+        }
+        return CourseInspection(title: outline.title, id: courseID, state: outline.state == .draft ? .draft : .published,
+                                sections: outline.sections, visibleSections: outline.visibleSections,
+                                lectures: outline.lectures, visibleLectures: outline.visibleLectures,
+                                snapshotID: (publication.directory as NSString).lastPathComponent,
+                                snapshotPath: root.appending(path: publication.directory).path,
+                                internalFiles: manifest.internalMaterial?.files.count ?? 0)
     }
 
     /// Loads the manifest and checks every file it names. `library` must be outside the course folder.

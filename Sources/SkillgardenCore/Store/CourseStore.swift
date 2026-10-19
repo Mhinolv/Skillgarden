@@ -546,4 +546,27 @@ final class LibraryReader {
              sqlite3_column_type($0, 2) == SQLITE_NULL ? nil : SQLiteDatabase.text($0, 2), sqlite3_column_int64($0, 3) != 0)
         }.first
     }
+
+    /// The saved title, state and outline counts of a course. Nil for an unknown course.
+    /// The visible counts use the learner rules of `CourseStore.loadCourse`: none for a draft course,
+    /// and no lecture of a draft section.
+    func outline(courseID: String) throws -> (title: String, state: PublicationState, sections: Int, visibleSections: Int,
+                                              lectures: Int, visibleLectures: Int)? {
+        try database.transaction(readOnly: true) {
+            let courses = try database.query("SELECT title, state FROM courses WHERE id = ?", [courseID]) { row in
+                guard let state = PublicationState(rawValue: SQLiteDatabase.text(row, 1)) else { throw CourseStoreError.invalidData }
+                return (SQLiteDatabase.text(row, 0), state)
+            }
+            guard let (title, state) = courses.first else { return nil }
+            let published = state == .published
+            let sections = try database.query("""
+                SELECT COUNT(*), COALESCE(SUM(state = 'published'), 0) FROM sections WHERE course_id = ?
+                """, [courseID]) { (Int(sqlite3_column_int64($0, 0)), Int(sqlite3_column_int64($0, 1))) }.first ?? (0, 0)
+            let lectures = try database.query("""
+                SELECT COUNT(*), COALESCE(SUM(l.state = 'published' AND s.state = 'published'), 0)
+                FROM lectures l JOIN sections s ON s.course_id = l.course_id AND s.id = l.section_id WHERE l.course_id = ?
+                """, [courseID]) { (Int(sqlite3_column_int64($0, 0)), Int(sqlite3_column_int64($0, 1))) }.first ?? (0, 0)
+            return (title, state, sections.0, published ? sections.1 : 0, lectures.0, published ? lectures.1 : 0)
+        }
+    }
 }
