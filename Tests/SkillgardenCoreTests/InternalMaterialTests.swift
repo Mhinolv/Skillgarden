@@ -211,7 +211,7 @@ private func files(in directory: URL) throws -> [String] {
 
 @Test func commandInternalUsageErrors() throws {
     let root = FileManager.default.temporaryDirectory.appending(path: "SkillgardenUnused-\(UUID())")
-    let usage = "usage: skillgarden publish <course-folder> [--json]\n       skillgarden publish --dry-run <course-folder> [--json]\n       skillgarden validate <course-folder> [--json]\n       skillgarden internal list <course-id> [--json]\n       skillgarden inspect <course-id> [--json]\n       skillgarden init <folder> --id <id> --title <title> [--json]\n       skillgarden media inspect <file> [--json]\n       skillgarden doctor [--json]\n       skillgarden schema [--output <file>]\n"
+    let usage = "usage: skillgarden publish <course-folder> [--json]\n       skillgarden publish --dry-run <course-folder> [--json]\n       skillgarden validate <course-folder> [--json]\n       skillgarden internal list <course-id> [--json]\n       skillgarden inspect <course-id> [--json]\n       skillgarden remove <course-id> --yes [--json]\n       skillgarden init <folder> --id <id> --title <title> [--json]\n       skillgarden media inspect <file> [--json]\n       skillgarden doctor [--json]\n       skillgarden schema [--output <file>]\n"
     for arguments in [["internal"], ["internal", "list"], ["internal", "show", "a"], ["internal", "list", "a", "b"], ["internal", "list", "--bogus"]] {
         #expect(SkillgardenCommand.run(arguments: arguments, root: root) == CommandResult(
             exitCode: 2, stdout: "", stderr: "error: expected internal list <course-id>\n" + usage))
