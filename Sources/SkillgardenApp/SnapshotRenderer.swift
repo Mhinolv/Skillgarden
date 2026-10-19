@@ -74,6 +74,14 @@ enum SnapshotRenderer {
                 library.transcriptQuery = query
                 library.searchTranscripts()
             }
+            var seeded = false
+            var seedError: (any Error)?
+            Task {
+                do { try await SnapshotPlan.seedQATurns(for: output.screen, library: library) } catch { seedError = error }
+                seeded = true
+            }
+            pump { seeded }
+            if let seedError { throw seedError }
         }
 
         let imageLoads = ImageLoadTracker()
@@ -82,13 +90,14 @@ enum SnapshotRenderer {
         // The harness injects the model row state and saves no bookmark (#122).
         let modelSettings = ModelSettings(store: nil, state: output.screen.modelState(home: FileManager.default.homeDirectoryForCurrentUser) ?? .none)
         // It also injects the local AI status and starts no runtime (#123).
-        let status = output.screen.localAIStatus ?? .off
+        // The Q&A screens get their status the same way (#128).
+        let status = output.screen.localAIStatus ?? output.screen.qaStatus ?? .off
         let localAI = RuntimeSupervisor(isEnabled: status != .off, backend: nil, status: status)
         let screenView = output.screen.isSettings
             ? AnyView(SettingsView(autoPlays: .constant(true), modelSettings: modelSettings, localAI: localAI)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top))
             : AnyView(ContentView(library: library, reloadsOnAppear: false, customRootPath: output.screen.customRootPath,
-                                  appearance: output.appearance == .dark ? .dark : .light))
+                                  appearance: output.appearance == .dark ? .dark : .light, localAI: localAI))
         let content = screenView
             // The system color scheme of the capture. `GardenTheme` reads it when the window has no course theme (#82).
             // The harness sets it on the content too, so the capture does not depend on the window appearance only.
@@ -102,6 +111,8 @@ enum SnapshotRenderer {
             .environment(\.snapshotShowsQuickChecks, output.screen.showsQuickChecks)
             .environment(\.snapshotShowsUpNext, output.screen.showsUpNext)
             .environment(\.snapshotStartsTheater, output.screen.startsTheater)
+            .environment(\.snapshotShowsQA, output.screen.showsQA)
+            .environment(\.snapshotQADraft, output.screen.qaDraft)
             .environment(\.snapshotSelectsFirstTranscriptHit, output.screen.selectsFirstTranscriptHit)
             .environment(\.snapshotShowsLandingDetails, output.screen.showsLandingDetails)
             .environment(\.showsReviewInline, true)

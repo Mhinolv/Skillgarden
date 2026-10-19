@@ -70,7 +70,7 @@ private let repo = URL(fileURLWithPath: #filePath)
 
 @Test func theaterSnapshotOpensThePlayerInTheater() {
     #expect(SnapshotScreen.videoTheater.rawValue == "video-theater")
-    #expect(SnapshotScreen.allCases.filter(\.startsTheater) == [.videoTheater, .videoUpNextTheater])
+    #expect(SnapshotScreen.allCases.filter(\.startsTheater) == [.videoTheater, .videoUpNextTheater, .qaTheater])
     #expect(SnapshotScreen.videoTheater.opensVideoPlayer)
     #expect(SnapshotPlan.destination(for: .videoTheater) == .lecture(sectionID: "plan", lectureID: "welcome"))
 }

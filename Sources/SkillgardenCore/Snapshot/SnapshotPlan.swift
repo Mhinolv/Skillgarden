@@ -75,6 +75,29 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case settingsAIOff = "settings-ai-off"
     /// The same Settings window when no port is free (#123): the Error status, its reason and `Try Again`.
     case settingsAIError = "settings-ai-error"
+    /// The Q&A panel of the video lecture (#128), scrolled to the end: Ready with three saved turns,
+    /// one complete, one cancelled and one failed.
+    case qaThread = "qa-thread"
+    /// The Q&A panel when the server is Ready and the lecture has no saved turns.
+    case qaEmpty = "qa-empty"
+    /// The Q&A panel with a saved turn and a draft answer with "Cancel".
+    case qaDraft = "qa-draft"
+    /// The Q&A panel with no model.
+    case qaNoModel = "qa-no-model"
+    /// The Q&A panel with "Use local AI" off.
+    case qaOff = "qa-off"
+    /// The Q&A panel while the local model starts.
+    case qaStarting = "qa-starting"
+    /// The Q&A panel while the local model stops.
+    case qaStopping = "qa-stopping"
+    /// The Q&A panel after the local model stopped: the reason and "Retry".
+    case qaError = "qa-error"
+    /// The Q&A panel of a video lecture with no captions.
+    case qaNoCaptions = "qa-no-captions"
+    /// The Q&A panel of the article lecture, between the meta row and the article card, with saved turns.
+    case qaArticle = "qa-article"
+    /// The Q&A panel of the video lecture in theater mode, with saved turns.
+    case qaTheater = "qa-theater"
 
     static let settingsScreens: [SnapshotScreen] = [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError]
 
@@ -90,6 +113,26 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
         case .settingsAIError: .failed(.noFreePort)
         default: nil
         }
+    }
+
+    /// True when the harness opens the Q&A panel of the lecture (#128).
+    public var showsQA: Bool { rawValue.hasPrefix("qa-") }
+
+    /// The local AI status that the harness gives to the Q&A panel (#128). Nil for the other screens.
+    public var qaStatus: LocalAIStatus? {
+        switch self {
+        case .qaNoModel: .noModel
+        case .qaOff: .off
+        case .qaStarting: .starting
+        case .qaStopping: .stopping
+        case .qaError: .failed(.serverStopped(exitCode: 9))
+        default: showsQA ? .ready(version: "b11669") : nil
+        }
+    }
+
+    /// The draft that the harness shows in the Q&A panel: the question, then the answer so far. Nil for no draft.
+    public var qaDraft: (question: String, text: String)? {
+        self == .qaDraft ? ("What does the outline show first?", "The outline shows the sections of the course, in order.") : nil
     }
 
     /// The model row state that the harness injects into the Settings form (#122). Nil for the other screens.
@@ -109,7 +152,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     }
 
     /// True when the harness starts theater mode on the video lecture (#85).
-    public var startsTheater: Bool { self == .videoTheater || self == .videoUpNextTheater }
+    public var startsTheater: Bool { [.videoTheater, .videoUpNextTheater, .qaTheater].contains(self) }
 
     /// True when the harness shows the "Up next" overlay at 5 after the load. The countdown does not run (#99).
     public var showsUpNext: Bool { self == .videoUpNext || self == .videoUpNextTheater }
@@ -120,7 +163,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// True when the harness scrolls the lecture page, or the course landing with "Details" open, to the end.
     public var scrollsLectureToEnd: Bool {
         [.courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureSources, .lectureDownloads, .pdfPreview]
-            .contains(self)
+            .contains(self) || (showsQA && self != .qaArticle)
     }
 
     /// True when the harness opens the quick-check card of the video lecture.
@@ -211,7 +254,8 @@ public enum SnapshotPlan {
             _ = try CourseStore(root: root)
             return nil
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
-             .videoQuickCheck, .videoTheater, .lectureSources, .videoUpNext, .videoUpNextTheater:
+             .videoQuickCheck, .videoTheater, .lectureSources, .videoUpNext, .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft,
+             .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaArticle, .qaTheater:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -259,6 +303,8 @@ public enum SnapshotPlan {
             return id
         case .transcriptSearch, .transcriptSearchSelected, .transcriptSearchNoResults:
             return try publishCopy(of: fixture, root: root, replacing: searchCourse)
+        case .qaNoCaptions:
+            return try publishCopy(of: fixture, root: root, replacing: [("          captions:\n            path: content/welcome.vtt\n", "")])
         case .outlineDurations:
             let id = try publishCopy(of: fixture, root: root, replacing: outlineDurationsCourse)
             try CourseStore(root: root).setCompleted(true, courseID: id, lectureID: "welcome")
@@ -354,6 +400,32 @@ public enum SnapshotPlan {
         """),
     ]
 
+    /// The saved Q&A turns of the selected lecture for a screen (#128): the question, the answer and the outcome.
+    public static func qaTurns(for screen: SnapshotScreen) -> [(question: String, answer: String, outcome: AnswerOutcome)] {
+        switch screen {
+        case .qaThread, .qaArticle, .qaTheater:
+            [("What is the goal of this course?", "You plan a course step by step [t1].", .finished),
+             ("Which tools do I need?", "You need", .canceled),
+             ("How long is the course?", "", .httpError(status: 500))]
+        case .qaDraft:
+            [("What is the goal of this course?", "You plan a course step by step [t1].", .finished)]
+        default: []
+        }
+    }
+
+    /// Saves the Q&A turns of the screen for the selected lecture of `library`, after the harness selects it.
+    @MainActor
+    public static func seedQATurns(for screen: SnapshotScreen, library: LibraryModel) async throws {
+        let turns = qaTurns(for: screen)
+        guard !turns.isEmpty, let lectureID = library.selectedLecture?.id,
+              case .ready(let context) = await library.lectureContext(forLecture: lectureID) else { return }
+        for turn in turns {
+            let saved = try await library.startQATurn(question: turn.question, context: context, lectureID: lectureID)
+            library.finishQATurn(saved, outcome: turn.outcome, text: turn.answer)
+        }
+        await library.waitForWrites()
+    }
+
     /// The seed of the review question order in the snapshot harness.
     public static let reviewSeed: UInt64 = 17
 
@@ -422,9 +494,10 @@ public enum SnapshotPlan {
              .settingsAIError: nil
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
-             .videoUpNextTheater:
+             .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions,
+             .qaTheater:
             .lecture(sectionID: "plan", lectureID: "welcome")
-        case .article, .lectureSources, .lectureDownloads, .pdfPreview: .lecture(sectionID: "plan", lectureID: "read")
+        case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle: .lecture(sectionID: "plan", lectureID: "read")
         case .courseLanding, .courseLandingDarkTheme, .courseLandingDetails, .transcriptSearch, .transcriptSearchSelected,
              .transcriptSearchNoResults: .overview
         case .courseCredits: .credits

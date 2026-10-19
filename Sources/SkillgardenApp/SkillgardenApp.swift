@@ -19,6 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let modelSettings = ModelSettings(store: ModelBookmarkStore())
     /// The owned llama-server (#123). It starts at launch and stops at quit (⌘Q), not when the last window closes.
     let localAI = RuntimeSupervisor(isEnabled: Skillgarden.savedLocalAI(), backend: BundledRuntime(), saveEnabled: Skillgarden.saveLocalAI)
+    /// The one client of the owned server for all windows (#124). It runs one request at a time.
+    let answers = LlamaClient()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // The start runs in the background, so the window opens at once.
@@ -38,7 +40,7 @@ struct SkillgardenApp: App {
 
     var body: some Scene {
         WindowGroup("Skillgarden") {
-            ContentView(appearance: appearance, autoPlays: autoPlays)
+            ContentView(appearance: appearance, autoPlays: autoPlays, localAI: appDelegate.localAI, client: appDelegate.answers)
                 // The app appearance colors every window, its menus and sheets. A course theme applies only in System (#93).
                 .onChange(of: appearance, initial: true) { NSApp.appearance = appearance.nsAppearance }
         }
@@ -65,6 +67,11 @@ struct SkillgardenApp: App {
                 }
                 .keyboardShortcut("t", modifiers: [.option, .command])
                 .disabled(showsTranscript == nil)
+                Button(showsQA == true ? "Hide Q&A" : "Show Q&A", systemImage: LectureQAPanel.symbol) {
+                    showsQA?.toggle()
+                }
+                .keyboardShortcut("a", modifiers: [.option, .command])
+                .disabled(showsQA == nil)
                 // AVKit has no public API to start full screen from code, so the player button is the only full-screen control (#85).
                 Button(theaterMode == true ? "Exit Theater Mode" : "Enter Theater Mode", systemImage: "tv") {
                     theaterMode?.toggle()
@@ -110,6 +117,8 @@ struct SkillgardenApp: App {
     @FocusedValue(\.library) private var focusedLibrary
     /// Nil when no video lecture with captions shows.
     @FocusedBinding(\.showsTranscript) private var showsTranscript
+    /// Nil when no video or article lecture shows (#128).
+    @FocusedBinding(\.showsQA) private var showsQA
     /// Nil when no video lecture with an available video shows.
     @FocusedBinding(\.theaterMode) private var theaterMode
     /// Nil when no course outline shows.
@@ -145,13 +154,20 @@ struct ContentView: View {
     private let autoPlays: Bool
     /// True while the "Up next" overlay shows. Escape then cancels the countdown and does not end theater.
     @State private var upNextShows = false
+    /// The owned llama-server (#123). The Q&A panel shows its state (#128).
+    private let localAI: RuntimeSupervisor
+    /// The Q&A panel of the window (#128). A lecture change cancels its request.
+    @State private var qa: LectureQA
+    /// The Q&A panel is open. The window keeps it for all lectures, like theater. It is not saved.
+    @State private var showsQA = false
     @Environment(\.showsReviewInline) private var showsReviewInline
     @Environment(\.showsPDFPreviewInline) private var showsPDFPreviewInline
     @Environment(\.snapshotIgnoresCourseTheme) private var ignoresCourseTheme
     @Environment(\.snapshotStartsTheater) private var snapshotStartsTheater
+    @Environment(\.snapshotShowsQA) private var snapshotShowsQA
 
     /// Uses the data folder that `SKILLGARDEN_DATA_DIR` or the saved `DataDirectory` setting names.
-    init(appearance: AppAppearance, autoPlays: Bool) {
+    init(appearance: AppAppearance, autoPlays: Bool, localAI: RuntimeSupervisor, client: LlamaClient) {
         let library: LibraryModel
         do {
             library = LibraryModel(root: try Skillgarden.dataDirectory())
@@ -159,19 +175,39 @@ struct ContentView: View {
             library = LibraryModel(rootError: error.localizedDescription)
         }
         self.init(library: library, customRootPath: Skillgarden.customDataDirectoryPath(library.root), appearance: appearance,
-                  videoText: Skillgarden.savedVideoTextChoices(), saveVideoText: Skillgarden.saveVideoTextChoices, autoPlays: autoPlays)
+                  videoText: Skillgarden.savedVideoTextChoices(), saveVideoText: Skillgarden.saveVideoTextChoices, autoPlays: autoPlays,
+                  localAI: localAI, client: client)
     }
 
     /// The snapshot harness passes a loaded library and sets `reloadsOnAppear` to false.
+    /// It passes a `localAI` with an injected status and starts no runtime.
     init(library: LibraryModel, reloadsOnAppear: Bool = true, customRootPath: String? = nil, appearance: AppAppearance = .dark,
-         videoText: VideoTextChoices = VideoTextChoices(), saveVideoText: ((VideoTextChoices) -> Void)? = nil, autoPlays: Bool = true) {
+         videoText: VideoTextChoices = VideoTextChoices(), saveVideoText: ((VideoTextChoices) -> Void)? = nil, autoPlays: Bool = true,
+         localAI: RuntimeSupervisor = RuntimeSupervisor(isEnabled: false, backend: nil), client: LlamaClient = LlamaClient()) {
         _library = State(initialValue: library)
+        self.localAI = localAI
+        _qa = State(initialValue: LectureQA(library: library, client: client, endpoint: { [localAI] in localAI.verifiedEndpoint() },
+                                            announce: { AccessibilityNotification.Announcement($0).post() }))
         _videoText = State(initialValue: videoText)
         self.saveVideoText = saveVideoText
         self.reloadsOnAppear = reloadsOnAppear
         self.customRootPath = customRootPath
         self.appearance = appearance
         self.autoPlays = autoPlays
+    }
+
+    /// The Transcript choice as the video page shows it (#128). Q&A and the transcript share one slot.
+    /// Q&A hides the transcript and keeps the saved choice. The Transcript pill on closes Q&A.
+    private var transcriptBinding: Binding<Bool> {
+        Binding(get: { LecturePanelSlot.showsTranscript(saved: videoText.showsTranscript, showsQA: showsQA) }, set: { on in
+            let next = LecturePanelSlot.setTranscript(on, showsQA: showsQA)
+            showsQA = next.showsQA
+            videoTextBinding(\.showsTranscript).wrappedValue = next.saved
+        })
+    }
+
+    private var qaPanel: LectureQAPanel {
+        LectureQAPanel(qa: qa, localAI: localAI, isOn: $showsQA)
     }
 
     /// A binding to one video text choice that saves the change at once.
@@ -219,7 +255,12 @@ struct ContentView: View {
         .focusedSceneValue(\.library, library)
         .task { if reloadsOnAppear { await library.reload() } }
         .onChange(of: showsVideo) { _, showsVideo in showSidebar(theater.pageChanged(showsVideo: showsVideo)) }
-        .onAppear { if snapshotStartsTheater { setTheater(true) } }
+        // A lecture change cancels the Q&A request, so no answer goes into the thread of another lecture (#128).
+        .onChange(of: LectureQA.key(library: library), initial: true) { _, key in qa.show(key) }
+        .onAppear {
+            if snapshotStartsTheater { setTheater(true) }
+            if snapshotShowsQA { showsQA = true }
+        }
     }
 
     /// True while the page is a video lecture. Theater ends on every other page.
@@ -258,8 +299,9 @@ struct ContentView: View {
                     }
                 }
                 .background {
-                    if theater.isOn && !upNextShows {
+                    if theater.isOn && !upNextShows && !qa.isAnswering {
                         // Escape ends theater. The button has no visible part. While "Up next" shows, Escape cancels it only (#99).
+                        // While a Q&A answer runs, Escape cancels the answer only (#128).
                         Button("Exit Theater Mode") { showSidebar(theater.end()) }
                             .keyboardShortcut(.cancelAction)
                             .opacity(0)
@@ -317,7 +359,7 @@ struct ContentView: View {
                         QuizView(attempt: attempt) { library.performQuizAction($0) }
                     } else {
                         switch lecture.type {
-                        case .article: ArticleLectureView(article: library.article(forLecture: lecture.id))
+                        case .article: ArticleLectureView(article: library.article(forLecture: lecture.id), qaPanel: qaPanel)
                         case .video:
                             VideoLectureView(video: library.video(forLecture: lecture.id),
                                              quickChecks: library.selectedQuickChecks,
@@ -329,7 +371,7 @@ struct ContentView: View {
                                              },
                                              saveResumePosition: { [library] in library.saveResumePosition($0, lectureID: lecture.id) },
                                              showsCaptions: videoTextBinding(\.showsCaptions),
-                                             showsTranscript: videoTextBinding(\.showsTranscript),
+                                             showsTranscript: transcriptBinding,
                                              theater: Binding(get: { theater.isOn }, set: { setTheater($0) }),
                                              playerMaxWidth: theater.playerMaxWidth,
                                              seekRequest: library.transcriptSeek.flatMap { $0.lectureID == lecture.id ? $0 : nil },
@@ -340,7 +382,8 @@ struct ContentView: View {
                                              upNextTitle: autoPlays ? library.nextLectureTitle : nil,
                                              playNext: { library.playNextLecture() },
                                              startsPlaying: { [library] in library.takeAutoPlay(lectureID: lecture.id) },
-                                             upNextShowsChanged: { upNextShows = $0 })
+                                             upNextShowsChanged: { upNextShows = $0 },
+                                             qaPanel: qaPanel)
                         case .interactive:
                             InteractiveLectureView(lecture: lecture, module: library.selectedInteractive,
                                                    result: library.selectedInteractiveResult) {
