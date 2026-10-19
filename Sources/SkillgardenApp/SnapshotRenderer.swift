@@ -78,9 +78,12 @@ enum SnapshotRenderer {
 
         let imageLoads = ImageLoadTracker()
         let appearance = NSAppearance(named: output.appearance == .dark ? .darkAqua : .aqua)!
-        // The Settings screen draws the Settings form at the top of the window. The real Settings window is separate.
-        let screenView = output.screen == .settings
-            ? AnyView(SettingsView(autoPlays: .constant(true)).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top))
+        // The Settings screens draw the Settings form at the top of the window. The real Settings window is separate.
+        // The harness injects the model row state and saves no bookmark (#122).
+        let modelSettings = ModelSettings(store: nil, state: output.screen.modelState(home: FileManager.default.homeDirectoryForCurrentUser) ?? .none)
+        let screenView = output.screen.isSettings
+            ? AnyView(SettingsView(autoPlays: .constant(true), modelSettings: modelSettings)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top))
             : AnyView(ContentView(library: library, reloadsOnAppear: false, customRootPath: output.screen.customRootPath,
                                   appearance: output.appearance == .dark ? .dark : .light))
         let content = screenView

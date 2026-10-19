@@ -67,7 +67,24 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// with a long title, so the title truncates and the length stays.
     case outlineDurations = "outline-durations"
     /// The Settings window (⌘,) with "Auto-play next lecture" on (#99). The harness draws it in place of the main window.
+    /// The "Local AI" section shows a valid model (#122).
     case settings
+    /// The same Settings window when the saved model file is missing (#122). The Model row shows the red message.
+    case settingsModelMissing = "settings-model-missing"
+
+    /// True for the Settings screens. The harness draws the Settings form in place of the main window.
+    public var isSettings: Bool { self == .settings || self == .settingsModelMissing }
+
+    /// The model row state that the harness injects into the Settings form (#122). Nil for the other screens.
+    public func modelState(home: URL) -> ModelSettings.State? {
+        switch self {
+        case .settings:
+            let url = home.appending(path: "Library/Application Support/Skillgarden/Models/qwen2.5-3b-instruct-q4_k_m.gguf")
+            return .ready(LocalModel(url: url, sizeBytes: 2_104_932_768))
+        case .settingsModelMissing: return .problem(.missing("qwen2.5-3b-instruct-q4_k_m.gguf"))
+        default: return nil
+        }
+    }
 
     /// True when the harness opens the player of the video lecture before the capture.
     public var opensVideoPlayer: Bool {
@@ -96,8 +113,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     public var checksTitlebarForVideo: Bool { opensVideoPlayer }
 
     /// True when the harness fails if a toolbar material view covers the column colors (#101).
-    /// The Settings screen draws no main-window toolbar, so the harness does not check it.
-    public var checksToolbarMaterial: Bool { self != .settings }
+    /// The Settings screens draw no main-window toolbar, so the harness does not check it.
+    public var checksToolbarMaterial: Bool { !isSettings }
 
     /// True when the harness opens "Details" on the course landing.
     public var showsLandingDetails: Bool { self == .courseLandingDetails }
@@ -110,7 +127,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     public var showsPDFPreviewInline: Bool { self == .pdfPreview }
 
     /// True when the harness selects the seeded course. The Library screens show the Library home, so they select none.
-    public var selectsCourse: Bool { ![.library, .libraryEmpty, .libraryEmptyCustomFolder, .settings].contains(self) }
+    public var selectsCourse: Bool { ![.library, .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing].contains(self) }
 
     /// True when the harness also writes `<screen>-unthemed-dark.png`: the course screen with no course theme, in dark (#82).
     /// The `-dark` capture uses the Dark setting, which wins over the light fixture theme (#93). The dark-theme screen gets no unthemed capture.
@@ -173,7 +190,7 @@ public enum SnapshotPlan {
     /// Writes the store that a screen needs into `root` and returns the course to select, if any.
     public static func seedStore(for screen: SnapshotScreen, root: URL, fixture: URL) throws -> String? {
         switch screen {
-        case .libraryEmpty, .libraryEmptyCustomFolder, .settings:
+        case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing:
             _ = try CourseStore(root: root)
             return nil
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
@@ -374,7 +391,7 @@ public enum SnapshotPlan {
     /// then the question image or the assignment brief or the PDF thumbnail.
     public static func imageLoads(for screen: SnapshotScreen) -> Int {
         switch screen {
-        case .libraryEmpty, .libraryEmptyCustomFolder, .settings: 0
+        case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing: 0
         case .library: 3
         case .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads, .pdfPreview: 2
         default: 1
@@ -384,7 +401,7 @@ public enum SnapshotPlan {
     /// The page to open after the course is selected.
     public static func destination(for screen: SnapshotScreen) -> CourseDestination? {
         switch screen {
-        case .libraryEmpty, .libraryEmptyCustomFolder, .library, .settings: nil
+        case .libraryEmpty, .libraryEmptyCustomFolder, .library, .settings, .settingsModelMissing: nil
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
              .videoUpNextTheater:
