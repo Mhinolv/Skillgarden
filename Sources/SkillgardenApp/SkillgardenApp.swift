@@ -21,6 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let localAI = RuntimeSupervisor(isEnabled: Skillgarden.savedLocalAI(), backend: BundledRuntime(), saveEnabled: Skillgarden.saveLocalAI)
     /// The one client of the owned server for all windows (#124). It runs one request at a time.
     let answers = LlamaClient()
+    /// The Settings "Q&A" profiles, the "Answer with" choice and the course consents (#151). Secrets are in the Keychain.
+    let providers = ProviderSettings(store: ProviderSettingsStore())
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // The start runs in the background, so the window opens at once.
@@ -40,7 +42,8 @@ struct SkillgardenApp: App {
 
     var body: some Scene {
         WindowGroup("Skillgarden") {
-            ContentView(appearance: appearance, autoPlays: autoPlays, localAI: appDelegate.localAI, client: appDelegate.answers)
+            ContentView(appearance: appearance, autoPlays: autoPlays, localAI: appDelegate.localAI, client: appDelegate.answers,
+                        providers: appDelegate.providers)
                 // The app appearance colors every window, its menus and sheets. A course theme applies only in System (#93).
                 .onChange(of: appearance, initial: true) { NSApp.appearance = appearance.nsAppearance }
         }
@@ -106,7 +109,7 @@ struct SkillgardenApp: App {
         // Skillgarden > Settings… (⌘,).
         Settings {
             SettingsView(autoPlays: Binding(get: { autoPlays }, set: { autoPlays = $0; Skillgarden.saveAutoPlay($0) }),
-                         modelSettings: appDelegate.modelSettings, localAI: appDelegate.localAI)
+                         modelSettings: appDelegate.modelSettings, localAI: appDelegate.localAI, providers: appDelegate.providers)
         }
     }
 
@@ -158,6 +161,8 @@ struct ContentView: View {
     private let localAI: RuntimeSupervisor
     /// The Q&A panel of the window (#128). A lecture change cancels its request.
     @State private var qa: LectureQA
+    /// The "Answer with" choice and the course consents (#151).
+    private let providers: ProviderSettings
     /// The Q&A panel is open. The window keeps it for all lectures, like theater. It is not saved.
     @State private var showsQA = false
     @Environment(\.showsReviewInline) private var showsReviewInline
@@ -167,7 +172,7 @@ struct ContentView: View {
     @Environment(\.snapshotShowsQA) private var snapshotShowsQA
 
     /// Uses the data folder that `SKILLGARDEN_DATA_DIR` or the saved `DataDirectory` setting names.
-    init(appearance: AppAppearance, autoPlays: Bool, localAI: RuntimeSupervisor, client: LlamaClient) {
+    init(appearance: AppAppearance, autoPlays: Bool, localAI: RuntimeSupervisor, client: LlamaClient, providers: ProviderSettings) {
         let library: LibraryModel
         do {
             library = LibraryModel(root: try Skillgarden.dataDirectory())
@@ -176,18 +181,20 @@ struct ContentView: View {
         }
         self.init(library: library, customRootPath: Skillgarden.customDataDirectoryPath(library.root), appearance: appearance,
                   videoText: Skillgarden.savedVideoTextChoices(), saveVideoText: Skillgarden.saveVideoTextChoices, autoPlays: autoPlays,
-                  localAI: localAI, client: client)
+                  localAI: localAI, client: client, providers: providers)
     }
 
     /// The snapshot harness passes a loaded library and sets `reloadsOnAppear` to false.
     /// It passes a `localAI` with an injected status and starts no runtime.
     init(library: LibraryModel, reloadsOnAppear: Bool = true, customRootPath: String? = nil, appearance: AppAppearance = .dark,
          videoText: VideoTextChoices = VideoTextChoices(), saveVideoText: ((VideoTextChoices) -> Void)? = nil, autoPlays: Bool = true,
-         localAI: RuntimeSupervisor = RuntimeSupervisor(isEnabled: false, backend: nil), client: LlamaClient = LlamaClient()) {
+         localAI: RuntimeSupervisor = RuntimeSupervisor(isEnabled: false, backend: nil), client: LlamaClient = LlamaClient(),
+         providers: ProviderSettings = ProviderSettings(store: nil, credentials: MemoryCredentialStore())) {
         _library = State(initialValue: library)
         self.localAI = localAI
+        self.providers = providers
         let provider = BundledAnswerProvider(client: client, endpoint: { [localAI] in localAI.verifiedEndpoint() })
-        _qa = State(initialValue: LectureQA(library: library, provider: provider,
+        _qa = State(initialValue: LectureQA(library: library, provider: provider, providers: providers,
                                             announce: { AccessibilityNotification.Announcement($0).post() }))
         _videoText = State(initialValue: videoText)
         self.saveVideoText = saveVideoText
@@ -208,7 +215,7 @@ struct ContentView: View {
     }
 
     private var qaPanel: LectureQAPanel {
-        LectureQAPanel(qa: qa, localAI: localAI, isOn: $showsQA)
+        LectureQAPanel(qa: qa, localAI: localAI, providers: providers, isOn: $showsQA)
     }
 
     /// A binding to one video text choice that saves the change at once.
@@ -297,6 +304,9 @@ struct ContentView: View {
                         inlineSheet { reviewSheet(review) }
                     } else if showsPDFPreviewInline, let pdf = inlinePDF {
                         inlineSheet { PDFPreviewSheet(download: pdf) }
+                    } else if showsReviewInline, let request = qa.consentRequest {
+                        // The Q&A panel shows the real consent sheet. The snapshot harness draws it here (#151).
+                        inlineSheet { RemoteConsentSheet(request: request, showsText: true, allow: {}, cancel: {}) }
                     }
                 }
                 .background {
@@ -431,17 +441,23 @@ struct SettingsView: View {
     let modelSettings: ModelSettings
     /// The owned llama-server (#123).
     let localAI: RuntimeSupervisor
+    /// The "Q&A" provider profiles (#151).
+    let providers: ProviderSettings
 
     var body: some View {
         Form {
             Toggle("Auto-play next lecture", isOn: $autoPlays)
+            QAProvidersSection(providers: providers)
             LocalAISection(settings: modelSettings, localAI: localAI)
         }
         .formStyle(.grouped)
         .frame(width: 460)
         .fixedSize()
         // Each open checks the saved model again, so a moved or deleted file shows at once.
-        .task { await modelSettings.load() }
+        .task {
+            providers.checkCredentials()
+            await modelSettings.load()
+        }
         // A new model restarts the server: Stopping, Starting, Ready.
         .onChange(of: modelSettings.model) { _, model in localAI.setModel(model) }
     }
@@ -450,7 +466,9 @@ struct SettingsView: View {
 struct SettingsView_Previews: PreviewProvider {
     static var previews: some View {
         SettingsView(autoPlays: .constant(true), modelSettings: ModelSettings(store: nil),
-                     localAI: RuntimeSupervisor(isEnabled: true, backend: nil, status: .ready(version: "b11669")))
+                     localAI: RuntimeSupervisor(isEnabled: true, backend: nil, status: .ready(version: "b11669")),
+                     providers: ProviderSettings(store: nil, credentials: MemoryCredentialStore(), profiles: SnapshotPlan.providerProfiles,
+                                                 selectedID: SnapshotPlan.providerProfiles[0].id))
     }
 }
 

@@ -241,6 +241,21 @@ r1 (refusal): leak
 | `FAIL  … not run` | The model did not load, so the check did not run. Fix `cold-load` first. |
 | `error: can't write <file>` | The `--out` folder is not writable. Choose another folder. The results are still on stdout. |
 
+## Remote Q&A and provider profiles (#151)
+
+Remote Q&A is opt-in. The bundled llama.cpp model is the default "Answer with" choice, also after an upgrade.
+Courses and the Q&A history stay on this Mac. Internal-only material never goes into a prompt.
+
+| Item | Rule |
+|---|---|
+| "Answer with" | One app-wide choice in Settings > Q&A (owner decision 2026-10-19). |
+| Profiles | `Providers.json` in Application Support: kind, name, origin, model ID and token limits. No secrets. |
+| Secrets | API keys and tokens are Keychain items of the service `com.skillgarden.providers`. They do not sync and stay on this Mac. |
+| Consent | Each course asks before the first question goes to a profile. The sheet shows the exact text of the request. |
+| Destination change | A new kind, host or model removes the consents of the profile. Each course asks again. |
+| Disconnect | Deletes the Keychain item, the consents and the profile. The bundled model answers again. |
+| Adapters | A profile sends only when its adapter ships (#152 to #157). "Add Provider" lists only those kinds. |
+
 ## Framework exception
 
 The engineering rules allow only Apple frameworks and the vendored Yams package.

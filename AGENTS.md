@@ -5,6 +5,7 @@ Skillgarden is a Mac-native, local course platform, like Udemy, for content that
 - Agents publish courses with the `skillgarden` CLI: a course folder plus a manifest (YAML or JSON). Publishing is idempotent.
 - Learners use the SwiftUI app to take courses: video, article, quiz and assignment lectures, transcripts, downloads, progress.
 - Everything is local. No accounts, no server, no network.
+- Remote Q&A is opt-in. The bundled llama.cpp model is the default. A provider profile sends lecture text only after the learner allows it for each course (#151). Provider secrets live in the Keychain only, never in SQLite, JSON, logs, URLs or manifests.
 - The MVP scope is in `docs/mvp-requirements.md`. After the MVP: Q&A, certificates, ratings, analytics, sequencing locks.
 
 ## Architecture Map

@@ -104,5 +104,6 @@ private func runSnapshots(_ screens: [SnapshotScreen], into out: URL) throws -> 
     for screen in SnapshotScreen.allCases {
         #expect(screen.checksToolbarMaterial == !screen.isSettings, "\(screen)")
     }
-    #expect(SnapshotScreen.allCases.filter(\.isSettings) == [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError])
+    #expect(SnapshotScreen.allCases.filter(\.isSettings) == [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
+                                                               .settingsProviders])
 }

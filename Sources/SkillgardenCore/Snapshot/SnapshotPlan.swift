@@ -75,6 +75,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case settingsAIOff = "settings-ai-off"
     /// The same Settings window when no port is free (#123): the Error status, its reason and `Try Again`.
     case settingsAIError = "settings-ai-error"
+    /// The same Settings window with three provider profiles in the Q&A section (#151). One profile has a refused Keychain item.
+    case settingsProviders = "settings-providers"
     /// The Q&A panel of the video lecture (#128), scrolled to the end: Ready with three saved turns,
     /// one complete, one cancelled and one failed.
     case qaThread = "qa-thread"
@@ -110,8 +112,13 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case qaErrorHistory = "qa-error-history"
     /// The Q&A panel with saved turns while the local model starts (#160).
     case qaStartingHistory = "qa-starting-history"
+    /// The consent sheet of a question for the OpenAI API profile, with the exact text open (#151).
+    case qaConsent = "qa-consent"
+    /// The Q&A panel with the OpenAI API profile as "Answer with" and a saved remote turn (#151).
+    case qaRemote = "qa-remote"
 
-    static let settingsScreens: [SnapshotScreen] = [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError]
+    static let settingsScreens: [SnapshotScreen] = [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
+                                                    .settingsProviders]
 
     /// True for the Settings screens. The harness draws the Settings form in place of the main window.
     public var isSettings: Bool { Self.settingsScreens.contains(self) }
@@ -119,7 +126,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The local AI status that the harness injects into the Settings form (#123). It starts no runtime. Nil for the other screens.
     public var localAIStatus: LocalAIStatus? {
         switch self {
-        case .settings: .ready(version: "b11669")
+        case .settings, .settingsProviders: .ready(version: "b11669")
         case .settingsModelMissing: .noModel
         case .settingsAIOff: .off
         case .settingsAIError: .failed(.noFreePort)
@@ -150,13 +157,19 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The model row state that the harness injects into the Settings form (#122). Nil for the other screens.
     public func modelState(home: URL) -> ModelSettings.State? {
         switch self {
-        case .settings, .settingsAIOff, .settingsAIError:
+        case .settings, .settingsAIOff, .settingsAIError, .settingsProviders:
             let url = home.appending(path: "Library/Application Support/Skillgarden/Models/qwen2.5-3b-instruct-q4_k_m.gguf")
             return .ready(LocalModel(url: url, sizeBytes: 2_104_932_768))
         case .settingsModelMissing: return .problem(.missing("qwen2.5-3b-instruct-q4_k_m.gguf"))
         default: return nil
         }
     }
+
+    /// True when the harness gives the fixture provider profiles to Settings and the Q&A panel (#151).
+    public var usesProviderProfiles: Bool { [.settingsProviders, .qaConsent, .qaRemote].contains(self) }
+
+    /// The question that the harness sends, so the consent sheet opens (#151). Nil for the other screens.
+    public var qaConsentQuestion: String? { self == .qaConsent ? "Which tools do I need?" : nil }
 
     /// True when the harness opens the player of the video lecture before the capture.
     public var opensVideoPlayer: Bool {
@@ -265,13 +278,14 @@ public enum SnapshotPlan {
     /// Writes the store that a screen needs into `root` and returns the course to select, if any.
     public static func seedStore(for screen: SnapshotScreen, root: URL, fixture: URL) throws -> String? {
         switch screen {
-        case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError:
+        case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
+             .settingsProviders:
             _ = try CourseStore(root: root)
             return nil
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
              .videoQuickCheck, .videoTheater, .lectureSources, .videoUpNext, .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft,
              .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaArticle, .qaTheater, .qaCitations, .qaCitationExcerpt,
-             .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory:
+             .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -423,7 +437,7 @@ public enum SnapshotPlan {
             [("What is the goal of this course?", "You plan a course step by step [t1].", .finished),
              ("Which tools do I need?", "You need", .canceled),
              ("How long is the course?", "", .httpError(status: 500))]
-        case .qaDraft:
+        case .qaDraft, .qaConsent, .qaRemote:
             [("What is the goal of this course?", "You plan a course step by step [t1].", .finished)]
         case .qaCitations, .qaOffHistory, .qaErrorHistory, .qaStartingHistory:
             // Inline Markdown (#158): italic, a marker in bold and code.
@@ -440,8 +454,27 @@ public enum SnapshotPlan {
     /// True when the harness saves the Q&A turns of the screen with an earlier revision of the lecture text (#129).
     public static func qaTurnsAreStale(for screen: SnapshotScreen) -> Bool { screen == .qaCitationsStale }
 
-    /// The provider and the model of the seeded Q&A turns (#150). The panel does not show them.
+    /// The provider and the model of the seeded Q&A turns (#150). The panel shows them only for a profile (#151).
     static let snapshotOrigin = AnswerOrigin(providerID: BundledAnswerProvider.providerID, modelID: "snapshot.gguf")
+
+    /// The origin of the seeded turns of a screen: the OpenAI API profile on `qa-remote`, else the bundled model.
+    static func qaOrigin(for screen: SnapshotScreen) -> AnswerOrigin {
+        screen == .qaRemote ? AnswerOrigin(providerID: providerProfiles[0].id, modelID: providerProfiles[0].modelID) : snapshotOrigin
+    }
+
+    /// The fixture profiles of `usesProviderProfiles` (#151): one of each group with an adapter later, and a second API.
+    /// The first profile is the "Answer with" choice.
+    public static let providerProfiles = [
+        ProviderProfile(id: "snapshot-openai", kind: .api, name: "OpenAI API", vendor: "OpenAI", origin: "https://api.openai.com",
+                        modelID: "gpt-5", credentialReference: "snapshot-openai"),
+        ProviderProfile(id: "snapshot-lm-studio", kind: .externalLocal, name: "LM Studio", vendor: "LM Studio",
+                        origin: "http://localhost:1234", modelID: "qwen2.5-7b-instruct"),
+        ProviderProfile(id: "snapshot-anthropic", kind: .api, name: "Anthropic API", vendor: "Anthropic",
+                        origin: "https://api.anthropic.com", modelID: "claude-sonnet-5-5", credentialReference: "snapshot-anthropic"),
+    ]
+
+    /// The Keychain item that the fixture refuses, so its Settings row shows the Keychain problem.
+    public static let deniedCredentialAccount = "snapshot-anthropic"
 
     /// Saves the Q&A turns of the screen for the selected lecture of `library`, after the harness selects it.
     @MainActor
@@ -455,7 +488,7 @@ public enum SnapshotPlan {
                              passages: context.passages.map { LecturePassage(id: $0.id, label: $0.label, text: $0.text + " Old.") })
             : context
         for turn in turns {
-            let saved = try await library.startQATurn(question: turn.question, context: asked, origin: snapshotOrigin,
+            let saved = try await library.startQATurn(question: turn.question, context: asked, origin: qaOrigin(for: screen),
                                                       lectureID: lectureID)
             library.finishQATurn(saved, outcome: turn.outcome, text: turn.answer)
         }
@@ -516,7 +549,8 @@ public enum SnapshotPlan {
     /// then the question image or the assignment brief or the PDF thumbnail.
     public static func imageLoads(for screen: SnapshotScreen) -> Int {
         switch screen {
-        case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError: 0
+        case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
+             .settingsProviders: 0
         case .library: 3
         case .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads, .pdfPreview: 2
         default: 1
@@ -527,11 +561,11 @@ public enum SnapshotPlan {
     public static func destination(for screen: SnapshotScreen) -> CourseDestination? {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library, .settings, .settingsModelMissing, .settingsAIOff,
-             .settingsAIError: nil
+             .settingsAIError, .settingsProviders: nil
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
              .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions,
-             .qaTheater, .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory:
+             .qaTheater, .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote:
             .lecture(sectionID: "plan", lectureID: "welcome")
         case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle, .qaCitationExcerpt:
             .lecture(sectionID: "plan", lectureID: "read")
@@ -544,4 +578,33 @@ public enum SnapshotPlan {
         case .outlineDurations: .lecture(sectionID: "plan", lectureID: "recap")
         }
     }
+}
+
+/// The provider of a fixture profile (#151). It can prepare, so the consent sheet opens, but no request ever sends.
+@MainActor
+public final class SnapshotAnswerProvider: AnswerProvider {
+    public let id: String
+    public let displayName: String
+    public let kind: AnswerProviderKind
+    public let destination: RemoteDestination?
+    private let modelID: String
+
+    public init(profile: ProviderProfile) {
+        id = profile.id
+        displayName = profile.name
+        kind = profile.kind
+        destination = profile.destination
+        modelID = profile.modelID
+    }
+
+    public func prepare() -> PreparedAnswer? {
+        PreparedAnswer(origin: AnswerOrigin(providerID: id, modelID: modelID)) { _ in
+            let (updates, continuation) = AsyncStream<AnswerUpdate>.makeStream()
+            continuation.yield(.ended(.canceled, text: ""))
+            continuation.finish()
+            return AnswerRequest(id: UUID(), updates: updates)
+        }
+    }
+
+    public func cancel(_ id: UUID) {}
 }

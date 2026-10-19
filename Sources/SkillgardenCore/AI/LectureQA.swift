@@ -16,6 +16,15 @@ public enum LectureQAState: Equatable, Sendable {
     case error(reason: String?)
     case ready
 
+    /// The state of a provider other than the bundled model (#151). The local runtime state does not apply to it.
+    public init(content: LectureQA.Content) {
+        switch content {
+        case .loading: self = .loading
+        case .unavailable(let message): self = .unavailable(message: message)
+        case .ready: self = .ready
+        }
+    }
+
     public init(status: LocalAIStatus, content: LectureQA.Content) {
         if case .unavailable(let message) = content { self = .unavailable(message: message); return }
         switch status {
@@ -128,9 +137,17 @@ public final class LectureQA {
     /// Nil when no request runs.
     public private(set) var draft: Draft?
     public private(set) var notice: Notice?
+    /// The consent sheet (#151). A question for a provider other than the bundled model waits here until the learner
+    /// allows the course for the destination. Nil when no question waits.
+    public private(set) var consentRequest: RemoteConsentRequest?
 
     @ObservationIgnored private let library: LibraryModel
-    @ObservationIgnored private let provider: any AnswerProvider
+    /// The bundled model, or the only provider when `providers` is nil.
+    @ObservationIgnored private let bundled: any AnswerProvider
+    /// The app-wide "Answer with" choice and the course consents (#151).
+    @ObservationIgnored private let providers: ProviderSettings?
+    /// The provider of the running request. Cancel goes to it, also after the "Answer with" choice changes.
+    @ObservationIgnored private var requestProvider: (any AnswerProvider)?
     @ObservationIgnored private let announce: @MainActor (String) -> Void
     @ObservationIgnored private var context: LectureContext?
     /// Goes up on each lecture change and Clear History. A request of an earlier generation changes no state.
@@ -144,11 +161,13 @@ public final class LectureQA {
     /// The citations of the saved turns (#129), so a draft change does not parse each answer again.
     @ObservationIgnored private var citationCache: [Int64: (answer: String, isStale: Bool, citations: AnswerCitations)] = [:]
 
-    /// `provider` answers each question (#150). `announce` posts a VoiceOver announcement.
-    public init(library: LibraryModel, provider: any AnswerProvider, draftInterval: Duration = .milliseconds(100),
-                announce: @escaping @MainActor (String) -> Void = { _ in }) {
+    /// `provider` answers each question (#150). With `providers`, the "Answer with" choice answers and `provider` is
+    /// the bundled model (#151). `announce` posts a VoiceOver announcement.
+    public init(library: LibraryModel, provider: any AnswerProvider, providers: ProviderSettings? = nil,
+                draftInterval: Duration = .milliseconds(100), announce: @escaping @MainActor (String) -> Void = { _ in }) {
         self.library = library
-        self.provider = provider
+        bundled = provider
+        self.providers = providers
         self.announce = announce
         throttle = DraftThrottle(interval: draftInterval)
     }
@@ -163,6 +182,9 @@ public final class LectureQA {
     /// True while a request runs.
     public var isAnswering: Bool { draft != nil }
 
+    /// The provider that answers the next question (#151).
+    public var provider: any AnswerProvider { providers?.activeProvider(bundled: bundled) ?? bundled }
+
     /// True when the thread has saved turns, a notice or a draft (#160).
     public var hasHistory: Bool { !conversation.turns.isEmpty || draft != nil || notice != nil }
 
@@ -176,6 +198,7 @@ public final class LectureQA {
         citationCache = [:]
         conversation = LectureConversation(turns: [], sourceRevision: nil)
         notice = nil
+        consentRequest = nil
     }
 
     /// Reads the lecture text and the saved thread of `key`. It does nothing while a request runs.
@@ -202,25 +225,52 @@ public final class LectureQA {
     }
 
     /// Asks the question. False when the panel can't send now: no text, a running request, no lecture text,
-    /// or a provider that can't answer now.
+    /// or a provider that can't answer now. False also when the course has no consent for the destination of the
+    /// provider (#151): `consentRequest` then holds the question, and the question stays in the field.
     @discardableResult
     public func send(_ text: String) -> Bool {
         let question = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let provider = provider
         guard !question.isEmpty, draft == nil, let key, let context, let answer = provider.prepare(),
               library.selectedCourseID == key.courseID else { return false }
         notice = nil
+        consentRequest = nil
         guard let prompt = conversation.prompt(context: context, question: question) else {
             notice = Notice(question: question, text: LecturePrompt.noEvidenceText)
             return true
         }
-        draft = Draft(question: question, text: "")
-        cancelRequested = false
-        let generation = generation
-        request = Task {
-            await run(question: question, context: context, key: key, messages: prompt.messages, answer: answer,
-                      generation: generation)
+        if let destination = provider.destination, providers?.hasConsent(courseID: key.courseID, destination: destination) != true {
+            let vendor = providers?.profiles.first { $0.id == destination.profileID }?.vendor ?? provider.displayName
+            consentRequest = RemoteConsentRequest(courseID: key.courseID, question: question, providerName: provider.displayName,
+                                                  destination: destination, vendor: vendor, context: context, prompt: prompt)
+            return false
         }
-        return true
+        return start(question: question, context: context, key: key, messages: prompt.messages, provider: provider, answer: answer)
+    }
+
+    /// "Allow and Send" of the consent sheet (#151): saves the consent of the course, then sends the exact messages of
+    /// the sheet. False when the save fails, the lecture changed, or the "Answer with" choice changed.
+    @discardableResult
+    public func allowAndSend() -> Bool {
+        guard let request = consentRequest else { return false }
+        consentRequest = nil
+        let provider = provider
+        guard let providers, draft == nil, let key, key.courseID == request.courseID, let context,
+              library.selectedCourseID == key.courseID, provider.destination == request.destination,
+              let answer = provider.prepare() else { return false }
+        do {
+            try providers.allow(courseID: key.courseID, destination: request.destination)
+        } catch {
+            notice = Notice(question: request.question, text: Self.saveFailedText)
+            return false
+        }
+        return start(question: request.question, context: context, key: key, messages: request.messages, provider: provider,
+                     answer: answer)
+    }
+
+    /// "Cancel" of the consent sheet. Nothing leaves the Mac, and the question stays in the field.
+    public func cancelConsent() {
+        consentRequest = nil
     }
 
     /// Retry asks the question of the turn again as a new turn (#127).
@@ -234,7 +284,7 @@ public final class LectureQA {
     public func cancel() {
         guard draft != nil else { return }
         cancelRequested = true
-        if let requestID { provider.cancel(requestID) }
+        if let requestID { requestProvider?.cancel(requestID) }
     }
 
     /// Clear History, after the learner confirms. It cancels the request first.
@@ -244,6 +294,7 @@ public final class LectureQA {
         library.clearQAHistory(forLecture: key.lectureID)
         conversation = LectureConversation(turns: [], sourceRevision: conversation.sourceRevision)
         notice = nil
+        consentRequest = nil
     }
 
     /// The sources of a saved turn (#129). A turn of an earlier version of the lecture text gets stale sources.
@@ -270,6 +321,23 @@ public final class LectureQA {
     /// The snapshot harness shows a draft with no request.
     public func showSnapshotDraft(question: String, text: String) {
         draft = Draft(question: question, text: text)
+    }
+
+    /// Starts the request of a question. It is the only place that starts a request, so it checks the consent again:
+    /// a provider with a destination sends only with a saved consent of the course (#151).
+    private func start(question: String, context: LectureContext, key: Key, messages: [ChatMessage],
+                       provider: any AnswerProvider, answer: PreparedAnswer) -> Bool {
+        if let destination = provider.destination {
+            guard providers?.hasConsent(courseID: key.courseID, destination: destination) == true else { return false }
+        }
+        draft = Draft(question: question, text: "")
+        cancelRequested = false
+        requestProvider = provider
+        let generation = generation
+        request = Task {
+            await run(question: question, context: context, key: key, messages: messages, answer: answer, generation: generation)
+        }
+        return true
     }
 
     /// Waits until the last request ends. Tests use it.
