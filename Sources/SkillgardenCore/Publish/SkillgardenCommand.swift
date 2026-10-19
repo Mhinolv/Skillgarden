@@ -27,6 +27,7 @@ public enum SkillgardenCommand {
         usage: skillgarden publish <course-folder> [--json]
                skillgarden validate <course-folder> [--json]
                skillgarden internal list <course-id> [--json]
+               skillgarden doctor [--json]
 
         """
 
@@ -34,12 +35,15 @@ public enum SkillgardenCommand {
     public static let jsonFormatVersion = 1
 
     /// `root` is read only by the commands that open the library. A bad data folder setting exits 2.
+    /// `doctor` is read only by `skillgarden doctor`.
     public static func run(arguments: [String],
-                           root: @autoclosure () throws -> URL = try Skillgarden.dataDirectory()) -> CommandResult {
+                           root: @autoclosure () throws -> URL = try Skillgarden.dataDirectory(),
+                           doctor: @autoclosure () -> Doctor = Doctor.current()) -> CommandResult {
         if arguments == ["--version"] || arguments == ["version"] {
             return CommandResult(exitCode: 0, stdout: "skillgarden \(Skillgarden.version)\n", stderr: "")
         }
-        if arguments == ["publish", "--help"] || arguments == ["validate", "--help"] || arguments == ["--help"] {
+        if arguments == ["publish", "--help"] || arguments == ["validate", "--help"] || arguments == ["doctor", "--help"]
+            || arguments == ["--help"] {
             return CommandResult(exitCode: 0, stdout: usage, stderr: "")
         }
         // `--json` can come anywhere after the command name.
@@ -56,6 +60,9 @@ public enum SkillgardenCommand {
             command = "internal list"
             outcome = arguments.count == 3 && arguments[1] == "list" && !arguments[2].hasPrefix("-")
                 ? withRoot(root) { listInternal(courseID: arguments[2], root: $0) } : usageError("expected internal list <course-id>")
+        case "doctor":
+            command = "doctor"
+            outcome = arguments.count == 1 ? diagnose(doctor()) : usageError("expected doctor")
         default:
             command = arguments.first == "publish" ? "publish" : nil
             outcome = arguments.count == 2 && arguments[0] == "publish" && !arguments[1].hasPrefix("-")
@@ -139,6 +146,11 @@ public enum SkillgardenCommand {
         } catch {
             return failure(error)
         }
+    }
+
+    /// The report goes to stdout for every exit code, so an agent sees the lines that explain the error.
+    private static func diagnose(_ doctor: Doctor) -> CommandOutcome {
+        CommandOutcome(exitCode: doctor.exitCode, text: doctor.text, result: doctor.result, diagnostics: doctor.diagnostics)
     }
 
     /// Prints one tab-separated row for each internal file, in manifest order.

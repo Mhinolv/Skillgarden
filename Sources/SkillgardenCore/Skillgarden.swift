@@ -19,15 +19,28 @@ public enum Skillgarden {
     /// An empty value is skipped. A leading `~` expands to `home`. A relative path is an error.
     public static func dataDirectory(environment: [String: String], savedSetting: String?,
                                      home: URL = FileManager.default.homeDirectoryForCurrentUser) throws(DataDirectoryError) -> URL {
-        for (name, value) in [(dataDirectoryVariable, environment[dataDirectoryVariable]), (dataDirectoryKey, savedSetting)] {
+        try resolveDataDirectory(environment: environment, savedSetting: savedSetting, home: home).url
+    }
+
+    /// The data folder and the source that names it (#108). `defaultDirectory` lets tests replace Application Support.
+    public static func resolveDataDirectory(environment: [String: String], savedSetting: String?,
+                                            home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                                            defaultDirectory: URL = defaultDataDirectory) throws(DataDirectoryError)
+        -> (url: URL, source: DataDirectorySource) {
+        for (source, value) in [(DataDirectorySource.environment, environment[dataDirectoryVariable]), (.savedSetting, savedSetting)] {
             guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { continue }
             var path = value
             if path == "~" { path = home.path }
             else if path.hasPrefix("~/") { path = home.path + path.dropFirst() }
-            guard path.hasPrefix("/") else { throw DataDirectoryError(source: name) }
-            return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+            guard path.hasPrefix("/") else { throw DataDirectoryError(source: source.name) }
+            return (URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL, source)
         }
-        return defaultDataDirectory
+        return (defaultDirectory, .applicationSupport)
+    }
+
+    /// Reads the saved `DataDirectory` setting of the `dev.skillgarden.app` domain.
+    public static func savedDataDirectory() -> String? {
+        CFPreferencesCopyAppValue(dataDirectoryKey as CFString, defaultsDomain as CFString) as? String
     }
 
     /// The path to show in the app when `root` is not the default data folder, else nil.
@@ -40,8 +53,7 @@ public enum Skillgarden {
 
     /// Reads the real environment and the saved setting of the `dev.skillgarden.app` domain.
     public static func dataDirectory() throws(DataDirectoryError) -> URL {
-        let saved = CFPreferencesCopyAppValue(dataDirectoryKey as CFString, defaultsDomain as CFString) as? String
-        return try dataDirectory(environment: ProcessInfo.processInfo.environment, savedSetting: saved)
+        try dataDirectory(environment: ProcessInfo.processInfo.environment, savedSetting: savedDataDirectory())
     }
 
     /// The key of the View > Appearance setting in the `dev.skillgarden.app` domain.
@@ -147,6 +159,36 @@ public struct VideoTextChoices: Equatable, Sendable {
     /// The keys and the values to save.
     public var savedValues: [(String, Bool)] {
         [(Self.captionsKey, showsCaptions), (Self.transcriptKey, showsTranscript)]
+    }
+}
+
+/// The setting that names the data folder, in lookup order.
+public enum DataDirectorySource: String, CaseIterable, Sendable {
+    case environment
+    case savedSetting = "saved_setting"
+    case applicationSupport = "default"
+
+    /// The name of the variable or the key: `SKILLGARDEN_DATA_DIR`, `DataDirectory` or `Application Support`.
+    public var name: String {
+        switch self {
+        case .environment: Skillgarden.dataDirectoryVariable
+        case .savedSetting: Skillgarden.dataDirectoryKey
+        case .applicationSupport: "Application Support"
+        }
+    }
+
+    /// The `doctor` text: `SKILLGARDEN_DATA_DIR (environment)`.
+    public var label: String {
+        switch self {
+        case .environment: "\(name) (environment)"
+        case .savedSetting: "\(name) (saved setting)"
+        case .applicationSupport: "\(name) (default)"
+        }
+    }
+
+    init?(name: String) {
+        guard let source = Self.allCases.first(where: { $0.name == name }) else { return nil }
+        self = source
     }
 }
 

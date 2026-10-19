@@ -198,6 +198,6 @@ private func diagnostics(_ object: [String: Any]) -> [[String: Any]] {
         "usage", "data_dir.relative", "course_folder.missing", "manifest.missing", "manifest.duplicate", "manifest.syntax",
         "field.required", "field.type", "field.choice", "field.not_allowed", "field.value", "id.duplicate", "order.duplicate",
         "reference.unknown", "path.outside", "path.missing", "path.not_normalized", "media.invalid", "course.not_found",
-        "library.busy", "io",
+        "library.busy", "io", "data_dir.not_folder",
     ])
 }
