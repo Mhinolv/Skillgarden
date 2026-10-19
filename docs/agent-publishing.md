@@ -289,7 +289,7 @@ For a draft course, `validate` and `publish` also print `Draft: learners do not 
 | 0 | Success | Results on stdout |
 | 1 | Manifest or file errors. For `init`, a folder that is not empty or a path that is not a folder. For `media inspect`, a file that is not MP4 or has no readable length. | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem. List indexes in `<fieldPath>` start at 0: `sections[0]` is the first section. |
 | 2 | Usage error or bad data folder setting | `error: ...` on stderr. A usage error also prints the usage text. |
-| 3 | I/O or library error. For `validate`, also a missing course folder. For `media inspect`, a file that does not exist or a folder. For `doctor`, a library path that is not a folder. For `schema`, a file that cannot be written. | `error: <description>` on stderr |
+| 3 | I/O or library error. For `validate`, also a missing course folder. For `media inspect`, a file that does not exist or a folder. For `doctor`, a library path that is not a folder. For `schema`, a file that cannot be written. A busy or locked library. | `error: <description>` on stderr. A busy or locked library also prints a `hint:` line and `Library: <path>`. |
 
 `doctor` prints its report on stdout also for exit codes 2 and 3.
 
@@ -304,7 +304,7 @@ Add `--json` anywhere after the command name, for example `skillgarden validate 
 | `ok` | `true` when `exit_code` is 0 |
 | `exit_code` | The process exit code |
 | `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`, `files` (`added`, `changed`, `unchanged`, `removed`), `snapshot` (`state` `new` or `kept`, `id`, `files`, integer `bytes`). `publish --dry-run` adds `dry_run` (`true`), `changes` (each with `action`, `kind`, `id`) and `migration` (`from`, `to`, or `null`). Its `snapshot.id` is `null` for a new snapshot. `internal list`: `files`, each with `title`, `path`, `description`. `inspect`: `title`, `id`, `state`, `draft`, `visible`, `sections`, `visible_sections`, `lectures`, `visible_lectures`, `snapshot` (`id`, `path`), `internal_files`, `library_path`. `media inspect`: `path`, `format` (`mp4`), `duration_seconds`, `accepted_min`, `accepted_max`. `init`: `title`, `id`, `state`, `draft`, `path`, `files`. `schema --output`: `path`, `schema_version`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
-| `diagnostics` | One object for each problem: `code`, `severity` (`error`), `message`, `file`, `field_path`, `hint`. `file`, `field_path` and `hint` are `null` when unknown. |
+| `diagnostics` | One object for each problem: `code`, `severity` (`error`), `message`, `file`, `field_path`, `hint`, `library_path`. `file`, `field_path`, `hint` and `library_path` are `null` when unknown. `library_path` is set for `library.busy` and `library.locked`. |
 
 The `code` values are stable. New versions add codes, but never rename a code.
 
@@ -323,7 +323,8 @@ The `code` values are stable. New versions add codes, but never rename a code.
 | `path.outside`, `path.missing`, `path.not_normalized` | A path leaves its folder, names no file, or is not normalized |
 | `media.invalid` | An image, video, captions, Markdown or bundle file is not valid |
 | `course.not_found` | `internal list` or `inspect` cannot find the course |
-| `library.busy` | Another process uses the library |
+| `library.busy` | Another process held a write lock on the library for more than 5 seconds. Run the command again when it stops. |
+| `library.locked` | Another operation in the same process locked the library database. Run the command again. |
 | `io` | All other errors |
 
 ## 8. Manifest schema

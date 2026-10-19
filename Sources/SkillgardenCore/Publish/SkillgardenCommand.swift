@@ -126,7 +126,7 @@ public enum SkillgardenCommand {
         func value(_ text: String?) -> Any { text ?? NSNull() }
         let diagnostics: [[String: Any]] = outcome.diagnostics.map {
             ["code": $0.code.rawValue, "file": value($0.file), "field_path": value($0.fieldPath),
-             "message": $0.message, "hint": value($0.hint), "severity": "error"]
+             "message": $0.message, "hint": value($0.hint), "library_path": value($0.libraryPath), "severity": "error"]
         }
         let envelope: [String: Any] = [
             "format_version": jsonFormatVersion, "command": value(command), "ok": outcome.exitCode == 0,
@@ -151,9 +151,24 @@ public enum SkillgardenCommand {
         return body(url)
     }
 
-    private static func failure(_ error: Error) -> CommandOutcome {
+    /// `root` is the library that the command opened. A busy or locked library adds a retry hint and the `Library:` line (#117).
+    private static func failure(_ error: Error, root: URL? = nil) -> CommandOutcome {
         if let error = error as? ManifestValidationError { return .failure(1, error.diagnostics.map(CommandDiagnostic.init)) }
+        if let error = error as? CourseStoreError, error == .busy || error == .locked, let root {
+            var outcome = CommandOutcome.failure(3, [CommandDiagnostic(
+                code: error == .busy ? .libraryBusy : .libraryLocked, message: error.localizedDescription,
+                hint: "Wait until the Skillgarden app or the other skillgarden command stops saving. Then run the command again.",
+                libraryPath: root.path)])
+            outcome.showsHints = true
+            outcome.errorFooter = "Library: \(root.path)\n"
+            return outcome
+        }
         return .failure(3, [CommandDiagnostic(code: .io, message: error.localizedDescription)])
+    }
+
+    /// The text-mode stderr of a failed library command. Tests use it for errors that a command run cannot easily cause.
+    static func failureStderr(_ error: Error, root: URL) -> String {
+        textResult(failure(error, root: root)).stderr
     }
 
     private static func draftText(_ state: ManifestState) -> String {
@@ -170,7 +185,7 @@ public enum SkillgardenCommand {
                 "library_path": root.path, "files": json(result.files), "snapshot": json(result.snapshot),
             ])
         } catch {
-            return failure(error)
+            return failure(error, root: root)
         }
     }
 
@@ -180,13 +195,13 @@ public enum SkillgardenCommand {
         do {
             plan = try CoursePublisher.plan(courseFolder: URL(fileURLWithPath: path), root: root)
         } catch let error as CourseStoreError {
-            guard case .unsupportedSchema = error else { return failure(error) }
+            guard case .unsupportedSchema = error else { return failure(error, root: root) }
             var outcome = CommandOutcome.failure(3, [CommandDiagnostic(code: .io, message: error.localizedDescription,
                                                                        hint: "Update skillgarden. Dry run does not change the library.")])
             outcome.showsHints = true
             return outcome
         } catch {
-            return failure(error)
+            return failure(error, root: root)
         }
         let lines = [plan.summary] + plan.changes.map(\.line) + [plan.files.line, plan.snapshot.line] + [plan.migrationLine].compactMap { $0 }
         let text = lines.map { $0 + "\n" }.joined() + draftText(plan.state) + "Library: \(root.path)\nNothing was written.\n"
@@ -216,13 +231,13 @@ public enum SkillgardenCommand {
         do {
             inspection = try CoursePublisher.inspect(courseID: courseID, root: root)
         } catch let error as CourseStoreError {
-            guard case .unsupportedSchema = error else { return failure(error) }
+            guard case .unsupportedSchema = error else { return failure(error, root: root) }
             var outcome = CommandOutcome.failure(3, [CommandDiagnostic(code: .io, message: error.localizedDescription,
                                                                        hint: "Update skillgarden. Inspect does not change the library.")])
             outcome.showsHints = true
             return outcome
         } catch {
-            return failure(error)
+            return failure(error, root: root)
         }
         guard let inspection else {
             var outcome = CommandOutcome.failure(1, [CommandDiagnostic(code: .courseNotFound, message: "course \"\(courseID)\" not found",
@@ -394,7 +409,7 @@ public enum SkillgardenCommand {
             let rows = files.map { [cell($0.title), cell($0.path), cell($0.description)].joined(separator: "\t") + "\n" }
             return CommandOutcome(exitCode: 0, text: "TITLE\tPATH\tDESCRIPTION\n" + rows.joined(), result: result)
         } catch {
-            return failure(error)
+            return failure(error, root: root)
         }
     }
 }
