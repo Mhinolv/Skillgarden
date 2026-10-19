@@ -394,6 +394,44 @@ private func model(_ library: LibraryModel, transport: ScriptedTransport, interv
     }
 }
 
+// #168: each panel open calls `load()`. With the same lecture text, the saved answers are not parsed again,
+// and each source keeps its chip title and VoiceOver label from the one parse.
+@MainActor @Test func panelOpenKeepsTheCitationsOfTwentyTurns() async throws {
+    try await withLibrary { library throws in
+        open(library, "read")
+        guard case .ready(let context) = await library.lectureContext(forLecture: "read") else {
+            Issue.record("The article has no lecture text.")
+            return
+        }
+        for index in 1...20 {
+            let turn = try await library.startQATurn(question: "Question \(index)?", context: context,
+                                                     origin: .legacy, lectureID: "read")
+            library.finishQATurn(turn, outcome: .finished, text: "Write the goal [a1].")
+        }
+        await library.waitForWrites()
+
+        let qa = model(library, transport: ScriptedTransport())
+        qa.show(LectureQA.key(library: library))
+        await qa.load()
+        #expect(qa.conversation.turns.count == 20)
+        let first = qa.conversation.turns.map { qa.citations(for: $0) }
+        #expect(qa.citationParseCount == 20)
+
+        // The learner closes and opens the panel 4 times.
+        for _ in 1...4 {
+            await qa.load()
+            #expect(qa.conversation.turns.map { qa.citations(for: $0) } == first)
+        }
+        #expect(qa.citationParseCount == 20)
+
+        let source = try #require(first.first?.sources.first)
+        #expect(source.title == "1 · Excerpt")
+        #expect(source.accessibilityText == "Source 1, excerpt")
+        let stored = Set(Mirror(reflecting: source).children.compactMap(\.label))
+        #expect(stored.isSuperset(of: ["title", "accessibilityText"]))
+    }
+}
+
 @MainActor @Test func noServerOrNoLectureTextSendsNothing() async throws {
     try await withLibrary { library throws in
         open(library, "read")

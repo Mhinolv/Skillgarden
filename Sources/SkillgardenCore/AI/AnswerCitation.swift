@@ -18,12 +18,21 @@ public struct AnswerSource: Equatable, Hashable, Sendable, Identifiable {
     public let number: Int?
     public let kind: Kind
 
+    /// The chip text, for example "1 · 4:12", "1 · Excerpt" or "? · Unknown source". It is made once, with the source (#168).
+    public let title: String
+    /// The VoiceOver label of the chip in the current locale. It is made once, with the source (#168).
+    public let accessibilityText: String
+
     public init(number: Int?, kind: Kind) {
         self.number = number
         self.kind = kind
+        title = Self.title(number: number, kind: kind)
+        accessibilityText = Self.accessibilityLabel(number: number, kind: kind, locale: .current)
     }
 
-    public var id: String { number.map(String.init) ?? "?" }
+    public var id: String { Self.id(number) }
+
+    private static func id(_ number: Int?) -> String { number.map(String.init) ?? "?" }
 
     /// True for a video seek or an article excerpt. Stale and unknown sources are plain labels.
     public var isActionable: Bool {
@@ -33,9 +42,9 @@ public struct AnswerSource: Equatable, Hashable, Sendable, Identifiable {
         }
     }
 
-    /// The chip text, for example "1 · 4:12", "1 · Excerpt" or "? · Unknown source".
-    public var title: String {
-        switch kind {
+    private static func title(number: Int?, kind: Kind) -> String {
+        let id = id(number)
+        return switch kind {
         case .video(let seconds, _): "\(id) · \(LectureVideo.durationLabel(seconds: Int(seconds)))"
         case .article: "\(id) · Excerpt"
         case .stale: "\(id) · Earlier version"
@@ -53,8 +62,14 @@ public struct AnswerSource: Equatable, Hashable, Sendable, Identifiable {
         }
     }
 
+    /// The VoiceOver label in `locale`. The panel uses `accessibilityText`.
     public func accessibilityLabel(locale: Locale = .current) -> String {
-        switch kind {
+        Self.accessibilityLabel(number: number, kind: kind, locale: locale)
+    }
+
+    private static func accessibilityLabel(number: Int?, kind: Kind, locale: Locale) -> String {
+        let id = id(number)
+        return switch kind {
         case .video(let seconds, _):
             "Source \(id), at \(LectureVideo.spokenDuration(seconds: Int(seconds), locale: locale).replacingOccurrences(of: ",", with: ""))"
         case .article: "Source \(id), excerpt"

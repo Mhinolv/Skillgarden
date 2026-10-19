@@ -216,11 +216,13 @@ public final class LectureQA {
         let outcome = await library.lectureContext(forLecture: key.lectureID)
         let loaded = try? await library.lectureConversation(forLecture: key.lectureID)
         guard generation == self.generation, key == self.key, draft == nil else { return }
-        citationCache = [:]
+        // Each panel open loads again (#168). The citations stay while the lecture text is the same.
+        let value: LectureContext? = if case .ready(let value) = outcome { value } else { nil }
+        if value != context { citationCache = [:] }
         switch outcome {
         case .ready(let value):
             context = value
-            content = .ready
+            if content != .ready { content = .ready }
         case .noText:
             context = nil
             let isArticle = library.selectedLecture?.type == .article
@@ -229,7 +231,8 @@ public final class LectureQA {
             context = nil
             content = .unavailable(outcome.learnerText ?? Self.notAvailableMessage)
         }
-        if let loaded { conversation = loaded }
+        // The same thread does not draw the panel again.
+        if let loaded, loaded != conversation { conversation = loaded }
     }
 
     /// Asks the question. False when the panel can't send now: no text, a running request, no lecture text,
@@ -310,9 +313,13 @@ public final class LectureQA {
         let isStale = conversation.isEarlierVersion(turn)
         if let entry = citationCache[turn.id], entry.answer == turn.answer, entry.isStale == isStale { return entry.citations }
         let citations = AnswerCitations(answer: turn.answer, context: context, isStale: isStale)
+        citationParseCount += 1
         citationCache[turn.id] = (turn.answer, isStale, citations)
         return citations
     }
+
+    /// The parses of saved answers. Tests use it.
+    @ObservationIgnored private(set) var citationParseCount = 0
 
     /// The numbered markers of the draft answer. The draft is always of the current lecture text.
     public var draftCitations: AnswerCitations? { draft?.citations }

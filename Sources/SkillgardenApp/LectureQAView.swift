@@ -85,9 +85,11 @@ struct LectureQAView: View, Equatable {
                     .buttonStyle(.garden(.plain))
                     .disabled(qa.conversation.turns.isEmpty && !qa.isAnswering)
             }
-            thread(state)
-                .frame(maxWidth: .infinity)
+            // The thread is an overlay of a fixed frame, so the size of the panel and the window minimum size
+            // do not measure the turns (#168).
+            Color.clear
                 .frame(height: Self.threadHeight)
+                .overlay { thread(state).frame(maxWidth: .infinity, maxHeight: .infinity) }
             // The composer reads the question, so a key press draws the composer only.
             QAComposer(qa: qa, canSendState: state.canSend, question: $question, fieldFocused: $fieldFocused)
             Text(profile.map { "Answers come from \($0.vendor) and can be wrong." } ?? "Answers come from a local model and can be wrong.")
@@ -233,10 +235,11 @@ struct LectureQAView: View, Equatable {
     }
 
     /// The saved turns, the earlier-version divider (#127), the notice and the draft. The newest text stays in view.
+    /// The stack is lazy and starts at the bottom, so an open lays out only the turns in view (#168).
     private var turns: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: GardenSpacing.s) {
+                LazyVStack(alignment: .leading, spacing: GardenSpacing.s) {
                     let earlier = qa.conversation.earlierTurns
                     ForEach(earlier) { turn($0) }
                     if !earlier.isEmpty {
@@ -262,6 +265,8 @@ struct LectureQAView: View, Equatable {
                 .foregroundStyle(palette.ink)
                 .padding(.vertical, GardenSpacing.xxs)
             }
+            // Only the start offset: a short thread stays at the top of the frame.
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
             .onAppear { proxy.scrollTo(Self.endID, anchor: .bottom) }
             .onChange(of: qa.conversation.turns.count) { proxy.scrollTo(Self.endID, anchor: .bottom) }
             .onChange(of: qa.notice) { proxy.scrollTo(Self.endID, anchor: .bottom) }
@@ -481,14 +486,14 @@ private struct SourcesRow: View {
             Button { seek(source) } label: { Label(source.title, systemImage: "play.circle") }
                 .buttonStyle(.garden(.bordered, .small))
                 .help(source.help ?? "")
-                .accessibilityLabel(source.accessibilityLabel())
+                .accessibilityLabel(source.accessibilityText)
                 .accessibilityHint(source.accessibilityHint ?? "")
         case .article:
             Toggle(isOn: Binding(get: { openID == source.id }, set: { openID = $0 ? source.id : nil })) {
                 Label(source.title, systemImage: "text.quote")
             }
             .toggleStyle(GardenPillToggleStyle(size: .small))
-            .accessibilityLabel(source.accessibilityLabel())
+            .accessibilityLabel(source.accessibilityText)
             .accessibilityHint(source.accessibilityHint ?? "")
         case .stale, .unknown:
             Text(source.title)
@@ -497,7 +502,7 @@ private struct SourcesRow: View {
                 .help(source.help ?? "")
                 // Tab reaches the label, so keyboard users hear why it has no action.
                 .focusable()
-                .accessibilityLabel(source.accessibilityLabel())
+                .accessibilityLabel(source.accessibilityText)
         }
     }
 }
@@ -552,13 +557,30 @@ private struct QuestionBubble: View {
     }
 }
 
+/// An on/off choice that a page gives to a View menu item. Only the value is compared (#168).
+/// A page that draws again with the same value does not update the window focus and the main menu.
+/// A `Binding` is never equal to the one before, so the menu updated on each page redraw.
+struct MenuToggle: Equatable {
+    let isOn: Bool
+    private let set: (Bool) -> Void
+
+    init(_ binding: Binding<Bool>) {
+        isOn = binding.wrappedValue
+        set = { binding.wrappedValue = $0 }
+    }
+
+    func toggle() { set(!isOn) }
+
+    static func == (lhs: MenuToggle, rhs: MenuToggle) -> Bool { lhs.isOn == rhs.isOn }
+}
+
 private struct ShowsQAFocusKey: FocusedValueKey {
-    typealias Value = Binding<Bool>
+    typealias Value = MenuToggle
 }
 
 extension FocusedValues {
     /// Set while a video or article lecture shows. View > Show Q&A uses it (#128).
-    var showsQA: Binding<Bool>? {
+    var showsQA: MenuToggle? {
         get { self[ShowsQAFocusKey.self] }
         set { self[ShowsQAFocusKey.self] = newValue }
     }

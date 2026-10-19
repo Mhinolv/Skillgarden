@@ -228,9 +228,9 @@ struct VideoLectureView: View {
             }
         }
         .background(VideoSkipKeys(skip: skip(by:)))
-        .focusedSceneValue(\.showsTranscript, hasCaptions ? $showsTranscript : nil)
-        .focusedSceneValue(\.theaterMode, isUnavailable ? nil : $theater)
-        .focusedSceneValue(\.showsQA, qaPanel?.isOn)
+        .focusedSceneValue(\.showsTranscript, hasCaptions ? MenuToggle($showsTranscript) : nil)
+        .focusedSceneValue(\.theaterMode, isUnavailable ? nil : MenuToggle($theater))
+        .focusedSceneValue(\.showsQA, qaPanel.map { MenuToggle($0.isOn) })
         .task(id: video) { await load() }
         .onChange(of: seekRequest) { applySeekRequest() }
         .onChange(of: playback?.endCount) { _, count in
@@ -877,23 +877,23 @@ private struct TranscriptRowBody: View {
 }
 
 private struct ShowsTranscriptFocusKey: FocusedValueKey {
-    typealias Value = Binding<Bool>
+    typealias Value = MenuToggle
 }
 
 extension FocusedValues {
     /// Set while a video lecture with captions shows. View > Show Transcript uses it.
-    var showsTranscript: Binding<Bool>? {
+    var showsTranscript: MenuToggle? {
         get { self[ShowsTranscriptFocusKey.self] }
         set { self[ShowsTranscriptFocusKey.self] = newValue }
     }
 
     /// Set while a video lecture with an available video shows. View > Enter Theater Mode uses it (#85).
-    var theaterMode: Binding<Bool>? {
+    var theaterMode: MenuToggle? {
         get { self[TheaterModeFocusKey.self] }
         set { self[TheaterModeFocusKey.self] = newValue }
     }
 }
 
 private struct TheaterModeFocusKey: FocusedValueKey {
-    typealias Value = Binding<Bool>
+    typealias Value = MenuToggle
 }
