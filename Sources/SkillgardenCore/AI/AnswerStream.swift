@@ -20,11 +20,20 @@ public enum AnswerOutcome: Equatable, Sendable {
     /// A provider other than the bundled model refused the request (#152). `reason` is the design-note text.
     /// It never holds the response body.
     case refused(reason: String)
+    /// The model stopped at the output limit of the profile (#154). The partial answer stays.
+    case incomplete
+    /// The model declined to answer, for example an Anthropic `refusal` stop (#154).
+    case declined
+
+    public static let incompleteText = "Stopped at the output limit"
+    public static let declinedText = "The model declined to answer."
 
     /// The design-note text for the learner. Nil when the answer shows no extra text.
     public var learnerText: String? {
         switch self {
         case .finished: nil
+        case .incomplete: Self.incompleteText
+        case .declined: Self.declinedText
         case .canceled: "Canceled"
         case .disconnected: "The answer stopped because local AI stopped. Try again."
         case .empty: "The model gave no answer. Try again."
@@ -39,8 +48,8 @@ public enum AnswerOutcome: Equatable, Sendable {
     /// True when the answer keeps the text that came before the end.
     var keepsText: Bool {
         switch self {
-        case .finished, .canceled, .disconnected, .malformed: true
-        case .empty, .httpError, .untrusted, .busy, .refused: false
+        case .finished, .canceled, .disconnected, .malformed, .incomplete: true
+        case .empty, .httpError, .untrusted, .busy, .refused, .declined: false
         }
     }
 }

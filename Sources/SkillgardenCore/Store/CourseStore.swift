@@ -3,7 +3,7 @@ import SQLite3
 
 /// A synchronous local store. The lock protects the connection and each complete operation.
 public final class CourseStore: @unchecked Sendable {
-    public static let currentSchemaVersion = 12
+    public static let currentSchemaVersion = 13
     static let databaseName = "library.sqlite"
     public let databaseURL: URL
     private let database: SQLiteDatabase
@@ -487,6 +487,8 @@ public final class CourseStore: @unchecked Sendable {
         case .cancelled: ("cancelled", nil)
         case .failed(let reason): ("failed", reason)
         case .interrupted: ("interrupted", nil)
+        case .incomplete: ("incomplete", nil)
+        case .declined: ("declined", nil)
         }
     }
 
@@ -497,6 +499,8 @@ public final class CourseStore: @unchecked Sendable {
         case "cancelled": .cancelled
         case "failed": .failed(reason: reason)
         case "interrupted": .interrupted
+        case "incomplete": .incomplete
+        case "declined": .declined
         default: throw CourseStoreError.invalidData
         }
     }
@@ -634,6 +638,29 @@ public final class CourseStore: @unchecked Sendable {
         // Turns saved before this version load as the bundled local provider. A NULL model is not known.
         "ALTER TABLE qa_messages ADD COLUMN provider_id TEXT NOT NULL DEFAULT 'bundled-local'",
         "ALTER TABLE qa_messages ADD COLUMN model_id TEXT",
+    ], [
+        // Two more turn states (#154): 'incomplete' at the output limit and 'declined' for a model refusal.
+        // SQLite can't change a CHECK, so the table is made again with the same rows and ids.
+        """
+        CREATE TABLE qa_messages_v13 (
+            id INTEGER PRIMARY KEY, course_id TEXT NOT NULL, lecture_id TEXT NOT NULL,
+            question TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL
+                CHECK(status IN ('pending', 'complete', 'cancelled', 'failed', 'interrupted', 'incomplete', 'declined')),
+            failure_reason TEXT, source_revision TEXT NOT NULL, asked_at REAL NOT NULL,
+            provider_id TEXT NOT NULL DEFAULT 'bundled-local', model_id TEXT,
+            FOREIGN KEY(course_id, lecture_id) REFERENCES qa_threads(course_id, lecture_id) ON DELETE CASCADE
+        )
+        """,
+        """
+        INSERT INTO qa_messages_v13 (id, course_id, lecture_id, question, answer, status, failure_reason, source_revision,
+                                     asked_at, provider_id, model_id)
+        SELECT id, course_id, lecture_id, question, answer, status, failure_reason, source_revision, asked_at, provider_id, model_id
+        FROM qa_messages
+        """,
+        "DROP TABLE qa_messages",
+        "ALTER TABLE qa_messages_v13 RENAME TO qa_messages",
+        "CREATE INDEX qa_messages_thread ON qa_messages(course_id, lecture_id, id)",
     ]]
 }
 

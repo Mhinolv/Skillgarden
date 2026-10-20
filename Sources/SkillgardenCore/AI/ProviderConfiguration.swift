@@ -75,6 +75,26 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
         kind == .externalLocal ? ExternalLocalServer(rawValue: vendor) : nil
     }
 
+    /// A new profile of a fixed API service (#154). The model ID is empty until the learner types it.
+    public static func preset(_ service: APIService) -> ProviderProfile {
+        ProviderProfile(kind: .api, name: service.name, vendor: service.rawValue, origin: service.origin, modelID: "",
+                        answerTokens: APIService.defaultAnswerTokens)
+    }
+
+    /// The fixed API service of an API profile with the fixed origin of the service (#154). Nil for the other profiles.
+    public var apiService: APIService? {
+        guard kind == .api, let service = APIService(rawValue: vendor), origin == service.origin else { return nil }
+        return service
+    }
+
+    /// The red caption under the Output limit field of an API service (#154). Nil when the limit is 1 or more,
+    /// or not set, so the adapter uses `APIService.defaultAnswerTokens`. The sheet sets 0 for an empty field.
+    public var answerTokensProblem: String? {
+        apiService != nil && answerTokens.map({ $0 < 1 }) == true ? Self.noAnswerTokensText : nil
+    }
+
+    public static let noAnswerTokensText = "Enter an output limit of 1 or more tokens."
+
     /// The host of `origin`, for example `api.openai.com`. The full origin when it has no host.
     /// An IPv6 host keeps its brackets, for example `[::1]:1234`.
     public var host: String {
@@ -126,7 +146,7 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
         let trimmed = [name, vendor, modelID].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard !trimmed.contains(where: \.isEmpty) else { return false }
         if kind == .externalLocal { return Self.loopbackBaseURL(origin) != nil }
-        guard Self.isValidOrigin(origin) else { return false }
+        guard Self.isValidOrigin(origin), answerTokensProblem == nil else { return false }
         return !kind.needsAPIKey || hasSecret
     }
 
@@ -182,6 +202,52 @@ public enum ExternalLocalServer: String, CaseIterable, Identifiable, Sendable {
         case .ollama: "Ollama can send text to cloud models. Set OLLAMA_NO_CLOUD=1 to keep text on this Mac."
         }
     }
+}
+
+/// The API services of "Add Provider" with a fixed host (#154). The raw value is the vendor of the profile.
+public enum APIService: String, CaseIterable, Identifiable, Sendable {
+    case anthropic = "Anthropic"
+
+    public var id: String { rawValue }
+
+    /// The output limit of a new profile, in tokens.
+    public static let defaultAnswerTokens = 1024
+
+    /// The profile name and the start of the Q&A header: "Anthropic API".
+    public var name: String { rawValue + " API" }
+
+    /// The "Add Provider" menu item: "Anthropic API…".
+    public var menuTitle: String { name + "…" }
+
+    /// The only origin that the adapter sends to.
+    public var origin: String {
+        switch self {
+        case .anthropic: "https://api.anthropic.com"
+        }
+    }
+
+    /// The prompt of the empty API key field.
+    public var keyPrompt: String {
+        switch self {
+        case .anthropic: "sk-ant-…"
+        }
+    }
+
+    /// The prompt of the empty Model ID field.
+    public var modelPrompt: String {
+        switch self {
+        case .anthropic: "Model ID, for example claude-sonnet-5-5"
+        }
+    }
+
+    /// The secondary caption of the provider sheet.
+    public var footer: String {
+        switch self {
+        case .anthropic: "Claude Pro and Max plans do not work here. Use an API key from the Anthropic Console."
+        }
+    }
+
+    public static let noKeyText = "Enter an API key."
 }
 
 /// The saved provider choices: `Providers.json` in Application Support (#151).

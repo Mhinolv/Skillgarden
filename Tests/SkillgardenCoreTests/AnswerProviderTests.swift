@@ -184,7 +184,7 @@ private func withReadLecture(_ body: (LibraryModel) async throws -> Void) async 
         """)
 
     let store = try CourseStore(root: root)
-    #expect(try store.schemaVersion == 12)
+    #expect(try store.schemaVersion == CourseStore.currentSchemaVersion)
     #expect(try store.loadCourse(id: "c") == course)
     let legacy = try store.qaTurns(courseID: "c", lectureID: "a")
     #expect(legacy.map(\.question) == ["Why?", "How?"])
