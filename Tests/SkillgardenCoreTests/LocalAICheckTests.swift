@@ -518,7 +518,7 @@ private func run(backend: FakeBackend = FakeBackend(), answers: [String: String]
         let transport = FakeModel(suite: try suite(), answers: answers)
         let log = Log()
         let environment = LocalAICheck.Environment(
-            backend: { _ in backend }, transport: transport, memory: { _ in 1_200_000_000 }, sampleInterval: .milliseconds(10),
+            backend: { _ in backend }, transport: transport, memory: { _ in ServerMemory(footprint: 1_200_000_000, resident: 900_000_000) }, sampleInterval: .milliseconds(10),
             log: { log.add($0) }, macOS: "Version 15.7 (Build 24G222)", chip: "Apple M4 Max", memoryBytes: 51_539_607_552,
             now: { Date(timeIntervalSince1970: 1_792_400_000) })
         let options = LocalAICheck.Options(model: modelURL, runtime: folder.appending(path: "Skillgarden.app"), out: out, fixtures: fixturesFolder)
@@ -572,7 +572,9 @@ private func expectNoFixtureText(_ text: String, answers: [String: String] = [:]
         #expect(result.messageCounts[question.question] == 2 + 2 * question.history.count, "\(question.id)")
     }
     let report = try #require(result.report)
-    #expect(report.hasSuffix(result.outcome.stdout))
+    // The 2 memory lines with the parts of the peak and of the limit follow the RESULT: line (#193).
+    #expect(report.contains(result.outcome.stdout + "\nmemory: peak 1.1 GB (footprint 1.1 GB, resident 0.8 GB) at "))
+    #expect(report.hasSuffix(" s\nmemory: limit 3.0 GB = model 0.0 GB + headroom 3.0 GB, ctx-size 8192\n"))
     #expect(report.contains("macOS: Version 15.7 (Build 24G222)\nChip: Apple M4 Max\nMemory: 48.0 GB\nModel: Qwen3-4B-Q4_K_M.gguf\n"))
     #expect(report.contains("Model size: 0.0 GB (64 bytes)\n"))
     // The SHA-256 of "GGUF" and 60 zero bytes.
@@ -611,9 +613,11 @@ private func expectNoFixtureText(_ text: String, answers: [String: String] = [:]
     #expect(lines[8] == "FAIL  hold-out        6/10      need 8/10   (questions c23, c24 +2)")
     #expect(lines[9] == "RESULT: FAIL  2 of 9 checks failed")
     try expectNoFixtureText(result.outcome.stdout + result.log.joined(separator: "\n"), answers: answers)
-    // The results file shows each failed answer with its cause, its reasons and each secret masked, after the RESULT: line.
+    // The results file shows each failed answer with its cause, its reasons and each secret masked, after the RESULT: line
+    // and the memory lines.
     let report = try #require(result.report)
-    #expect(report.contains(result.outcome.stdout + """
+    #expect(report.contains(result.outcome.stdout + "\nmemory: peak "))
+    #expect(report.contains("headroom 3.0 GB, ctx-size 8192\n" + """
 
         Failed answers (each secret of the fixture shows as [SECRET])
 
@@ -673,7 +677,45 @@ private func expectNoFixtureText(_ text: String, answers: [String: String] = [:]
         RESULT: FAIL  9 of 9 checks failed
 
         """)
-    #expect(result.report?.hasSuffix(result.outcome.stdout) == true)
+    #expect(result.report?.contains(result.outcome.stdout + "\nmemory: ") == true)
+    #expect(result.report?.hasSuffix("\nmemory: limit 3.0 GB = model 0.0 GB + headroom 3.0 GB, ctx-size 8192\n") == true)
+}
+
+/// #193: the owner run had a peak of 7.4 GB and a limit of 5.3 GB. The results file shows the parts of both.
+@Test func theMemoryLinesOfTheResultsFileGiveThePartsOfThePeakAndTheLimit() {
+    let gib: UInt64 = 1_073_741_824
+    let peak = ServerMemory(footprint: gib * 71 / 10, resident: gib * 74 / 10)
+    #expect(peak.bytes == peak.resident)
+    #expect(LocalAICheck.memoryDetails(peak: peak, time: .milliseconds(12_340), modelBytes: 2_497_280_256, contextTokens: 8192) == [
+        "memory: peak 7.4 GB (footprint 7.1 GB, resident 7.4 GB) at 12.3 s",
+        "memory: limit 5.3 GB = model 2.3 GB + headroom 3.0 GB, ctx-size 8192",
+    ])
+    #expect(LocalAICheck.memoryLimit(modelBytes: 2_497_280_256) == 2_497_280_256 + 3 * gib)
+    #expect(LocalAICheck.memoryDetails(peak: nil, time: nil, modelBytes: -1, contextTokens: 8192) == [
+        "memory: peak unknown", "memory: limit 3.0 GB = model 0.0 GB + headroom 3.0 GB, ctx-size 8192",
+    ])
+    // The detail lines come after the RESULT: line. Without them the report ends with the RESULT: line, as before.
+    let info = LocalAICheck.RunInfo(date: Date(timeIntervalSince1970: 0), macOS: "15.7", chip: "M4", memoryBytes: 48 * gib,
+                                    modelName: "m.gguf", modelBytes: 64, modelSHA256: "0", runtimeVersion: "b11669")
+    let lines = [LocalAICheck.Line(check: "memory", passed: true, value: "1.0 GB", threshold: "limit 3.0 GB")]
+    #expect(LocalAICheck.report(info, lines: lines, memoryDetails: ["memory: peak unknown"])
+        .hasSuffix("PASS  memory          1.0 GB    limit 3.0 GB\nRESULT: PASS  1 of 1 checks passed\n\nmemory: peak unknown\n"))
+    #expect(LocalAICheck.report(info, lines: lines).hasSuffix("limit 3.0 GB\nRESULT: PASS  1 of 1 checks passed\n"))
+}
+
+/// The peak is the sample with the most bytes, the larger of footprint and resident. An unreadable sample does not count.
+@MainActor
+@Test func peakMemoryKeepsTheLargestSample() {
+    let memory = LocalAICheck.PeakMemory()
+    #expect(memory.peak == nil && memory.peakTime == nil)
+    memory.add(nil)
+    #expect(memory.peak == nil)
+    memory.add(ServerMemory(footprint: 300, resident: 500))
+    memory.add(ServerMemory(footprint: 600, resident: 100))
+    memory.add(ServerMemory(footprint: 200, resident: 550))
+    memory.add(nil)
+    #expect(memory.peak == ServerMemory(footprint: 600, resident: 100))
+    #expect(memory.peakTime != nil)
 }
 
 @MainActor

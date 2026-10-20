@@ -27,6 +27,8 @@ public enum LocalAICheck {
     static let cancelLimit: Duration = .seconds(5)
     /// The server can use the model file size and this much more memory: the context cache and the work buffers.
     static let memoryHeadroom: UInt64 = 3 * 1_073_741_824
+    /// The pass threshold of the memory check: the model file size plus the headroom.
+    static func memoryLimit(modelBytes: Int64) -> UInt64 { UInt64(max(0, modelBytes)) + memoryHeadroom }
     /// The time that the model can take to load before the cold-load check stops the server.
     static let loadTimeout: Duration = .seconds(300)
 
@@ -441,8 +443,23 @@ public enum LocalAICheck {
         return lines
     }
 
-    static func report(_ info: RunInfo, lines: [Line], failedAnswers: [FailedAnswer] = [], secrets: [String] = []) -> String {
-        (info.lines + [""] + lines.map(\.text) + [resultLine(lines)] + failedAnswersSection(failedAnswers, secrets: secrets))
+    /// The two memory lines of the results file (#193): the parts of the peak and the parts of the limit.
+    /// `time` counts from the server start.
+    static func memoryDetails(peak: ServerMemory?, time: Duration?, modelBytes: Int64, contextTokens: Int) -> [String] {
+        let peakLine = if let peak, let time {
+            "memory: peak \(memoryGigabytes(peak.bytes)) (footprint \(memoryGigabytes(peak.footprint)), "
+                + "resident \(memoryGigabytes(peak.resident))) at \(seconds(time))"
+        } else {
+            "memory: peak unknown"
+        }
+        return [peakLine, "memory: limit \(memoryGigabytes(memoryLimit(modelBytes: modelBytes))) = model "
+                + "\(memoryGigabytes(UInt64(max(0, modelBytes)))) + headroom \(memoryGigabytes(memoryHeadroom)), ctx-size \(contextTokens)"]
+    }
+
+    static func report(_ info: RunInfo, lines: [Line], memoryDetails: [String] = [], failedAnswers: [FailedAnswer] = [],
+                       secrets: [String] = []) -> String {
+        let details = memoryDetails.isEmpty ? [] : [""] + memoryDetails
+        return (info.lines + [""] + lines.map(\.text) + [resultLine(lines)] + details + failedAnswersSection(failedAnswers, secrets: secrets))
             .joined(separator: "\n") + "\n"
     }
 
@@ -453,7 +470,7 @@ public enum LocalAICheck {
         var backend: @Sendable (_ app: URL) -> any LocalAIBackend
         var transport: any LlamaTransport
         /// The memory of the server of `process`, in bytes. Nil when it can't be read.
-        var memory: @Sendable (any LocalAIProcess) -> UInt64?
+        var memory: @Sendable (any LocalAIProcess) -> ServerMemory?
         var sampleInterval: Duration
         /// Progress and errors for stderr.
         var log: @Sendable (String) -> Void
@@ -464,7 +481,7 @@ public enum LocalAICheck {
 
         static var live: Environment {
             Environment(backend: { BundledRuntime(helpersDirectory: $0.appending(path: "Contents/Helpers", directoryHint: .isDirectory)) },
-                        transport: LoopbackTransport(), memory: { ($0 as? HostedServer)?.serverMemoryBytes },
+                        transport: LoopbackTransport(), memory: { ($0 as? HostedServer)?.serverMemory },
                         sampleInterval: .milliseconds(250),
                         log: { FileHandle.standardError.write(Data("\($0)\n".utf8)) },
                         macOS: ProcessInfo.processInfo.operatingSystemVersionString, chip: chipName(),
@@ -553,7 +570,7 @@ public enum LocalAICheck {
         }
         let checks = Checks(suite: suite, contexts: contexts, client: LlamaClient(transport: environment.transport),
                             endpoint: LocalAIEndpoint(port: port, apiKey: apiKey), log: environment.log)
-        let memoryLimit = UInt64(max(0, model.sizeBytes)) + memoryHeadroom
+        let memoryLimit = memoryLimit(modelBytes: model.sizeBytes)
         let memoryThreshold = "limit \(memoryGigabytes(memoryLimit))"
 
         // 1. Cold load: from the launch to the first 200 of /health.
@@ -593,9 +610,12 @@ public enum LocalAICheck {
                            modelName: model.name, modelBytes: model.sizeBytes, modelSHA256: sha256(of: model.url) ?? "unreadable",
                            runtimeVersion: runtime.version)
         let stdout = lines.map(\.text).joined(separator: "\n") + "\n" + resultLine(lines) + "\n"
+        let details = memoryDetails(peak: memory.peak, time: memory.peakTime, modelBytes: model.sizeBytes,
+                                    contextTokens: LectureContextBudget.standard.contextTokens)
         let reportURL = options.out.appending(path: reportName(info.date))
         do {
-            try Data(report(info, lines: lines, failedAnswers: failedAnswers, secrets: suite.secrets).utf8).write(to: reportURL, options: .atomic)
+            try Data(report(info, lines: lines, memoryDetails: details, failedAnswers: failedAnswers, secrets: suite.secrets).utf8)
+                .write(to: reportURL, options: .atomic)
         } catch {
             environment.log("error: can't write \(reportURL.path)")
             return Outcome(exitCode: setupError, stdout: stdout)
@@ -620,11 +640,15 @@ public enum LocalAICheck {
     /// The peak memory of the server. The sampler and the checks add values on the main actor.
     @MainActor
     final class PeakMemory {
-        private(set) var peak: UInt64?
+        private let start = ContinuousClock.now
+        private(set) var peak: ServerMemory?
+        /// The time of the peak sample, from the server start.
+        private(set) var peakTime: Duration?
 
-        func add(_ value: UInt64?) {
-            guard let value else { return }
-            peak = max(peak ?? 0, value)
+        func add(_ value: ServerMemory?) {
+            guard let value, peak.map({ value.bytes > $0.bytes }) ?? true else { return }
+            peak = value
+            peakTime = ContinuousClock.now - start
         }
     }
 
@@ -681,7 +705,7 @@ public enum LocalAICheck {
             }
 
             sample()
-            let memoryLine: Line = if let peak = memory.peak {
+            let memoryLine: Line = if let peak = memory.peak?.bytes {
                 Line(check: "memory", passed: peak <= memoryLimit, value: memoryGigabytes(peak), threshold: memoryThreshold)
             } else {
                 Line(check: "memory", passed: false, value: "unknown", threshold: memoryThreshold)
