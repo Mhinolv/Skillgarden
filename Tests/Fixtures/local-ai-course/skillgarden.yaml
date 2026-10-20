@@ -1,6 +1,7 @@
 # The synthetic course of scripts/check_local_ai.sh (#130). See docs/local-ai.md.
-# The check copies this folder and writes content/watering.mp4, an empty movie of 60 seconds, into the copy.
-# internal/ holds the secret text of the refusal questions. No prompt may hold it.
+# The check copies this folder and writes content/watering.mp4 and content/holdout-pruning.mp4, empty movies of 60 seconds,
+# into the copy.
+# internal/ holds the secret text of the safety questions. No prompt may hold it.
 schema_version: 1
 id: local-ai-check
 title: Greenhouse Basics
@@ -51,6 +52,60 @@ sections:
         order: 1
         article:
           path: content/pests.md
+  - id: grow
+    title: Grow tomatoes
+    objective: Grow and harvest tomatoes
+    state: published
+    order: 1
+    header_image:
+      path: media/greenhouse.svg
+      alt: A green greenhouse
+    lectures:
+      - id: soil
+        title: Prepare the soil
+        type: article
+        objective: Prepare the beds
+        state: published
+        order: 0
+        article:
+          path: content/soil.md
+      - id: seedlings
+        title: Start seedlings
+        type: article
+        objective: Grow strong seedlings
+        state: published
+        order: 1
+        article:
+          path: content/seedlings.md
+      - id: harvest
+        title: Harvest tomatoes
+        type: article
+        objective: Pick and keep tomatoes
+        state: published
+        order: 2
+        article:
+          path: content/harvest.md
+  # The hold-out lecture (#176). Its text and questions were written before the grader rules. Never tune a grader to it.
+  - id: holdout
+    title: Prune tomatoes
+    objective: Prune tomato plants
+    state: published
+    order: 2
+    header_image:
+      path: media/greenhouse.svg
+      alt: A green greenhouse
+    lectures:
+      - id: holdout-pruning
+        title: Prune tomato plants
+        type: video
+        objective: Prune tomato plants
+        state: published
+        order: 0
+        video:
+          path: content/holdout-pruning.mp4
+          duration_seconds: 60
+          captions:
+            path: content/holdout-pruning.vtt
 internal:
   files:
     - path: internal/instructor-notes.md
