@@ -75,6 +75,29 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
         kind == .externalLocal ? ExternalLocalServer(rawValue: vendor) : nil
     }
 
+    /// A new profile of a remote API preset (#153): the fixed origin and the default output limit.
+    /// The model ID is empty until the learner types it.
+    public static func preset(_ service: RemoteAPIService) -> ProviderProfile {
+        ProviderProfile(kind: .api, name: service.profileName, vendor: service.rawValue, origin: service.origin, modelID: "",
+                        answerTokens: OpenAIAnswerProvider.defaultAnswerTokens)
+    }
+
+    /// The remote API preset of an API profile with the fixed origin of the preset (#153). Nil for the other profiles.
+    public var apiService: RemoteAPIService? {
+        guard kind == .api, let service = RemoteAPIService(rawValue: vendor), origin == service.origin else { return nil }
+        return service
+    }
+
+    /// The red caption under the "Output limit" field of a remote API preset (#153). Nil when the field is valid.
+    public static func answerTokensProblem(_ text: String) -> String? {
+        guard let tokens = Int(text) else { return text.isEmpty ? noAnswerTokensText : smallAnswerTokensText }
+        return tokens < OpenAIAnswerProvider.minimumAnswerTokens ? smallAnswerTokensText : nil
+    }
+
+    public static let noAnswerTokensText = "Enter the output limit."
+    public static let smallAnswerTokensText = "Enter 16 or more."
+    public static let noKeyText = "Enter an API key."
+
     /// The host of `origin`, for example `api.openai.com`. The full origin when it has no host.
     /// An IPv6 host keeps its brackets, for example `[::1]:1234`.
     public var host: String {
@@ -127,6 +150,7 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
         guard !trimmed.contains(where: \.isEmpty) else { return false }
         if kind == .externalLocal { return Self.loopbackBaseURL(origin) != nil }
         guard Self.isValidOrigin(origin) else { return false }
+        if apiService != nil, let answerTokens, answerTokens < OpenAIAnswerProvider.minimumAnswerTokens { return false }
         return !kind.needsAPIKey || hasSecret
     }
 
@@ -180,6 +204,45 @@ public enum ExternalLocalServer: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .lmStudio: "Skillgarden does not start LM Studio. Start its local server first."
         case .ollama: "Ollama can send text to cloud models. Set OLLAMA_NO_CLOUD=1 to keep text on this Mac."
+        }
+    }
+}
+
+/// The remote API presets of "Add Provider" (#153). The raw value is the vendor of the profile.
+/// #154 and #155 add their services here.
+public enum RemoteAPIService: String, CaseIterable, Identifiable, Sendable {
+    case openAI = "OpenAI"
+
+    public var id: String { rawValue }
+
+    /// The profile name and the Q&A header: "OpenAI API".
+    public var profileName: String {
+        switch self {
+        case .openAI: "OpenAI API"
+        }
+    }
+
+    /// The "Add Provider" menu item: "OpenAI API…".
+    public var menuTitle: String { profileName + "…" }
+
+    /// The fixed origin. The sheet shows its host and the learner can't change it.
+    public var origin: String {
+        switch self {
+        case .openAI: "https://api.openai.com"
+        }
+    }
+
+    /// The only URL that the adapter sends to.
+    var endpoint: URL {
+        switch self {
+        case .openAI: URL(string: "https://api.openai.com/v1/responses")!
+        }
+    }
+
+    /// The prompt of the "API key" field.
+    public var keyPrompt: String {
+        switch self {
+        case .openAI: "sk-…"
         }
     }
 }

@@ -99,13 +99,13 @@ enum SnapshotRenderer {
                                          credentials: MemoryCredentialStore(deniedAccounts: [SnapshotPlan.deniedCredentialAccount]),
                                          profiles: usesProfiles ? SnapshotPlan.providerProfiles : [],
                                          selectedID: output.screen.selectedProviderID ?? BundledAnswerProvider.providerID,
-                                         adapterKinds: [.externalLocal],
+                                         adapterKinds: [.externalLocal, .api],
                                          makeProvider: { profile, _ in SnapshotAnswerProvider(profile: profile) },
                                          // The sheet screens inject the test result. The harness never runs a test.
                                          testConnection: { _, _ in .connected })
         let screenView = if let sheet = output.screen.providerSheet {
             // The provider sheet is a separate window in the app, so the harness draws it in place of the window (#152).
-            AnyView(ProviderSheet(providers: providers, profile: sheet.profile, testResult: sheet.testResult)
+            AnyView(ProviderSheet(providers: providers, profile: sheet.profile, testResult: sheet.testResult, secret: sheet.secret)
                 .background(Color(nsColor: .windowBackgroundColor))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top))
         } else if output.screen.isSettings {

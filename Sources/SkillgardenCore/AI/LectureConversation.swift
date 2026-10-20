@@ -12,12 +12,21 @@ public enum QATurnStatus: Equatable, Hashable, Sendable {
     case failed(reason: String)
     /// The app stopped while the turn was pending.
     case interrupted
+    /// A remote model stopped at the output limit (#153). The partial answer stays.
+    case incomplete
+    /// A remote model declined to answer (#153).
+    case declined
+
+    public static let incompleteText = "Stopped at the output limit"
+    public static let declinedText = "The model declined to answer."
 
     /// The status of a turn whose request ended with `outcome`.
     public init(outcome: AnswerOutcome) {
         switch outcome {
         case .finished: self = .complete
         case .canceled: self = .cancelled
+        case .incomplete: self = .incomplete
+        case .declined: self = .declined
         default: self = .failed(reason: outcome.learnerText ?? "")
         }
     }
@@ -29,6 +38,8 @@ public enum QATurnStatus: Equatable, Hashable, Sendable {
         case .cancelled: "Cancelled"
         case .failed(let reason): "No answer: \(reason)"
         case .interrupted: "Interrupted"
+        case .incomplete: Self.incompleteText
+        case .declined: Self.declinedText
         }
     }
 
@@ -37,14 +48,20 @@ public enum QATurnStatus: Equatable, Hashable, Sendable {
         switch self {
         case .pending, .complete: nil
         case .cancelled: "stop.circle"
-        case .failed, .interrupted: "exclamationmark.triangle"
+        case .failed, .interrupted, .incomplete: "exclamationmark.triangle"
+        case .declined: "hand.raised"
         }
+    }
+
+    /// True when the turn shows "Open Settings…" next to Retry (#153): the failure reason names Settings.
+    public var opensSettings: Bool {
+        if case .failed(let reason) = self { reason.contains("Settings") } else { false }
     }
 
     /// True for a turn that ended without a full answer. Retry asks the question again as a new turn.
     var isRetryable: Bool {
         switch self {
-        case .cancelled, .failed, .interrupted: true
+        case .cancelled, .failed, .interrupted, .incomplete, .declined: true
         case .pending, .complete: false
         }
     }

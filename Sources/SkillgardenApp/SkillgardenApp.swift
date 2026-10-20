@@ -22,15 +22,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The one client of the owned server for all windows (#124). It runs one request at a time.
     let answers = LlamaClient()
     /// The Settings "Q&A" profiles, the "Answer with" choice and the course consents (#151). Secrets are in the Keychain.
-    /// LM Studio and Ollama answer through the OpenAI-compatible adapter (#152).
+    /// LM Studio and Ollama answer through the OpenAI-compatible adapter (#152). The OpenAI API answers through
+    /// the Responses adapter (#153).
     let providers = AppDelegate.makeProviders()
 
     private static func makeProviders() -> ProviderSettings {
-        ProviderSettings(store: ProviderSettingsStore(), adapterKinds: [.externalLocal],
+        ProviderSettings(store: ProviderSettingsStore(), adapterKinds: [.externalLocal, .api],
                          makeProvider: { profile, credentials in
-                             profile.kind == .externalLocal ? CompatibleAnswerProvider(profile: profile, credentials: credentials) : nil
+                             if profile.kind == .externalLocal { return CompatibleAnswerProvider(profile: profile, credentials: credentials) }
+                             if profile.apiService == .openAI { return OpenAIAnswerProvider(profile: profile, credentials: credentials) }
+                             return nil
                          },
-                         testConnection: { profile, token in await CompatibleAnswerProvider.testConnection(profile, token: token) })
+                         testConnection: { profile, token in
+                             if profile.kind == .externalLocal { return await CompatibleAnswerProvider.testConnection(profile, token: token) }
+                             return await OpenAIAnswerProvider.testConnection(profile, key: token)
+                         })
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

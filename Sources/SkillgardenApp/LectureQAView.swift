@@ -338,9 +338,16 @@ private struct QATurnView: View, Equatable {
                 SourcesRow(sources: citations.sources, openID: Binding(get: { openID }, set: { setOpenID($0) }), seek: seek)
             }
             if canRetry {
-                Button("Retry", systemImage: "arrow.clockwise", action: retry)
-                    .buttonStyle(.garden(.plain, .small))
-                    .disabled(retryDisabled)
+                HStack(spacing: GardenSpacing.xs) {
+                    Button("Retry", systemImage: "arrow.clockwise", action: retry)
+                        .buttonStyle(.garden(.plain, .small))
+                        .disabled(retryDisabled)
+                    // A reason that names Settings, for example a refused API key (#153).
+                    if turn.status.opensSettings {
+                        SettingsLink { Text("Open Settings…") }
+                            .buttonStyle(.garden(.plain, .small))
+                    }
+                }
             }
         }
     }

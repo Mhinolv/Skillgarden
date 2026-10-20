@@ -20,6 +20,10 @@ public enum AnswerOutcome: Equatable, Sendable {
     /// A provider other than the bundled model refused the request (#152). `reason` is the design-note text.
     /// It never holds the response body.
     case refused(reason: String)
+    /// A remote model stopped before the end of the answer, for example at the output limit (#153). The partial answer stays.
+    case incomplete
+    /// A remote model declined to answer (#153). Its refusal text is not kept.
+    case declined
 
     /// The design-note text for the learner. Nil when the answer shows no extra text.
     public var learnerText: String? {
@@ -33,14 +37,16 @@ public enum AnswerOutcome: Equatable, Sendable {
         case .untrusted: "Skillgarden stopped the request. The server is not the one that it started."
         case .busy: "Local AI is answering another question. Wait, or cancel it."
         case .refused(let reason): reason
+        case .incomplete: QATurnStatus.incompleteText
+        case .declined: QATurnStatus.declinedText
         }
     }
 
     /// True when the answer keeps the text that came before the end.
     var keepsText: Bool {
         switch self {
-        case .finished, .canceled, .disconnected, .malformed: true
-        case .empty, .httpError, .untrusted, .busy, .refused: false
+        case .finished, .canceled, .disconnected, .malformed, .incomplete: true
+        case .empty, .httpError, .untrusted, .busy, .refused, .declined: false
         }
     }
 }

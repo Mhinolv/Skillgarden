@@ -55,6 +55,8 @@ private func temporaryFolder() throws -> URL {
         "settings-providers-light.png", "settings-providers-dark.png",
         "provider-sheet-lm-studio-light.png", "provider-sheet-lm-studio-dark.png",
         "provider-sheet-ollama-error-light.png", "provider-sheet-ollama-error-dark.png",
+        "provider-sheet-openai-light.png", "provider-sheet-openai-dark.png",
+        "provider-sheet-openai-edit-light.png", "provider-sheet-openai-edit-dark.png",
         "qa-thread-light.png", "qa-thread-dark.png", "qa-thread-unthemed-dark.png",
         "qa-empty-light.png", "qa-empty-dark.png", "qa-empty-unthemed-dark.png",
         "qa-draft-light.png", "qa-draft-dark.png", "qa-draft-unthemed-dark.png",
@@ -75,11 +77,13 @@ private func temporaryFolder() throws -> URL {
         "qa-consent-light.png", "qa-consent-dark.png", "qa-consent-unthemed-dark.png",
         "qa-remote-light.png", "qa-remote-dark.png", "qa-remote-unthemed-dark.png",
         "qa-external-local-light.png", "qa-external-local-dark.png", "qa-external-local-unthemed-dark.png",
+        "qa-incomplete-light.png", "qa-incomplete-dark.png", "qa-incomplete-unthemed-dark.png",
+        "qa-auth-error-light.png", "qa-auth-error-dark.png", "qa-auth-error-unthemed-dark.png",
     ])
     // #82: every course screen except the dark-theme screen gets one dark capture with no course theme.
     #expect(SnapshotScreen.allCases.filter { $0.selectsCourse && !$0.hasUnthemedCapture } == [.courseLandingDarkTheme])
     let unthemed = outputs.filter(\.ignoresCourseTheme)
-    #expect(unthemed.count == 47)
+    #expect(unthemed.count == 49)
     #expect(unthemed.allSatisfy { $0.appearance == .dark && $0.screen.hasUnthemedCapture })
     #expect(unthemed.allSatisfy { $0.url.lastPathComponent == "\($0.screen.rawValue)-unthemed-dark.png" })
     #expect(outputs.filter { !$0.ignoresCourseTheme }.map(\.url.lastPathComponent) == SnapshotScreen.allCases.flatMap { screen in
@@ -99,30 +103,32 @@ private func temporaryFolder() throws -> URL {
         .courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureDownloads, .pdfPreview, .lectureSources,
         .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaTheater,
         .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
-        .qaExternalLocal,
+        .qaExternalLocal, .qaIncomplete, .qaAuthError,
     ])
     // #128: the Q&A screens open the panel with an injected status. Only the draft screen shows a draft.
     #expect(SnapshotScreen.allCases.filter(\.showsQA) == [.qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting,
                                                           .qaStopping, .qaError, .qaNoCaptions, .qaArticle, .qaTheater,
                                                           .qaCitations, .qaCitationExcerpt, .qaCitationsStale,
                                                           .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
-                                                          .qaExternalLocal])
+                                                          .qaExternalLocal, .qaIncomplete, .qaAuthError])
     #expect(SnapshotScreen.allCases.filter { $0.qaStatus != nil } == SnapshotScreen.allCases.filter(\.showsQA))
     #expect(SnapshotScreen.allCases.compactMap(\.qaStatus).map { LectureQAState(status: $0, content: .ready) }
         == [.ready, .ready, .ready, .noModel, .off, .starting, .stopping, .error(reason: "The server stopped. Exit code 9."),
             .ready, .ready, .ready, .ready, .ready, .ready, .off, .error(reason: "The server stopped. Exit code 9."), .starting,
-            .ready, .ready, .ready])
+            .ready, .ready, .ready, .ready, .ready])
     // #151: three screens use the fixture profiles. Only the consent screen sends a question.
-    #expect(SnapshotScreen.allCases.filter(\.usesProviderProfiles) == [.settingsProviders, .qaConsent, .qaRemote, .qaExternalLocal])
+    #expect(SnapshotScreen.allCases.filter(\.usesProviderProfiles) == [.settingsProviders, .qaConsent, .qaRemote, .qaExternalLocal,
+                                                                       .qaIncomplete, .qaAuthError])
     #expect(SnapshotScreen.allCases.compactMap(\.selectedProviderID)
-        == ["snapshot-openai", "snapshot-openai", "snapshot-openai", "snapshot-lm-studio"])
+        == ["snapshot-openai", "snapshot-openai", "snapshot-openai", "snapshot-lm-studio", "snapshot-openai", "snapshot-openai"])
     #expect(SnapshotScreen.allCases.filter { $0.qaConsentQuestion != nil } == [.qaConsent])
     #expect(SnapshotPlan.providerProfiles.map(\.kind) == [.api, .externalLocal, .api])
     #expect(SnapshotPlan.providerProfiles.allSatisfy { $0.isValid(hasSecret: true) })
     #expect(SnapshotScreen.allCases.filter { SnapshotPlan.qaOrigin(for: $0).providerID != BundledAnswerProvider.providerID }
-        == [.qaRemote, .qaExternalLocal])
+        == [.qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError])
     // #152: the LM Studio sheet passed its test. The Ollama sheet has the loopback error, so "Save" is off.
-    #expect(SnapshotScreen.allCases.filter { $0.providerSheet != nil } == [.providerSheetLMStudio, .providerSheetOllamaError])
+    #expect(SnapshotScreen.allCases.filter { $0.providerSheet != nil } == [.providerSheetLMStudio, .providerSheetOllamaError,
+                                                                           .providerSheetOpenAI, .providerSheetOpenAIEdit])
     let lmStudio = try #require(SnapshotScreen.providerSheetLMStudio.providerSheet)
     #expect(lmStudio.testResult == .connected)
     #expect(lmStudio.profile.isValid(hasSecret: false))
@@ -131,6 +137,14 @@ private func temporaryFolder() throws -> URL {
     #expect(ollama.profile.originProblem == "Use 127.0.0.1 or [::1]. Use an API provider for other hosts.")
     #expect(!ollama.profile.isValid(hasSecret: false))
     #expect(ollama.profile.externalServer == .ollama)
+    // #153: the new OpenAI sheet has a typed key and passed its test. The edit sheet has a saved key.
+    let openAI = try #require(SnapshotScreen.providerSheetOpenAI.providerSheet)
+    #expect(openAI.testResult == .connected && !openAI.secret.isEmpty)
+    #expect(openAI.profile.apiService == .openAI && openAI.profile.credentialReference == nil)
+    #expect(openAI.profile.isValid(hasSecret: true) && !openAI.profile.isValid(hasSecret: false))
+    let openAIEdit = try #require(SnapshotScreen.providerSheetOpenAIEdit.providerSheet)
+    #expect(openAIEdit.profile.apiService == .openAI && openAIEdit.profile.credentialReference != nil)
+    #expect(openAIEdit.testResult == nil && openAIEdit.secret.isEmpty)
     #expect(SnapshotPlan.providerProfiles[1].title == "LM Studio · qwen3-8b-mlx")
     // #129: only the excerpt screen opens an excerpt. Only the stale screen saves turns of an earlier revision.
     #expect(SnapshotScreen.allCases.filter(\.opensCitationExcerpt) == [.qaCitationExcerpt])
@@ -149,7 +163,8 @@ private func temporaryFolder() throws -> URL {
     #expect(SnapshotScreen.allCases.filter { !$0.selectsCourse } == [.libraryEmpty, .libraryEmptyCustomFolder, .library, .settings,
                                                                     .settingsModelMissing, .settingsAIOff, .settingsAIError,
                                                                     .settingsProviders, .providerSheetLMStudio,
-                                                                    .providerSheetOllamaError])
+                                                                    .providerSheetOllamaError, .providerSheetOpenAI,
+                                                                    .providerSheetOpenAIEdit])
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
@@ -167,7 +182,7 @@ private func temporaryFolder() throws -> URL {
         #expect(library.errorMessage == nil)
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
-             .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError:
+             .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit:
             #expect(courseID == nil)
             #expect(!screen.selectsCourse)
             #expect(SnapshotPlan.imageLoads(for: screen) == 0)
@@ -389,7 +404,7 @@ private func temporaryFolder() throws -> URL {
             }
         case .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaArticle,
              .qaTheater, .qaCitations, .qaCitationExcerpt, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory,
-             .qaConsent, .qaRemote, .qaExternalLocal:
+             .qaConsent, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError:
             #expect(courseID == "sample-course")
             #expect(SnapshotPlan.imageLoads(for: screen) == 1)
             library.selectCourse(courseID)
@@ -415,6 +430,15 @@ private func temporaryFolder() throws -> URL {
                  .qaConsent, .qaRemote, .qaExternalLocal:
                 #expect(turns.map(\.status) == [.complete])
                 #expect(turns.map(\.origin) == [SnapshotPlan.qaOrigin(for: screen)])
+            case .qaIncomplete:
+                // #153: the partial answer stays with the output-limit status and Retry.
+                #expect(turns.map(\.status) == [.incomplete])
+                #expect(turns.first?.answer.isEmpty == false)
+                #expect(conversation.canRetry(try #require(turns.first)))
+            case .qaAuthError:
+                // #153: the refused key names Settings, so the turn shows "Open Settings…" next to Retry.
+                #expect(turns.map(\.status) == [.failed(reason: "OpenAI did not accept the API key. Check it in Settings.")])
+                #expect(turns.allSatisfy { $0.status.opensSettings })
             default:
                 #expect(turns.isEmpty)
             }
