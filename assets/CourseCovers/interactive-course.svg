@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<rect x="0" y="0" width="1600" height="900" rx="0" fill="#ECF3F5"/>
+<g transform="rotate(-12 1100 300)">
+<rect x="998" y="219" width="220" height="190" rx="26" fill="#B5CBD0"/>
+<rect x="990" y="205" width="220" height="190" rx="26" fill="#F7BB50"/>
+<text x="1070" y="333" font-family="Helvetica Neue" font-size="100" font-weight="650" fill="#253F59" >1</text>
+</g>
+<g transform="rotate(10 1345 445)">
+<rect x="1243" y="364" width="220" height="190" rx="26" fill="#B5CBD0"/>
+<rect x="1235" y="350" width="220" height="190" rx="26" fill="#A79BEA"/>
+<text x="1315" y="478" font-family="Helvetica Neue" font-size="100" font-weight="650" fill="#253F59" >2</text>
+</g>
+<g transform="rotate(-6 1155 670)">
+<rect x="1053" y="589" width="220" height="190" rx="26" fill="#B5CBD0"/>
+<rect x="1045" y="575" width="220" height="190" rx="26" fill="#F88462"/>
+<text x="1125" y="703" font-family="Helvetica Neue" font-size="100" font-weight="650" fill="#253F59" >3</text>
+</g>
+<path d="M1330 660 L1330 755 L1356 735 L1380 777 L1403 762 L1377 721 L1410 716 Z" fill="#253F59" stroke="#ECF3F5" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="96" y="146" font-family="Helvetica Neue" font-size="31" font-weight="450" fill="#4F697B" >The hands-on demo</text>
+<text x="90" y="333" font-family="Helvetica Neue" font-size="100" font-weight="650" fill="#253F59" >Interactive</text>
+<text x="90" y="448" font-family="Helvetica Neue" font-size="100" font-weight="650" fill="#253F59" >Course Basics</text>
+<text x="96" y="549" font-family="Helvetica Neue" font-size="33" font-weight="400" fill="#4F697B" >Less watching. More doing.</text>
+<text x="96" y="795" font-family="Helvetica Neue" font-size="27" font-weight="450" fill="#4F697B" >Explore / Arrange / Try again</text>
+</svg>

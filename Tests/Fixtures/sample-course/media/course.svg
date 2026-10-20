@@ -1,1 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="750" height="422" viewBox="0 0 750 422"><rect width="750" height="422" fill="#286644"/><path d="M250 320V130m250 190V130" stroke="#fff" stroke-width="30"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<rect x="0" y="0" width="1600" height="900" rx="0" fill="#EAF0D8"/>
+<circle cx="1280" cy="440" r="306" fill="#D3DDAD"/>
+<g transform="translate(1030 193) rotate(9 190 250)">
+<rect x="12" y="20" width="370" height="510" rx="18" fill="#BCC997"/>
+<rect x="0" y="0" width="370" height="510" rx="18" fill="#FFFCED"/>
+<path d="M54 0 V510" fill="none" stroke="#D4DCC3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M90 118 H313" fill="none" stroke="#BECBB2" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M90 190 H313" fill="none" stroke="#BECBB2" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M90 262 H313" fill="none" stroke="#BECBB2" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M90 334 H313" fill="none" stroke="#BECBB2" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M90 406 H313" fill="none" stroke="#BECBB2" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="30" cy="109" r="7" fill="#72865A"/>
+<circle cx="30" cy="181" r="7" fill="#72865A"/>
+<circle cx="30" cy="253" r="7" fill="#72865A"/>
+</g>
+<path d="M1090 785 Q1190 550 1390 265" fill="none" stroke="#315B3D" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1190 585 Q1050 480 1145 428 Q1225 448 1190 585" fill="#537D4D"/>
+<path d="M1245 492 Q1405 500 1414 413 Q1340 355 1245 492" fill="#537D4D"/>
+<path d="M1300 409 Q1200 303 1270 261 Q1343 288 1300 409" fill="#537D4D"/>
+<path d="M1354 325 Q1490 318 1472 244 Q1400 216 1354 325" fill="#537D4D"/>
+<text x="96" y="146" font-family="Helvetica Neue" font-size="31" font-weight="450" fill="#4D694C" >The Skillgarden demo</text>
+<text x="90" y="335" font-family="Helvetica Neue" font-size="100" font-weight="650" fill="#203F32" >Local Course</text>
+<text x="90" y="450" font-family="Helvetica Neue" font-size="100" font-weight="650" fill="#203F32" >Basics</text>
+<text x="96" y="550" font-family="Helvetica Neue" font-size="33" font-weight="400" fill="#4D694C" >A little structure. Room to grow.</text>
+<text x="96" y="795" font-family="Helvetica Neue" font-size="27" font-weight="450" fill="#4D694C" >Plan / Learn / Put it into practice</text>
+</svg>

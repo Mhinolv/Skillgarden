@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<rect x="0" y="0" width="1600" height="900" rx="0" fill="#281A30"/>
+<path d="M845 255 H1000 Q1040 255 1040 295 V420 H1190 M1040 420 V635 Q1040 675 1080 675 H1390" fill="none" stroke="#EC8B93" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1190 420 H1405 V230" fill="none" stroke="#EC8B93" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="831" cy="267" r="64" fill="#3D243C"/>
+<circle cx="825" cy="255" r="64" fill="#FF6B70"/>
+<circle cx="1196" cy="432" r="98" fill="#3D243C"/>
+<circle cx="1190" cy="420" r="98" fill="#FF6B70"/>
+<circle cx="1411" cy="242" r="48" fill="#3D243C"/>
+<circle cx="1405" cy="230" r="48" fill="#FF6B70"/>
+<circle cx="1396" cy="687" r="64" fill="#3D243C"/>
+<circle cx="1390" cy="675" r="64" fill="#FF6B70"/>
+<path d="M1152 420 H1228 M1190 382 V458" fill="none" stroke="#361A32" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M800 255 L818 273 L852 236" fill="none" stroke="#361A32" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1379" y="207" width="52" height="46" rx="10" fill="#361A32"/>
+<path d="M1378 665 L1402 678 L1378 692 Z" fill="#361A32"/>
+<text x="100" y="146" font-family="Helvetica Neue" font-size="38" font-weight="700" fill="#FF9295" >n8n</text>
+<text x="96" y="337" font-family="Helvetica Neue" font-size="108" font-weight="700" fill="#FFF2E9" >AI Agents</text>
+<text x="96" y="455" font-family="Helvetica Neue" font-size="108" font-weight="700" fill="#FFF2E9" >in n8n</text>
+<text x="100" y="550" font-family="Helvetica Neue" font-size="34" font-weight="400" fill="#E5BDC8" >From beginner to master</text>
+<text x="100" y="795" font-family="Helvetica Neue" font-size="27" font-weight="450" fill="#E5BDC8" >Tools / Memory / RAG</text>
+</svg>
