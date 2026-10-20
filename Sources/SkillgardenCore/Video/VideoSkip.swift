@@ -24,16 +24,18 @@ public enum VideoSkip {
     public struct EventWindow: Sendable, Equatable {
         /// The event window is the window of the lecture page.
         public var isPage: Bool
-        /// The event window hosts the `AVPlayerView` of this page, for example the AVKit full-screen window (#85).
-        public var hostsPlayer: Bool
+        /// The page player is in AVKit full screen (#85). The `AVPlayerViewDelegate` callbacks set it (#186).
+        /// The event window is then the AVKit full-screen window. A view search of that window does not find the player.
+        public var playerIsFullScreen: Bool
         public var isKey: Bool
         public var hasSheet: Bool
         /// The first responder of the event window keeps the arrows: a text field or the sidebar.
         public var keepsArrows: Bool
 
-        public init(isPage: Bool, hostsPlayer: Bool = false, isKey: Bool = true, hasSheet: Bool = false, keepsArrows: Bool = false) {
+        public init(isPage: Bool, playerIsFullScreen: Bool = false, isKey: Bool = true, hasSheet: Bool = false,
+                    keepsArrows: Bool = false) {
             self.isPage = isPage
-            self.hostsPlayer = hostsPlayer
+            self.playerIsFullScreen = playerIsFullScreen
             self.isKey = isKey
             self.hasSheet = hasSheet
             self.keepsArrows = keepsArrows
@@ -41,9 +43,9 @@ public enum VideoSkip {
     }
 
     /// The skip of a key event in `window`. Nil returns the event to AppKit.
-    /// The page window and the AVKit full-screen window of the page player both skip (#177).
+    /// The page window skips. While the page player is in full screen, the key window skips too (#177, #186).
     public static func delta(keyCode: UInt16, hasModifiers: Bool, in window: EventWindow) -> Double? {
-        guard window.isPage || window.hostsPlayer, window.isKey, !window.hasSheet, !window.keepsArrows else { return nil }
+        guard window.isPage || window.playerIsFullScreen, window.isKey, !window.hasSheet, !window.keepsArrows else { return nil }
         return delta(keyCode: keyCode, hasModifiers: hasModifiers)
     }
 
