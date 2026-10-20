@@ -50,15 +50,13 @@ struct LibraryHomeView: View {
                 }
                 if let course = library.continueCourse {
                     LibraryContinueStrip(course: course, summary: library.summary(of: course), root: library.root,
-                                         accent: library.accent(ofCourse: course.id),
                                          open: { library.selectCourse(course.id) },
                                          resume: { library.openNextLecture(ofCourse: course.id) })
                         .padding(.top, GardenSpacing.m)
                 }
                 LibraryGridLayout(columns: LibraryGrid.columns(forWidth: width), spacing: GardenSpacing.l) {
                     ForEach(library.courses) { course in
-                        LibraryTile(course: course, summary: library.summary(of: course), root: library.root,
-                                    accent: library.accent(ofCourse: course.id)) {
+                        LibraryTile(course: course, summary: library.summary(of: course), root: library.root) {
                             library.selectCourse(course.id)
                         }
                     }
@@ -68,23 +66,6 @@ struct LibraryHomeView: View {
             .padding(.vertical, 28)
             .padding(.horizontal, GardenSpacing.xl)
         }
-    }
-}
-
-extension View {
-    /// Gives the progress stones of a Library card the accent of their own course. The rest of the Library uses the system accent.
-    fileprivate func coursePalette(_ accent: ThemeColor?) -> some View {
-        modifier(CoursePalette(accent: accent))
-    }
-}
-
-private struct CoursePalette: ViewModifier {
-    let accent: ThemeColor?
-    @Environment(\.gardenPalette) private var palette
-
-    func body(content: Content) -> some View {
-        let own = GardenPalette(accent: accent, colorScheme: palette.colorScheme)
-        content.environment(\.gardenPalette, own).tint(own.accent)
     }
 }
 
@@ -139,8 +120,6 @@ struct LibraryContinueStrip: View {
     let course: Course
     let summary: CourseSummary
     let root: URL
-    /// The course accent for the stones. Nil uses the system accent.
-    var accent: ThemeColor? = nil
     let open: () -> Void
     let resume: () -> Void
     @Environment(\.gardenPalette) private var palette
@@ -160,7 +139,7 @@ struct LibraryContinueStrip: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: GardenSpacing.xs) {
-                SectionStones(stones: summary.stones).coursePalette(accent)
+                SectionStones(stones: summary.stones)
                 Text(summary.countText ?? "")
                     .font(GardenFont.label).monospacedDigit()
                     .foregroundStyle(palette.muted)
@@ -192,8 +171,6 @@ struct LibraryTile: View {
     let course: Course
     let summary: CourseSummary
     let root: URL
-    /// The course accent for the stones. Nil uses the system accent.
-    var accent: ThemeColor? = nil
     let open: () -> Void
     @Environment(\.gardenPalette) private var palette
 
@@ -208,7 +185,7 @@ struct LibraryTile: View {
                 Text(summary.meta).gardenText(.meta).lineLimit(1).padding(.top, 2)
                 if let count = summary.countText {
                     HStack(spacing: GardenSpacing.xs) {
-                        SectionStones(stones: summary.stones).coursePalette(accent)
+                        SectionStones(stones: summary.stones)
                         Text(count)
                             .font(GardenFont.label).monospacedDigit()
                             .foregroundStyle(palette.muted)

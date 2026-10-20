@@ -118,8 +118,8 @@ private final class TestBundleMarker {}
 
     // The compact toolbar row (#74) is 38 pt high.
     let rows = 38 * SnapshotPlan.scale
-    // The unthemed capture is the only real dark one: the fixture theme is light (#82).
-    for name in ["light", "dark", "unthemed-dark"] {
+    // The Dark setting wins over the light fixture theme (#93), so the dark capture is a real dark one.
+    for name in ["light", "dark"] {
         let capture = try Data(contentsOf: out.appending(path: "video-transcript-\(name).png"))
         #expect(SnapshotCheck.blackPixels(png: capture, topRows: rows) == 0, "\(name)")
     }
