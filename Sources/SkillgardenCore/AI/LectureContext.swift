@@ -109,7 +109,8 @@ public struct LectureContext: Equatable, Sendable {
         The lecture is "\(lectureTitle)".
         Answer only from the passages below. Each passage starts with its ID in square brackets.
         If the passages do not hold the answer, say that this lecture does not cover it. Do not guess.
-        After each fact, put the ID of its passage in square brackets, for example [\(exampleID)].
+        After each fact, put the ID of the first passage that states it, for example [\(exampleID)]. Give one ID for each fact. \
+        Do not add IDs of later passages that repeat it.
         \(isPartial ? "The passages are only the parts of the lecture that match the question. Do not summarize the whole lecture.\n" : "")
         Passages:
         """

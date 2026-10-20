@@ -12,9 +12,9 @@ public enum QATurnStatus: Equatable, Hashable, Sendable {
     case failed(reason: String)
     /// The app stopped while the turn was pending.
     case interrupted
-    /// The model stopped at the output limit (#154). The partial answer stays.
+    /// The model stopped at the output limit (#153, #154). The partial answer stays.
     case incomplete
-    /// The model declined to answer (#154).
+    /// The model declined to answer (#153, #154).
     case declined
 
     /// The status of a turn whose request ended with `outcome`.

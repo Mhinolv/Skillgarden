@@ -81,6 +81,10 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case providerSheetLMStudio = "provider-sheet-lm-studio"
     /// The Ollama provider sheet with a `localhost` base URL: the loopback error under the field and "Save" off (#152).
     case providerSheetOllamaError = "provider-sheet-ollama-error"
+    /// The new OpenAI API provider sheet with a typed key, after a passed "Test Connection" (#153).
+    case providerSheetOpenAI = "provider-sheet-openai"
+    /// The OpenAI API provider sheet of a saved profile (#153): "Saved in the Keychain" and "Replace Key…".
+    case providerSheetOpenAIEdit = "provider-sheet-openai-edit"
     /// The new Anthropic API sheet after a passed "Test Connection" (#154): the fixed host, the key, the model and the limit.
     case providerSheetAnthropic = "provider-sheet-anthropic"
     /// The Anthropic API sheet in edit mode (#154): "Saved in the Keychain" with "Replace Key…".
@@ -127,13 +131,18 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The Q&A panel with the LM Studio profile as "Answer with" (#152): the header "LM Studio · qwen3-8b-mlx",
     /// a saved LM Studio turn and a streamed draft answer.
     case qaExternalLocal = "qa-external-local"
+    /// The Q&A panel with the OpenAI API profile (#153): a partial answer that stopped at the output limit, and Retry.
+    case qaIncomplete = "qa-incomplete"
+    /// The Q&A panel with the OpenAI API profile (#153): a turn with a refused key, Retry and "Open Settings…".
+    case qaAuthError = "qa-auth-error"
     /// The Q&A panel with the Anthropic API profile as "Answer with" (#154): a turn at the output limit, a declined turn,
     /// a 401 turn with "Open Settings…" and a busy turn.
     case qaAnthropic = "qa-anthropic"
 
     static let settingsScreens: [SnapshotScreen] = [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
                                                     .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError,
-                                                    .providerSheetAnthropic, .providerSheetAnthropicEdit]
+                                                    .providerSheetOpenAI, .providerSheetOpenAIEdit, .providerSheetAnthropic,
+                                                    .providerSheetAnthropicEdit]
 
     /// True for the Settings screens. The harness draws the Settings form in place of the main window.
     public var isSettings: Bool { Self.settingsScreens.contains(self) }
@@ -141,8 +150,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The local AI status that the harness injects into the Settings form (#123). It starts no runtime. Nil for the other screens.
     public var localAIStatus: LocalAIStatus? {
         switch self {
-        case .settings, .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetAnthropic,
-             .providerSheetAnthropicEdit: .ready(version: "b11669")
+        case .settings, .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI,
+             .providerSheetOpenAIEdit, .providerSheetAnthropic, .providerSheetAnthropicEdit: .ready(version: "b11669")
         case .settingsModelMissing: .noModel
         case .settingsAIOff: .off
         case .settingsAIError: .failed(.noFreePort)
@@ -187,7 +196,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// True when the harness gives the fixture provider profiles to Settings and the Q&A panel (#151).
     public var usesProviderProfiles: Bool {
-        [.settingsProviders, .qaConsent, .qaRemote, .qaExternalLocal, .qaAnthropic].contains(self)
+        [.settingsProviders, .qaConsent, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic].contains(self)
     }
 
     /// The "Answer with" profile of `usesProviderProfiles`: LM Studio on `qa-external-local` (#152),
@@ -197,23 +206,29 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
         return SnapshotPlan.providerProfiles[self == .qaExternalLocal ? 1 : self == .qaAnthropic ? 2 : 0].id
     }
 
-    /// The provider sheet that the harness draws in place of the window (#152), with its injected test result.
-    /// Nil for the other screens.
-    public var providerSheet: (profile: ProviderProfile, testResult: ConnectionTestResult?)? {
+    /// The provider sheet that the harness draws in place of the window (#152), with its injected test result and the
+    /// injected text of the key field (#153). Nil for the other screens.
+    public var providerSheet: (profile: ProviderProfile, testResult: ConnectionTestResult?, secret: String)? {
         switch self {
         case .providerSheetLMStudio:
             (ProviderProfile(id: "snapshot-lm-studio-new", kind: .externalLocal, name: "LM Studio", vendor: "LM Studio",
-                             origin: "http://127.0.0.1:1234/v1", modelID: "qwen3-8b-mlx"), .connected)
+                             origin: "http://127.0.0.1:1234/v1", modelID: "qwen3-8b-mlx"), .connected, "")
         case .providerSheetOllamaError:
             (ProviderProfile(id: "snapshot-ollama-new", kind: .externalLocal, name: "Ollama", vendor: "Ollama",
-                             origin: "http://localhost:11434/v1", modelID: "llama3.2"), nil)
+                             origin: "http://localhost:11434/v1", modelID: "llama3.2"), nil, "")
+        case .providerSheetOpenAI:
+            ({ var profile = ProviderProfile.preset(.openAI); profile.modelID = "gpt-5"; return profile }(), .connected,
+             "sk-snapshot-key")
+        case .providerSheetOpenAIEdit:
+            (ProviderProfile(id: "snapshot-openai", kind: .api, name: "OpenAI API", vendor: "OpenAI", origin: "https://api.openai.com",
+                             modelID: "gpt-5", answerTokens: 2048, credentialReference: "snapshot-openai"), nil, "")
         case .providerSheetAnthropic:
             (ProviderProfile(id: "snapshot-anthropic-new", kind: .api, name: "Anthropic API", vendor: "Anthropic",
-                             origin: "https://api.anthropic.com", modelID: "claude-sonnet-5-5", answerTokens: 1024), .connected)
+                             origin: "https://api.anthropic.com", modelID: "claude-sonnet-5-5", answerTokens: 1024), .connected, "")
         case .providerSheetAnthropicEdit:
             (ProviderProfile(id: "snapshot-anthropic-edit", kind: .api, name: "Anthropic API", vendor: "Anthropic",
                              origin: "https://api.anthropic.com", modelID: "claude-sonnet-5-5", answerTokens: 2048,
-                             credentialReference: "snapshot-anthropic-edit"), nil)
+                             credentialReference: "snapshot-anthropic-edit"), nil, "")
         default: nil
         }
     }
@@ -329,15 +344,15 @@ public enum SnapshotPlan {
     public static func seedStore(for screen: SnapshotScreen, root: URL, fixture: URL) throws -> String? {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
-             .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetAnthropic,
-             .providerSheetAnthropicEdit:
+             .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit,
+             .providerSheetAnthropic, .providerSheetAnthropicEdit:
             _ = try CourseStore(root: root)
             return nil
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
              .videoQuickCheck, .videoTheater, .lectureSources, .videoUpNext, .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft,
              .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaArticle, .qaTheater, .qaCitations, .qaCitationExcerpt,
              .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote, .qaExternalLocal,
-             .qaAnthropic:
+             .qaIncomplete, .qaAuthError, .qaAnthropic:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -497,13 +512,18 @@ public enum SnapshotPlan {
              ("How long is the course?", "", .refused(reason: "Anthropic did not accept the API key. Check it in Settings.")),
              ("What comes after the welcome?", "", .refused(reason: "Anthropic is busy. Try again later."))]
         case .qaCitations, .qaOffHistory, .qaErrorHistory, .qaStartingHistory:
-            // Inline Markdown (#158): italic, a marker in bold and code.
-            [("How does the course start?", "It starts with a *welcome* [t0]. Then you plan the course **step by step [t1]**. "
+            // Inline Markdown (#158): italic, a marker in bold and code. #171: `[t0][t1]` shows one marker, and the
+            // second line keeps its own source.
+            [("How does the course start?", "It starts with a *welcome* [t0][t1].\nThen you plan the course **step by step [t1]**. "
                 + "The `guide` has more help [L9].", .finished)]
         case .qaCitationExcerpt:
             [("What do I do first?", "Write the goal of the course first [a4]. Keep each lecture short [a6].", .finished)]
         case .qaCitationsStale:
             [("How does the course start?", "It starts with a welcome [t0], then a plan [t1].", .finished)]
+        case .qaIncomplete:
+            [("How long is the course?", "The course has two sections. The first section shows the plan [t1], and the", .incomplete)]
+        case .qaAuthError:
+            [("Which tools do I need?", "", .refused(reason: OpenAIErrors.rejectedKeyText))]
         default: []
         }
     }
@@ -514,11 +534,12 @@ public enum SnapshotPlan {
     /// The provider and the model of the seeded Q&A turns (#150). The panel shows them only for a profile (#151).
     static let snapshotOrigin = AnswerOrigin(providerID: BundledAnswerProvider.providerID, modelID: "snapshot.gguf")
 
-    /// The origin of the seeded turns of a screen: the OpenAI API profile on `qa-remote`, the LM Studio profile on
-    /// `qa-external-local` (#152), the Anthropic API profile on `qa-anthropic` (#154), else the bundled model.
+    /// The origin of the seeded turns of a screen: the OpenAI API profile on `qa-remote` and the #153 screens,
+    /// the LM Studio profile on `qa-external-local` (#152), the Anthropic API profile on `qa-anthropic` (#154),
+    /// else the bundled model.
     static func qaOrigin(for screen: SnapshotScreen) -> AnswerOrigin {
         switch screen {
-        case .qaRemote: AnswerOrigin(providerID: providerProfiles[0].id, modelID: providerProfiles[0].modelID)
+        case .qaRemote, .qaIncomplete, .qaAuthError: AnswerOrigin(providerID: providerProfiles[0].id, modelID: providerProfiles[0].modelID)
         case .qaExternalLocal: AnswerOrigin(providerID: providerProfiles[1].id, modelID: providerProfiles[1].modelID)
         case .qaAnthropic: AnswerOrigin(providerID: providerProfiles[2].id, modelID: providerProfiles[2].modelID)
         default: snapshotOrigin
@@ -613,8 +634,8 @@ public enum SnapshotPlan {
     public static func imageLoads(for screen: SnapshotScreen) -> Int {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
-             .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetAnthropic,
-             .providerSheetAnthropicEdit: 0
+             .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit,
+             .providerSheetAnthropic, .providerSheetAnthropicEdit: 0
         case .library: 3
         case .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads, .pdfPreview: 2
         default: 1
@@ -625,13 +646,13 @@ public enum SnapshotPlan {
     public static func destination(for screen: SnapshotScreen) -> CourseDestination? {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library, .settings, .settingsModelMissing, .settingsAIOff,
-             .settingsAIError, .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetAnthropic,
-             .providerSheetAnthropicEdit: nil
+             .settingsAIError, .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI,
+             .providerSheetOpenAIEdit, .providerSheetAnthropic, .providerSheetAnthropicEdit: nil
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
              .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions,
              .qaTheater, .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
-             .qaExternalLocal, .qaAnthropic:
+             .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic:
             .lecture(sectionID: "plan", lectureID: "welcome")
         case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle, .qaCitationExcerpt:
             .lecture(sectionID: "plan", lectureID: "read")

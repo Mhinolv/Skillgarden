@@ -84,8 +84,8 @@ private struct NoTransport: LlamaTransport {
 @Test func markerListsSpacesAndPlainBracketsParse() {
     let citations = AnswerCitations(answer: "Both [t0, t1] and [ t1 ]. Not [1], [x] or [link](https://example.com).",
                                     context: videoContext, isStale: false)
-    // A Markdown link shows only its text (#158).
-    #expect(citations.text == "Both [1][2] and [2]. Not [1], [x] or link.")
+    // A Markdown link shows only its text (#158). A video list keeps its earliest cue (#171).
+    #expect(citations.text == "Both [1] and [2]. Not [1], [x] or link.")
     #expect(citations.sources.map(\.id) == ["1", "2"])
 }
 
@@ -114,6 +114,62 @@ private struct NoTransport: LlamaTransport {
     let turn = QATurn(id: 1, question: "Why?", answer: "Because [t0].", status: .complete, sourceRevision: "r", askedAt: .now)
     let citations = AnswerCitations(answer: turn.answer, context: videoContext, isStale: false)
     #expect(turn.accessibilityLabel(answer: citations.text) == "Question: Why?. Answer: Because [1].")
+}
+
+// MARK: First cue per fact (#171)
+
+/// The owner example: cues at 1:36–1:51, 2:38–2:52 and 2:55.
+private let denseVideoContext: LectureContext = {
+    let starts: [Double] = [96, 99, 102, 105, 111, 158, 162, 166, 172, 175]
+    return LectureContext(
+        courseTitle: "C", lectureTitle: "L",
+        passages: starts.indices.map { LecturePassage(id: "t\($0)", label: "", text: "Cue \($0).") },
+        seekTimes: Dictionary(uniqueKeysWithValues: starts.enumerated().map { ("t\($0)", $1) }))
+}()
+
+@Test func anOverCitedVideoAnswerShowsOneSourceForEachPoint() {
+    let answer = "- Pick a palette [t0][t1][t2][t3][t4] and keep it [t2].\n- Later, test it [t5, t6, t7, t8].\n- Last point [t9]."
+    let citations = AnswerCitations(answer: answer, context: denseVideoContext, isStale: false)
+    #expect(citations.text == "- Pick a palette [1] and keep it [1].\n- Later, test it [2].\n- Last point [3].")
+    #expect(citations.sources.map(\.title) == ["1 · 1:36", "2 · 2:38", "3 · 2:55"])
+    // The stored text keeps the raw IDs for the #130 check.
+    #expect(AnswerCitations.passageIDs(in: answer) == ["t0", "t1", "t2", "t3", "t4", "t2", "t5", "t6", "t7", "t8", "t9"])
+}
+
+@Test func aSameLineCueMergesOnlyWithin30SecondsAfterACitedCue() {
+    func text(_ answer: String) -> String { AnswerCitations(answer: answer, context: denseVideoContext, isStale: false).text }
+    // 1:51 is 30 s or less after 1:36. 2:38 is not.
+    #expect(text("A [t0] B [t4] C [t5].") == "A [1] B [1] C [2].")
+    // More than 30 s after the cited cue: a new source.
+    #expect(text("A [t0] B [t5].") == "A [1] B [2].")
+    // A cue before the cited cue does not merge.
+    #expect(text("A [t4] B [t0].") == "A [1] B [2].")
+    // In another line, the same fact gets its own source.
+    #expect(text("A [t0]\nB [t1]") == "A [1]\nB [2]")
+    // Markers with only spaces between them keep the earliest cue, with no `[1][1]`.
+    #expect(text("A [t3] [t1]  [t3].") == "A [1].")
+    // An earlier source keeps its own number in a later line.
+    #expect(text("A [t9]\nB [t5] C [t9].") == "A [1]\nB [2] C [1].")
+}
+
+@Test func theMergeWindowIsExactly30Seconds() {
+    let context = LectureContext(
+        courseTitle: "C", lectureTitle: "L",
+        passages: ["t0", "t1", "t2"].map { LecturePassage(id: $0, label: "", text: $0) },
+        seekTimes: ["t0": 10, "t1": 40, "t2": 40.5])
+    #expect(AnswerCitations(answer: "A [t0] B [t1].", context: context, isStale: false).text == "A [1] B [1].")
+    #expect(AnswerCitations(answer: "A [t0] B [t2].", context: context, isStale: false).text == "A [1] B [2].")
+}
+
+@Test func articleStaleAndUnknownMarkersDoNotMerge() {
+    #expect(AnswerCitations(answer: "Spade [a2][a0] [a2].", context: articleContext, isStale: false).text == "Spade [1][2] [1].")
+    let stale = AnswerCitations(answer: "A [t0][t1] [t2].", context: denseVideoContext, isStale: true)
+    #expect(stale.text == "A [1][2] [3].")
+    #expect(stale.sources.map(\.kind) == [.stale, .stale, .stale])
+    // An unknown marker in a group stays. The group keeps one video marker.
+    let mixed = AnswerCitations(answer: "A [t1][x9][t0, t9].", context: denseVideoContext, isStale: false)
+    #expect(mixed.text == "A [1][?].")
+    #expect(mixed.sources.map(\.title) == ["1 · 1:36", "? · Unknown source"])
 }
 
 // MARK: Lecture context
@@ -155,7 +211,7 @@ private struct NoTransport: LlamaTransport {
     await qa.load()
     let turn = try #require(qa.conversation.turns.first)
     let citations = qa.citations(for: turn)
-    #expect(citations.text == "It starts with a welcome [1]. Then you plan the course step by step [2]. The guide has more help [?].")
+    #expect(citations.text == "It starts with a welcome [1].\nThen you plan the course step by step [2]. The guide has more help [?].")
     #expect(citations.sources.map(\.title) == ["1 · 0:00", "2 · 0:02", "? · Unknown source"])
 
     // Unknown sources do not seek.
@@ -263,9 +319,11 @@ private func runs(_ citations: AnswerCitations) -> [(String, InlinePresentationI
     let markers = stale.styled.runs.compactMap { $0[AnswerMarkerAttribute.self] }
     #expect(markers.map(\.kind) == [.stale, .unknown])
     #expect(markers.map(\.isActionable) == [false, false])
-    // A list of IDs gives one marker for each ID.
-    let list = AnswerCitations(answer: "Mulch [t1, t0].", context: videoContext, isStale: false)
-    #expect(runs(list).map(\.0) == ["Mulch ", "[1]", "[2]", "."])
+    // A list of article IDs gives one marker for each ID. A video list keeps its earliest cue (#171).
+    let list = AnswerCitations(answer: "Spade [a2, a0].", context: articleContext, isStale: false)
+    #expect(runs(list).map(\.0) == ["Spade ", "[1]", "[2]", "."])
+    let videoList = AnswerCitations(answer: "Mulch [t1, t0].", context: videoContext, isStale: false)
+    #expect(runs(videoList).map(\.0) == ["Mulch ", "[1]", "."])
 }
 
 @Test func styledAnswerKeepsLineBreaksListsAndPlainBrackets() {
