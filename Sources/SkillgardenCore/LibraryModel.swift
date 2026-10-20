@@ -7,6 +7,8 @@ public enum CourseDestination: Hashable, Sendable {
     case lecture(sectionID: String, lectureID: String)
     /// The course credits page. It is valid only if the course has credits.
     case credits
+    /// The course Notes page (#181): the notes of the learner on each lecture, in course order.
+    case notes
 }
 
 /// Owns the learner's library and selection. Store reads run outside the main actor.
@@ -51,6 +53,8 @@ public final class LibraryModel {
     private var quickCheckSessions: [String: [String: QuickCheckSession]] = [:]
     /// Section ids whose review sheet opened, by course id.
     public private(set) var reviewedSections: [String: Set<String>] = [:]
+    /// Learner notes by course id, then lecture id, in creation order (#181).
+    public private(set) var notes: [String: [String: [LectureNote]]] = [:]
     /// Indexed transcript cues by course id (#18). Courses published before the index have none.
     public private(set) var transcriptCues: [String: [TranscriptCue]] = [:]
     /// The text of the transcript search field of the selected course.
@@ -98,7 +102,7 @@ public final class LibraryModel {
         let sectionID: String
         switch destination {
         case let .section(id), let .lecture(id, _): sectionID = id
-        case .overview, .credits, nil: return nil
+        case .overview, .credits, .notes, nil: return nil
         }
         return selectedCourse?.learnerSections.first { $0.id == sectionID }
     }
@@ -533,6 +537,72 @@ public final class LibraryModel {
         enqueueWrite { try $0.removeQATurn(id: turn.id, courseID: courseID, lectureID: lectureID) }
     }
 
+    // MARK: Notes (#181)
+
+    /// The notes of a lecture in the selected course, in panel order: video time, then creation order.
+    public func notes(forLecture lectureID: String) -> [LectureNote] {
+        LectureNote.panelOrder(selectedCourseID.flatMap { notes[$0]?[lectureID] } ?? [])
+    }
+
+    /// The Notes page of the selected course: one group for each learner lecture with notes, in course order.
+    public var selectedNoteGroups: [LectureNoteGroup] {
+        guard let course = selectedCourse else { return [] }
+        return LectureNoteGroup.groups(course: course, notes: notes[course.id] ?? [:])
+    }
+
+    /// Saves a new note on a learner lecture of the selected course. Returns false when the save fails,
+    /// so the composer keeps the text. `videoSeconds` is nil for a lecture that is not a video.
+    @discardableResult
+    public func addNote(_ text: String, videoSeconds: Double?, lectureID: String) async -> Bool {
+        guard let course = selectedCourse, LectureContextBuilder.learnerLecture(lectureID, in: course) != nil,
+              LectureNote.cleanText(text) != nil, let store else { return false }
+        let courseID = course.id
+        await waitForWrites()
+        guard let note = try? await Task.detached(operation: {
+            try store.addNote(text: text, videoSeconds: videoSeconds, courseID: courseID, lectureID: lectureID)
+        }).value else { return false }
+        notes[courseID, default: [:]][lectureID, default: []].append(note)
+        return true
+    }
+
+    /// Saves new text for a note of the selected course. Returns false when the save fails, so the field keeps the text.
+    @discardableResult
+    public func updateNote(_ note: LectureNote, text: String) async -> Bool {
+        guard let courseID = selectedCourseID, let clean = LectureNote.cleanText(text) else { return false }
+        guard await enqueueWrite({ try $0.updateNote(id: note.id, text: clean, courseID: courseID) }).value else { return false }
+        if let index = notes[courseID]?[note.lectureID]?.firstIndex(where: { $0.id == note.id }) {
+            notes[courseID]?[note.lectureID]?[index].text = clean
+        }
+        return true
+    }
+
+    /// Removes a note of the selected course. Returns false when the delete fails, so the note stays.
+    @discardableResult
+    public func deleteNote(_ note: LectureNote) async -> Bool {
+        guard let courseID = selectedCourseID else { return false }
+        guard await enqueueWrite({ try $0.deleteNote(id: note.id, courseID: courseID) }).value else { return false }
+        notes[courseID]?[note.lectureID]?.removeAll { $0.id == note.id }
+        if notes[courseID]?[note.lectureID]?.isEmpty == true { notes[courseID]?[note.lectureID] = nil }
+        return true
+    }
+
+    /// A click on the time of a video note in the panel. The player of the open lecture seeks to the time and plays,
+    /// like a transcript line. The Notes panel stays in its slot.
+    public func seekNote(_ note: LectureNote) {
+        guard let seconds = note.videoSeconds, let lecture = selectedLecture, lecture.id == note.lectureID,
+              lecture.type == .video else { return }
+        seekCount += 1
+        transcriptSeek = TranscriptSeek(id: seekCount, lectureID: note.lectureID, seconds: seconds, showsTranscript: false, plays: true)
+    }
+
+    /// A row of the Notes page opens its lecture. A click on the time also seeks the video to the note and plays.
+    public func openNote(_ note: LectureNote, seeks: Bool = false) {
+        guard let course = selectedCourse,
+              let target = course.learnerLectures.first(where: { $0.lecture.id == note.lectureID }) else { return }
+        open(.lecture(sectionID: target.sectionID, lectureID: note.lectureID))
+        if seeks { seekNote(note) }
+    }
+
     /// Waits until all queued progress writes finish.
     func waitForWrites() async { _ = await pendingWrite?.value }
 
@@ -542,7 +612,7 @@ public final class LibraryModel {
         autoPlayLectureID = nil
         switch value {
         case let .section(sectionID), let .lecture(sectionID, _): openReviewIfNeeded(sectionID: sectionID)
-        case .overview, .credits: break
+        case .overview, .credits, .notes: break
         }
         guard let courseID = selectedCourseID, case let .lecture(_, lectureID) = value,
               lastOpenedLectures[courseID] != lectureID else { return }
@@ -629,13 +699,14 @@ public final class LibraryModel {
         await waitForWrites()
         let interruptsPendingTurns = !interruptedPendingTurns
         do {
-            let (store, loaded, installed, progress, lastOpened, quizResults, interactiveResults, reviewed, cues) = try await Task.detached {
+            let (store, loaded, installed, progress, lastOpened, quizResults, interactiveResults, reviewed, cues, notes) = try await Task.detached {
                 let store = try CourseStore(root: root)
                 // A turn that was pending when the app stopped can never finish (#127). Later reloads keep active requests.
                 if interruptsPendingTurns { try store.interruptPendingQATurns() }
                 return (store, try store.listCourses(), try Self.installedData(store: store, root: root),
                         try store.allProgress(), try store.lastOpenedLectures(), try store.allQuizResults(),
-                        try store.allInteractiveResults(), try store.allReviewedSections(), try store.allTranscriptCues())
+                        try store.allInteractiveResults(), try store.allReviewedSections(), try store.allTranscriptCues(),
+                        try store.allNotes())
             }.value
             self.store = store
             interruptedPendingTurns = true
@@ -655,6 +726,7 @@ public final class LibraryModel {
             self.interactiveResults = interactiveResults
             reviewedSections = reviewed
             transcriptCues = cues
+            self.notes = notes
             errorMessage = nil
             if let course = selectedCourse {
                 if !Self.isValid(destination, in: course, credits: selectedCredits) { destination = .overview }
@@ -682,6 +754,7 @@ public final class LibraryModel {
             sources = [:]
             reviewedSections = [:]
             transcriptCues = [:]
+            notes = [:]
             clearTranscriptSearch()
             transcriptSeek = nil
             sectionReview = nil
@@ -700,7 +773,7 @@ public final class LibraryModel {
             return sections.first { $0.id == sectionID }?.lectures.contains { $0.id == lectureID } == true
         case .credits:
             return !credits.isEmpty
-        case .overview, nil:
+        case .overview, .notes, nil:
             return true
         }
     }
@@ -752,20 +825,23 @@ public final class LibraryModel {
     }
 }
 
-/// A request to the video player of `lectureID`: seek to `seconds` and stay paused (#18).
+/// A request to the video player of `lectureID`: seek to `seconds` and stay paused (#18), or play (#181).
 /// `id` changes on each request, so a second click on the same result seeks again.
 public struct TranscriptSeek: Equatable, Sendable {
     public let id: Int
     public let lectureID: String
     public let seconds: Double
-    /// True opens the transcript with the cue active. A Q&A source seek (#129) keeps the Q&A panel.
+    /// True opens the transcript with the cue active. A Q&A source seek (#129) and a note seek (#181) keep their panel.
     public let showsTranscript: Bool
+    /// True plays after the seek, like a click on a transcript line. A note time seek plays (#181). The others stay paused.
+    public let plays: Bool
 
-    init(id: Int, lectureID: String, seconds: Double, showsTranscript: Bool = true) {
+    init(id: Int, lectureID: String, seconds: Double, showsTranscript: Bool = true, plays: Bool = false) {
         self.id = id
         self.lectureID = lectureID
         self.seconds = seconds
         self.showsTranscript = showsTranscript
+        self.plays = plays
     }
 }
 

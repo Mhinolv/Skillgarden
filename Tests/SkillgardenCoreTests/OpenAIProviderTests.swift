@@ -423,7 +423,7 @@ private func json(_ request: URLRequest) throws -> [String: Any] {
         """)
 
     let store = try CourseStore(root: root)
-    #expect(try store.schemaVersion == 13)
+    #expect(try store.schemaVersion == 14)
     #expect(try store.qaTurns(courseID: "c", lectureID: "a").map(\.status) == [.complete, .failed(reason: "Busy.")])
     let origin = AnswerOrigin(providerID: "openai", modelID: "gpt-5")
     for (status, answer) in [(QATurnStatus.incomplete, "A loop"), (.declined, ""), (.failed(reason: "OpenAI sent an error (500)."), "")] {

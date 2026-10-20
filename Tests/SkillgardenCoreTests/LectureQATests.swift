@@ -153,14 +153,14 @@ private func model(_ library: LibraryModel, transport: ScriptedTransport, interv
 }
 
 @Test func transcriptAndQAShareOneSlotAndTheSavedChoiceStays() {
-    #expect(LecturePanelSlot.showsTranscript(saved: true, showsQA: false))
-    #expect(!LecturePanelSlot.showsTranscript(saved: true, showsQA: true))
-    #expect(!LecturePanelSlot.showsTranscript(saved: false, showsQA: false))
+    #expect(LecturePanelSlot.showsTranscript(saved: true, open: nil))
+    #expect(!LecturePanelSlot.showsTranscript(saved: true, open: .qa))
+    #expect(!LecturePanelSlot.showsTranscript(saved: false, open: nil))
     // Q&A on hides the transcript but the saved choice stays on, so Q&A off shows it again.
     // The Transcript pill on closes Q&A. The pill off keeps Q&A as it is.
-    #expect(LecturePanelSlot.setTranscript(true, showsQA: true) == (saved: true, showsQA: false))
-    #expect(LecturePanelSlot.setTranscript(false, showsQA: false) == (saved: false, showsQA: false))
-    #expect(LecturePanelSlot.setTranscript(false, showsQA: true) == (saved: false, showsQA: true))
+    #expect(LecturePanelSlot.setTranscript(true, open: .qa) == (saved: true, open: nil))
+    #expect(LecturePanelSlot.setTranscript(false, open: nil) == (saved: false, open: nil))
+    #expect(LecturePanelSlot.setTranscript(false, open: .qa) == (saved: false, open: .qa))
 }
 
 @Test func draftThrottleAllowsTenChangesASecond() {

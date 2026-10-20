@@ -125,6 +125,7 @@ private func withCourse(isolation: isolated (any Actor)? = #isolation, _ body: (
         // Make the store a schema version 8 store: no index table and no index flag.
         do {
             let database = try SQLiteDatabase(url: root.appending(path: "library.sqlite"))
+            try database.execute("DROP TABLE lecture_notes")
             try database.execute("DROP TABLE qa_messages")
             try database.execute("DROP TABLE qa_threads")
             try database.execute("DROP TABLE transcript_cues")

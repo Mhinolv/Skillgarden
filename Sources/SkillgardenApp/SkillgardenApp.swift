@@ -83,6 +83,11 @@ struct SkillgardenApp: App {
                 }
                 .keyboardShortcut("a", modifiers: [.option, .command])
                 .disabled(showsQA == nil)
+                Button(showsNotes?.isOn == true ? "Hide Notes" : "Show Notes", systemImage: LectureNotesPanel.symbol) {
+                    showsNotes?.toggle()
+                }
+                .keyboardShortcut("n", modifiers: [.option, .command])
+                .disabled(showsNotes == nil)
                 // AVKit has no public API to start full screen from code, so the player button is the only full-screen control (#85).
                 Button(theaterMode?.isOn == true ? "Exit Theater Mode" : "Enter Theater Mode", systemImage: "tv") {
                     theaterMode?.toggle()
@@ -130,6 +135,8 @@ struct SkillgardenApp: App {
     @FocusedValue(\.showsTranscript) private var showsTranscript
     /// Nil when no video or article lecture shows (#128).
     @FocusedValue(\.showsQA) private var showsQA
+    /// Nil when no lecture shows its Notes pill (#181).
+    @FocusedValue(\.showsNotes) private var showsNotes
     /// Nil when no video lecture with an available video shows.
     @FocusedValue(\.theaterMode) private var theaterMode
     /// Nil when no course outline shows.
@@ -171,13 +178,16 @@ struct ContentView: View {
     @State private var qa: LectureQA
     /// The "Answer with" choice and the course consents (#151).
     private let providers: ProviderSettings
-    /// The Q&A panel is open. The window keeps it for all lectures, like theater. It is not saved.
-    @State private var showsQA = false
+    /// The Q&A or Notes panel that is open (#181). The window keeps it for all lectures, like theater. It is not saved.
+    @State private var openPanel: LecturePanelSlot.Panel?
+    /// True while a notes field has focus (#181). Escape then cancels the edit and does not end theater.
+    @State private var notesFieldFocused = false
     @Environment(\.showsReviewInline) private var showsReviewInline
     @Environment(\.showsPDFPreviewInline) private var showsPDFPreviewInline
     @Environment(\.snapshotIgnoresCourseTheme) private var ignoresCourseTheme
     @Environment(\.snapshotStartsTheater) private var snapshotStartsTheater
     @Environment(\.snapshotShowsQA) private var snapshotShowsQA
+    @Environment(\.snapshotShowsNotes) private var snapshotShowsNotes
 
     /// Uses the data folder that `SKILLGARDEN_DATA_DIR` or the saved `DataDirectory` setting names.
     init(appearance: AppAppearance, autoPlays: Bool, localAI: RuntimeSupervisor, client: LlamaClient, providers: ProviderSettings) {
@@ -212,18 +222,28 @@ struct ContentView: View {
         self.autoPlays = autoPlays
     }
 
-    /// The Transcript choice as the video page shows it (#128). Q&A and the transcript share one slot.
-    /// Q&A hides the transcript and keeps the saved choice. The Transcript pill on closes Q&A.
+    /// The Transcript choice as the video page shows it (#128). Q&A, Notes (#181) and the transcript share one slot.
+    /// Q&A or Notes hides the transcript and keeps the saved choice. The Transcript pill on closes them.
     private var transcriptBinding: Binding<Bool> {
-        Binding(get: { LecturePanelSlot.showsTranscript(saved: videoText.showsTranscript, showsQA: showsQA) }, set: { on in
-            let next = LecturePanelSlot.setTranscript(on, showsQA: showsQA)
-            showsQA = next.showsQA
+        Binding(get: { LecturePanelSlot.showsTranscript(saved: videoText.showsTranscript, open: openPanel) }, set: { on in
+            let next = LecturePanelSlot.setTranscript(on, open: openPanel)
+            openPanel = next.open
             videoTextBinding(\.showsTranscript).wrappedValue = next.saved
         })
     }
 
+    /// The open state of one panel of the slot. On closes the other panel.
+    private func panelBinding(_ panel: LecturePanelSlot.Panel) -> Binding<Bool> {
+        Binding(get: { openPanel == panel }, set: { openPanel = LecturePanelSlot.set(panel, $0, open: openPanel) })
+    }
+
     private var qaPanel: LectureQAPanel {
-        LectureQAPanel(qa: qa, localAI: localAI, providers: providers, isOn: $showsQA)
+        LectureQAPanel(qa: qa, localAI: localAI, providers: providers, isOn: panelBinding(.qa))
+    }
+
+    private func notesPanel(_ lecture: Lecture) -> LectureNotesPanel {
+        LectureNotesPanel(library: library, lectureID: lecture.id, isOn: panelBinding(.notes),
+                          focusChanged: { notesFieldFocused = $0 })
     }
 
     /// A binding to one video text choice that saves the change at once.
@@ -275,7 +295,8 @@ struct ContentView: View {
         .onChange(of: LectureQA.key(library: library), initial: true) { _, key in qa.show(key) }
         .onAppear {
             if snapshotStartsTheater { setTheater(true) }
-            if snapshotShowsQA { showsQA = true }
+            if snapshotShowsQA { openPanel = .qa }
+            if snapshotShowsNotes { openPanel = .notes }
         }
     }
 
@@ -318,9 +339,9 @@ struct ContentView: View {
                     }
                 }
                 .background {
-                    if theater.isOn && !upNextShows && !qa.isAnswering {
+                    if theater.isOn && !upNextShows && !qa.isAnswering && !notesFieldFocused {
                         // Escape ends theater. The button has no visible part. While "Up next" shows, Escape cancels it only (#99).
-                        // While a Q&A answer runs, Escape cancels the answer only (#128).
+                        // While a Q&A answer runs, Escape cancels the answer only (#128). A notes field keeps Escape (#181).
                         Button("Exit Theater Mode") { showSidebar(theater.end()) }
                             .keyboardShortcut(.cancelAction)
                             .opacity(0)
@@ -372,13 +393,17 @@ struct ContentView: View {
                     // A quiz has its own primary action, so each screen keeps one accent button.
                     completeIsPrimary: lecture.type != .quiz,
                     // A video has the complete control in its controls row, under the player.
-                    showsCompleteRow: lecture.type != .video || library.selectedQuizAttempt != nil
+                    showsCompleteRow: lecture.type != .video || library.selectedQuizAttempt != nil,
+                    // Video and article pages show the Notes pill next to Q&A. The other types show it in the complete row (#181).
+                    notesPanel: [.video, .article].contains(lecture.type) ? nil : notesPanel(lecture)
                 ) {
                     if let attempt = library.selectedQuizAttempt {
                         QuizView(attempt: attempt) { library.performQuizAction($0) }
                     } else {
                         switch lecture.type {
-                        case .article: ArticleLectureView(article: library.article(forLecture: lecture.id), qaPanel: qaPanel)
+                        case .article:
+                            ArticleLectureView(article: library.article(forLecture: lecture.id), qaPanel: qaPanel,
+                                               notesPanel: notesPanel(lecture))
                         case .video:
                             VideoLectureView(video: library.video(forLecture: lecture.id),
                                              quickChecks: library.selectedQuickChecks,
@@ -402,7 +427,8 @@ struct ContentView: View {
                                              playNext: { library.playNextLecture() },
                                              startsPlaying: { [library] in library.takeAutoPlay(lectureID: lecture.id) },
                                              upNextShowsChanged: { upNextShows = $0 },
-                                             qaPanel: qaPanel)
+                                             qaPanel: qaPanel,
+                                             notesPanel: notesPanel(lecture))
                         case .interactive:
                             InteractiveLectureView(lecture: lecture, module: library.selectedInteractive,
                                                    result: library.selectedInteractiveResult) {
@@ -435,6 +461,8 @@ struct ContentView: View {
                                   openCredits: library.selectedCredits.isEmpty ? nil : { library.selectDestination(.credits) })
             } else if library.destination == .credits {
                 CourseCreditsView(credits: library.selectedCredits)
+            } else if library.destination == .notes {
+                CourseNotesView(groups: library.selectedNoteGroups) { library.openNote($0, seeks: $1) }
             } else {
                 ContentUnavailableView("Select a lecture", systemImage: "list.bullet")
             }
