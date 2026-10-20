@@ -497,8 +497,9 @@ public enum SnapshotPlan {
              ("How long is the course?", "", .refused(reason: "Anthropic did not accept the API key. Check it in Settings.")),
              ("What comes after the welcome?", "", .refused(reason: "Anthropic is busy. Try again later."))]
         case .qaCitations, .qaOffHistory, .qaErrorHistory, .qaStartingHistory:
-            // Inline Markdown (#158): italic, a marker in bold and code.
-            [("How does the course start?", "It starts with a *welcome* [t0]. Then you plan the course **step by step [t1]**. "
+            // Inline Markdown (#158): italic, a marker in bold and code. #171: `[t0][t1]` shows one marker, and the
+            // second line keeps its own source.
+            [("How does the course start?", "It starts with a *welcome* [t0][t1].\nThen you plan the course **step by step [t1]**. "
                 + "The `guide` has more help [L9].", .finished)]
         case .qaCitationExcerpt:
             [("What do I do first?", "Write the goal of the course first [a4]. Keep each lecture short [a6].", .finished)]
