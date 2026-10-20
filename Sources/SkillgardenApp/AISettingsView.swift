@@ -160,13 +160,8 @@ struct QAProvidersSection: View {
             }
             .pickerStyle(.menu)
             ForEach(providers.profiles) { row($0) }
-            if providers.adapterKinds.contains(.externalLocal) {
-                Menu("Add Provider") {
-                    ForEach(ExternalLocalServer.allCases) { server in
-                        Button(server.menuTitle) { editing = .preset(server) }
-                    }
-                }
-                .fixedSize()
+            if !providers.adapterKinds.isDisjoint(with: [.externalLocal, .api]) {
+                addProviderMenu
             }
         } header: {
             Text("Q&A")
@@ -182,6 +177,27 @@ struct QAProvidersSection: View {
         } message: { _ in
             Text("Skillgarden deletes the key from the Keychain and removes the course permissions.")
         }
+    }
+
+    /// "Add Provider": the external local servers (#152), then the API services after them (#154).
+    private var addProviderMenu: some View {
+        Menu("Add Provider") {
+            if providers.adapterKinds.contains(.externalLocal) {
+                Section(AnswerProviderKind.externalLocal.title) {
+                    ForEach(ExternalLocalServer.allCases) { server in
+                        Button(server.menuTitle) { editing = .preset(server) }
+                    }
+                }
+            }
+            if providers.adapterKinds.contains(.api) {
+                Section(AnswerProviderKind.api.title) {
+                    ForEach(APIService.allCases) { service in
+                        Button(service.menuTitle) { editing = .preset(service) }
+                    }
+                }
+            }
+        }
+        .fixedSize()
     }
 
     private func row(_ profile: ProviderProfile) -> some View {
@@ -218,13 +234,16 @@ struct QAProvidersSection: View {
 /// The provider sheet (#151): the fields of the kind, "Test Connection", "Cancel" and "Save".
 /// The key goes into the Keychain only. The field stays empty for a saved key.
 /// An external local server (#152) has the fields Name, Base URL, Model ID and an optional token, with a red caption
-/// under an invalid field and the footer of its preset.
+/// under an invalid field and the footer of its preset. An API service (#154) has a fixed host, the API key, Model ID
+/// and Output limit.
 struct ProviderSheet: View {
     let providers: ProviderSettings
     @State var profile: ProviderProfile
     /// The snapshot harness injects a test result. The app starts with none.
     @State var testResult: ConnectionTestResult?
     @State private var secret = ""
+    /// True after "Replace Key…": the sheet shows an empty key field in place of "Saved in the Keychain".
+    @State private var replacesKey = false
     @State private var isTesting = false
     @State private var saveProblem: String?
     @Environment(\.dismiss) private var dismiss
@@ -241,6 +260,8 @@ struct ProviderSheet: View {
                 Section {
                     if profile.kind == .externalLocal {
                         externalLocalFields
+                    } else if let service = profile.apiService {
+                        apiServiceFields(service)
                     } else {
                         TextField("Name", text: $profile.name)
                         TextField("Company", text: $profile.vendor)
@@ -261,6 +282,9 @@ struct ProviderSheet: View {
                         }
                         if let server = profile.externalServer {
                             Text(server.footer).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
+                        if let service = profile.apiService {
+                            Text(service.footer).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -292,6 +316,34 @@ struct ProviderSheet: View {
         validated(TextField("Model ID", text: $profile.modelID, prompt: Text("Model ID from the server")),
                   problem: profile.modelProblem)
         SecureField("Token", text: $secret, prompt: Text(providers.hasSecret(profile) ? "Saved in the Keychain" : "Bearer token (optional)"))
+    }
+
+    /// The fields of an API service with a fixed host (#154). An edit shows "Saved in the Keychain", never the key.
+    @ViewBuilder private func apiServiceFields(_ service: APIService) -> some View {
+        LabeledContent("Host") { Text(profile.host) }
+        if providers.hasSecret(profile) && !replacesKey {
+            LabeledContent("API Key") {
+                HStack(spacing: 8) {
+                    Text("Saved in the Keychain")
+                    Button("Replace Key…") { replacesKey = true }
+                }
+            }
+        } else {
+            validated(SecureField("API Key", text: $secret, prompt: Text(service.keyPrompt)),
+                      problem: providers.hasSecret(profile) || !secret.trimmingCharacters(in: .whitespaces).isEmpty
+                          ? nil : APIService.noKeyText)
+        }
+        validated(TextField("Model ID", text: $profile.modelID, prompt: Text(service.modelPrompt)), problem: profile.modelProblem)
+        validated(HStack(spacing: 6) {
+            TextField("Output limit", text: answerTokensText, prompt: Text(String(APIService.defaultAnswerTokens)))
+            Text("tokens").foregroundStyle(.secondary)
+        }, problem: profile.answerTokensProblem)
+    }
+
+    /// The Output limit field: numbers only. An empty field is 0, so the sheet shows the problem and "Save" is off.
+    private var answerTokensText: Binding<String> {
+        Binding(get: { profile.answerTokens.map { $0 > 0 ? String($0) : "" } ?? "" },
+                set: { profile.answerTokens = Int($0.filter { $0.isASCII && $0.isNumber }.prefix(7)) ?? 0 })
     }
 
     private func validated(_ field: some View, problem: String?) -> some View {

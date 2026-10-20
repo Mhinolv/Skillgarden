@@ -12,12 +12,18 @@ public enum QATurnStatus: Equatable, Hashable, Sendable {
     case failed(reason: String)
     /// The app stopped while the turn was pending.
     case interrupted
+    /// The model stopped at the output limit (#154). The partial answer stays.
+    case incomplete
+    /// The model declined to answer (#154).
+    case declined
 
     /// The status of a turn whose request ended with `outcome`.
     public init(outcome: AnswerOutcome) {
         switch outcome {
         case .finished: self = .complete
         case .canceled: self = .cancelled
+        case .incomplete: self = .incomplete
+        case .declined: self = .declined
         default: self = .failed(reason: outcome.learnerText ?? "")
         }
     }
@@ -29,6 +35,8 @@ public enum QATurnStatus: Equatable, Hashable, Sendable {
         case .cancelled: "Cancelled"
         case .failed(let reason): "No answer: \(reason)"
         case .interrupted: "Interrupted"
+        case .incomplete: AnswerOutcome.incompleteText
+        case .declined: AnswerOutcome.declinedText
         }
     }
 
@@ -37,16 +45,22 @@ public enum QATurnStatus: Equatable, Hashable, Sendable {
         switch self {
         case .pending, .complete: nil
         case .cancelled: "stop.circle"
-        case .failed, .interrupted: "exclamationmark.triangle"
+        case .failed, .interrupted, .incomplete: "exclamationmark.triangle"
+        case .declined: "hand.raised"
         }
     }
 
     /// True for a turn that ended without a full answer. Retry asks the question again as a new turn.
     var isRetryable: Bool {
         switch self {
-        case .cancelled, .failed, .interrupted: true
+        case .cancelled, .failed, .interrupted, .incomplete, .declined: true
         case .pending, .complete: false
         }
+    }
+
+    /// True when the reason names Settings (#153, #154). The turn then shows "Open Settings…" next to Retry.
+    public var opensSettings: Bool {
+        if case .failed(let reason) = self { reason.contains("Settings") } else { false }
     }
 }
 
