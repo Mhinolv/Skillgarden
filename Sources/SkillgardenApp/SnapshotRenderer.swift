@@ -6,7 +6,6 @@ import SkillgardenCore
 
 /// Offscreen snapshot harness: `SkillgardenApp --snapshot <out-dir> --fixture <course-folder> [--screen <screen>]`.
 /// Renders each `SnapshotScreen` in light and dark mode to `<out-dir>/<screen>-<light|dark>.png`.
-/// Course screens also render in dark mode with no course theme to `<out-dir>/<screen>-unthemed-dark.png`.
 /// `--screen` renders only that screen. Repeat it for more screens.
 @MainActor
 enum SnapshotRenderer {
@@ -119,7 +118,6 @@ enum SnapshotRenderer {
             // The system color scheme of the capture. `GardenTheme` reads it when the window has no course theme (#82).
             // The harness sets it on the content too, so the capture does not depend on the window appearance only.
             .environment(\.colorScheme, output.appearance == .dark ? .dark : .light)
-            .environment(\.snapshotIgnoresCourseTheme, output.ignoresCourseTheme)
             .environment(\.locale, Locale(identifier: SnapshotPlan.localeIdentifier))
             .environment(\.timeZone, TimeZone(identifier: SnapshotPlan.timeZoneIdentifier)!)
             .environment(\.imageLoads, imageLoads)

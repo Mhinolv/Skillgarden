@@ -183,6 +183,8 @@ public final class LectureQA {
     @ObservationIgnored private var cancelRequested = false
     @ObservationIgnored private var throttle: DraftThrottle
     @ObservationIgnored private var pendingText = ""
+    /// Removes an echo of the system prompt from the draft and the saved answer of the running request (#192).
+    @ObservationIgnored private var echoGuard: PromptEchoGuard?
     @ObservationIgnored private var flush: Task<Void, Never>?
     @ObservationIgnored private var request: Task<Void, Never>?
     /// The citations of the saved turns (#129), so a draft change does not parse each answer again.
@@ -383,6 +385,7 @@ public final class LectureQA {
             guard providers?.hasConsent(courseID: key.courseID, destination: destination) == true else { return false }
         }
         setDraft(Draft(question: question, text: "", context: context))
+        echoGuard = PromptEchoGuard(context: context)
         cancelRequested = false
         requestProvider = provider
         let generation = generation
@@ -439,8 +442,11 @@ public final class LectureQA {
             switch update {
             case .delta(let text):
                 if generation == self.generation { publish(text, generation: generation) }
-            case .ended(let outcome, let text):
-                library.finishQATurn(turn, outcome: outcome, text: text)
+            case .ended(var outcome, let text):
+                // #192: the saved answer has no echo. If no text stays, the turn fails with the fixed text and Retry.
+                let answer = PromptEchoGuard(context: context).clean(text)
+                if outcome == .finished, answer.isEmpty, answer != text { outcome = .refused(reason: PromptEchoGuard.echoText) }
+                library.finishQATurn(turn, outcome: outcome, text: answer)
                 guard generation == self.generation else { return }
                 if outcome == .finished { announce(Self.answerReadyText) }
                 await end(generation)
@@ -467,8 +473,9 @@ public final class LectureQA {
         if isAnswering != (value != nil) { isAnswering = value != nil }
     }
 
-    /// One flush: the new text and its citations, parsed once.
+    /// One flush: the new text with no echo (#192) and its citations, parsed once.
     private func setDraftText(_ text: String) {
+        let text = echoGuard?.clean(text, isComplete: false) ?? text
         guard var value = draft, value.text != text else { return }
         value.text = text
         value.citations = AnswerCitations(answer: text, context: context, isStale: false)

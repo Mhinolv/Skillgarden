@@ -39,10 +39,11 @@ public struct BundledRuntime: LocalAIBackend {
                          environment: ["LLAMA_API_KEY": apiKey])
     }
 
-    /// One inference slot, on the loopback address only.
+    /// One inference slot, on the loopback address only. `--cache-ram 0` turns off the prompt cache of llama.cpp: by default
+    /// it keeps the context of earlier prompts in up to 8 GB more memory (#193). The slot still reuses the prompt that it holds.
     static func serverArguments(model: URL, port: Int) -> [String] {
         ["--model", model.path(percentEncoded: false), "--host", "127.0.0.1", "--port", String(port), "--parallel", "1",
-         "--ctx-size", String(LectureContextBudget.standard.contextTokens)]
+         "--ctx-size", String(LectureContextBudget.standard.contextTokens), "--cache-ram", "0"]
     }
 
     /// `/health` gives 200 when the model is loaded and 503 while it loads.
@@ -123,15 +124,14 @@ final class HostedServer: LocalAIProcess, @unchecked Sendable {
         LoopbackPorts.childPIDs(of: process.processIdentifier).contains { LoopbackPorts.isListening(pid: $0, port: port) }
     }
 
-    /// The memory of the `llama-server` child for the #130 check: the larger of its physical footprint and its resident
-    /// size, because the model file is mapped. Nil when the server does not run.
-    var serverMemoryBytes: UInt64? {
+    /// The memory of the `llama-server` child for the #130 check. Nil when the server does not run.
+    var serverMemory: ServerMemory? {
         guard process.isRunning, let pid = LoopbackPorts.childPIDs(of: process.processIdentifier).first else { return nil }
         var info = rusage_info_v2()
         let result = withUnsafeMutablePointer(to: &info) {
             $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V2, $0) }
         }
-        return result == 0 ? max(info.ri_phys_footprint, info.ri_resident_size) : nil
+        return result == 0 ? ServerMemory(footprint: info.ri_phys_footprint, resident: info.ri_resident_size) : nil
     }
 
     private func append(_ data: Data) {
@@ -153,6 +153,16 @@ final class HostedServer: LocalAIProcess, @unchecked Sendable {
         }
         if let (code, waiters) = resumed { waiters.forEach { $0.resume(returning: code) } }
     }
+}
+
+/// One memory sample of `llama-server`, in bytes.
+struct ServerMemory: Equatable, Sendable {
+    /// The physical footprint, as in Activity Monitor.
+    let footprint: UInt64
+    let resident: UInt64
+
+    /// The larger of the two, because the model file is mapped: its pages count in the resident size only.
+    var bytes: UInt64 { max(footprint, resident) }
 }
 
 /// Loopback ports and the owner check of a listening port.

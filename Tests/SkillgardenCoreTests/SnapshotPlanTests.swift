@@ -18,36 +18,34 @@ private func temporaryFolder() throws -> URL {
     #expect(outputs.map(\.url.lastPathComponent) == [
         "library-empty-light.png", "library-empty-dark.png",
         "library-empty-custom-folder-light.png", "library-empty-custom-folder-dark.png", "library-light.png", "library-dark.png",
-        "section-light.png", "section-dark.png", "section-unthemed-dark.png",
-        "lecture-light.png", "lecture-dark.png", "lecture-unthemed-dark.png",
-        "lecture-complete-light.png", "lecture-complete-dark.png", "lecture-complete-unthemed-dark.png",
-        "article-light.png", "article-dark.png", "article-unthemed-dark.png",
-        "course-landing-light.png", "course-landing-dark.png", "course-landing-unthemed-dark.png",
+        "section-light.png", "section-dark.png",
+        "lecture-light.png", "lecture-dark.png",
+        "lecture-complete-light.png", "lecture-complete-dark.png",
+        "article-light.png", "article-dark.png",
+        "course-landing-light.png", "course-landing-dark.png",
         "course-landing-dark-theme-light.png", "course-landing-dark-theme-dark.png",
-        "course-landing-details-light.png", "course-landing-details-dark.png", "course-landing-details-unthemed-dark.png",
-        "quiz-question-light.png", "quiz-question-dark.png", "quiz-question-unthemed-dark.png",
-        "quiz-wrong-answer-light.png", "quiz-wrong-answer-dark.png", "quiz-wrong-answer-unthemed-dark.png",
-        "quiz-results-light.png", "quiz-results-dark.png", "quiz-results-unthemed-dark.png",
-        "interactive-result-light.png", "interactive-result-dark.png", "interactive-result-unthemed-dark.png",
-        "video-player-light.png", "video-player-dark.png", "video-player-unthemed-dark.png",
-        "video-transcript-light.png", "video-transcript-dark.png", "video-transcript-unthemed-dark.png",
-        "video-quick-check-light.png", "video-quick-check-dark.png", "video-quick-check-unthemed-dark.png",
-        "video-theater-light.png", "video-theater-dark.png", "video-theater-unthemed-dark.png",
-        "section-review-light.png", "section-review-dark.png", "section-review-unthemed-dark.png",
-        "course-credits-light.png", "course-credits-dark.png", "course-credits-unthemed-dark.png",
-        "assignment-light.png", "assignment-dark.png", "assignment-unthemed-dark.png",
-        "assignment-complete-light.png", "assignment-complete-dark.png", "assignment-complete-unthemed-dark.png",
-        "lecture-downloads-light.png", "lecture-downloads-dark.png", "lecture-downloads-unthemed-dark.png",
-        "pdf-preview-light.png", "pdf-preview-dark.png", "pdf-preview-unthemed-dark.png",
-        "transcript-search-light.png", "transcript-search-dark.png", "transcript-search-unthemed-dark.png",
+        "course-landing-details-light.png", "course-landing-details-dark.png",
+        "quiz-question-light.png", "quiz-question-dark.png",
+        "quiz-wrong-answer-light.png", "quiz-wrong-answer-dark.png",
+        "quiz-results-light.png", "quiz-results-dark.png",
+        "interactive-result-light.png", "interactive-result-dark.png",
+        "video-player-light.png", "video-player-dark.png",
+        "video-transcript-light.png", "video-transcript-dark.png",
+        "video-quick-check-light.png", "video-quick-check-dark.png",
+        "video-theater-light.png", "video-theater-dark.png",
+        "section-review-light.png", "section-review-dark.png",
+        "course-credits-light.png", "course-credits-dark.png",
+        "assignment-light.png", "assignment-dark.png",
+        "assignment-complete-light.png", "assignment-complete-dark.png",
+        "lecture-downloads-light.png", "lecture-downloads-dark.png",
+        "pdf-preview-light.png", "pdf-preview-dark.png",
+        "transcript-search-light.png", "transcript-search-dark.png",
         "transcript-search-selected-light.png", "transcript-search-selected-dark.png",
-        "transcript-search-selected-unthemed-dark.png",
         "transcript-search-no-results-light.png", "transcript-search-no-results-dark.png",
-        "transcript-search-no-results-unthemed-dark.png",
-        "lecture-sources-light.png", "lecture-sources-dark.png", "lecture-sources-unthemed-dark.png",
-        "video-up-next-light.png", "video-up-next-dark.png", "video-up-next-unthemed-dark.png",
-        "video-up-next-theater-light.png", "video-up-next-theater-dark.png", "video-up-next-theater-unthemed-dark.png",
-        "outline-durations-light.png", "outline-durations-dark.png", "outline-durations-unthemed-dark.png",
+        "lecture-sources-light.png", "lecture-sources-dark.png",
+        "video-up-next-light.png", "video-up-next-dark.png",
+        "video-up-next-theater-light.png", "video-up-next-theater-dark.png",
+        "outline-durations-light.png", "outline-durations-dark.png",
         "settings-light.png", "settings-dark.png",
         "settings-model-missing-light.png", "settings-model-missing-dark.png",
         "settings-ai-off-light.png", "settings-ai-off-dark.png",
@@ -59,42 +57,39 @@ private func temporaryFolder() throws -> URL {
         "provider-sheet-openai-edit-light.png", "provider-sheet-openai-edit-dark.png",
         "provider-sheet-anthropic-light.png", "provider-sheet-anthropic-dark.png",
         "provider-sheet-anthropic-edit-light.png", "provider-sheet-anthropic-edit-dark.png",
-        "qa-thread-light.png", "qa-thread-dark.png", "qa-thread-unthemed-dark.png",
-        "qa-empty-light.png", "qa-empty-dark.png", "qa-empty-unthemed-dark.png",
-        "qa-draft-light.png", "qa-draft-dark.png", "qa-draft-unthemed-dark.png",
-        "qa-no-model-light.png", "qa-no-model-dark.png", "qa-no-model-unthemed-dark.png",
-        "qa-off-light.png", "qa-off-dark.png", "qa-off-unthemed-dark.png",
-        "qa-starting-light.png", "qa-starting-dark.png", "qa-starting-unthemed-dark.png",
-        "qa-stopping-light.png", "qa-stopping-dark.png", "qa-stopping-unthemed-dark.png",
-        "qa-error-light.png", "qa-error-dark.png", "qa-error-unthemed-dark.png",
-        "qa-no-captions-light.png", "qa-no-captions-dark.png", "qa-no-captions-unthemed-dark.png",
-        "qa-article-light.png", "qa-article-dark.png", "qa-article-unthemed-dark.png",
-        "qa-theater-light.png", "qa-theater-dark.png", "qa-theater-unthemed-dark.png",
-        "qa-citations-light.png", "qa-citations-dark.png", "qa-citations-unthemed-dark.png",
-        "qa-citation-excerpt-light.png", "qa-citation-excerpt-dark.png", "qa-citation-excerpt-unthemed-dark.png",
-        "qa-citations-stale-light.png", "qa-citations-stale-dark.png", "qa-citations-stale-unthemed-dark.png",
-        "qa-off-history-light.png", "qa-off-history-dark.png", "qa-off-history-unthemed-dark.png",
-        "qa-error-history-light.png", "qa-error-history-dark.png", "qa-error-history-unthemed-dark.png",
-        "qa-starting-history-light.png", "qa-starting-history-dark.png", "qa-starting-history-unthemed-dark.png",
-        "qa-consent-light.png", "qa-consent-dark.png", "qa-consent-unthemed-dark.png",
-        "qa-remote-light.png", "qa-remote-dark.png", "qa-remote-unthemed-dark.png",
-        "qa-external-local-light.png", "qa-external-local-dark.png", "qa-external-local-unthemed-dark.png",
-        "qa-incomplete-light.png", "qa-incomplete-dark.png", "qa-incomplete-unthemed-dark.png",
-        "qa-auth-error-light.png", "qa-auth-error-dark.png", "qa-auth-error-unthemed-dark.png",
-        "qa-anthropic-light.png", "qa-anthropic-dark.png", "qa-anthropic-unthemed-dark.png",
-        "notes-video-light.png", "notes-video-dark.png", "notes-video-unthemed-dark.png",
-        "notes-article-empty-light.png", "notes-article-empty-dark.png", "notes-article-empty-unthemed-dark.png",
-        "notes-page-light.png", "notes-page-dark.png", "notes-page-unthemed-dark.png",
-        "notes-page-empty-light.png", "notes-page-empty-dark.png", "notes-page-empty-unthemed-dark.png",
-        "qa-citation-ranges-light.png", "qa-citation-ranges-dark.png", "qa-citation-ranges-unthemed-dark.png",
+        "qa-thread-light.png", "qa-thread-dark.png",
+        "qa-empty-light.png", "qa-empty-dark.png",
+        "qa-draft-light.png", "qa-draft-dark.png",
+        "qa-no-model-light.png", "qa-no-model-dark.png",
+        "qa-off-light.png", "qa-off-dark.png",
+        "qa-starting-light.png", "qa-starting-dark.png",
+        "qa-stopping-light.png", "qa-stopping-dark.png",
+        "qa-error-light.png", "qa-error-dark.png",
+        "qa-no-captions-light.png", "qa-no-captions-dark.png",
+        "qa-article-light.png", "qa-article-dark.png",
+        "qa-theater-light.png", "qa-theater-dark.png",
+        "qa-citations-light.png", "qa-citations-dark.png",
+        "qa-citation-excerpt-light.png", "qa-citation-excerpt-dark.png",
+        "qa-citations-stale-light.png", "qa-citations-stale-dark.png",
+        "qa-off-history-light.png", "qa-off-history-dark.png",
+        "qa-error-history-light.png", "qa-error-history-dark.png",
+        "qa-starting-history-light.png", "qa-starting-history-dark.png",
+        "qa-consent-light.png", "qa-consent-dark.png",
+        "qa-remote-light.png", "qa-remote-dark.png",
+        "qa-external-local-light.png", "qa-external-local-dark.png",
+        "qa-incomplete-light.png", "qa-incomplete-dark.png",
+        "qa-auth-error-light.png", "qa-auth-error-dark.png",
+        "qa-anthropic-light.png", "qa-anthropic-dark.png",
+        "notes-video-light.png", "notes-video-dark.png",
+        "notes-article-empty-light.png", "notes-article-empty-dark.png",
+        "notes-page-light.png", "notes-page-dark.png",
+        "notes-page-empty-light.png", "notes-page-empty-dark.png",
+        "qa-citation-ranges-light.png", "qa-citation-ranges-dark.png",
+        "qa-guard-empty-light.png", "qa-guard-empty-dark.png",
     ])
-    // #82: every course screen except the dark-theme screen gets one dark capture with no course theme.
-    #expect(SnapshotScreen.allCases.filter { $0.selectsCourse && !$0.hasUnthemedCapture } == [.courseLandingDarkTheme])
-    let unthemed = outputs.filter(\.ignoresCourseTheme)
-    #expect(unthemed.count == 55)
-    #expect(unthemed.allSatisfy { $0.appearance == .dark && $0.screen.hasUnthemedCapture })
-    #expect(unthemed.allSatisfy { $0.url.lastPathComponent == "\($0.screen.rawValue)-unthemed-dark.png" })
-    #expect(outputs.filter { !$0.ignoresCourseTheme }.map(\.url.lastPathComponent) == SnapshotScreen.allCases.flatMap { screen in
+    // #182 retired the `-unthemed-dark` captures: each screen has one light and one dark capture.
+    #expect(!outputs.contains { $0.url.lastPathComponent.contains("unthemed") })
+    #expect(outputs.map(\.url.lastPathComponent) == SnapshotScreen.allCases.flatMap { screen in
         SnapshotAppearance.allCases.map { "\(screen.rawValue)-\($0.rawValue).png" }
     })
     #expect(SnapshotScreen.allCases.filter { $0.transcriptQuery != nil }
@@ -111,7 +106,7 @@ private func temporaryFolder() throws -> URL {
         .courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureDownloads, .pdfPreview, .lectureSources,
         .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaTheater,
         .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
-        .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .qaCitationRanges,
+        .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .qaCitationRanges, .qaGuardEmpty,
     ])
     // #181: two screens open the Notes panel. Only the video screen opens a note in edit.
     #expect(SnapshotScreen.allCases.filter(\.showsNotes) == [.notesVideo, .notesArticleEmpty])
@@ -122,12 +117,12 @@ private func temporaryFolder() throws -> URL {
                                                           .qaCitations, .qaCitationExcerpt, .qaCitationsStale,
                                                           .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
                                                           .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic,
-                                                          .qaCitationRanges])
+                                                          .qaCitationRanges, .qaGuardEmpty])
     #expect(SnapshotScreen.allCases.filter { $0.qaStatus != nil } == SnapshotScreen.allCases.filter(\.showsQA))
     #expect(SnapshotScreen.allCases.compactMap(\.qaStatus).map { LectureQAState(status: $0, content: .ready) }
         == [.ready, .ready, .ready, .noModel, .off, .starting, .stopping, .error(reason: "The server stopped. Exit code 9."),
             .ready, .ready, .ready, .ready, .ready, .ready, .off, .error(reason: "The server stopped. Exit code 9."), .starting,
-            .ready, .ready, .ready, .ready, .ready, .ready, .ready])
+            .ready, .ready, .ready, .ready, .ready, .ready, .ready, .ready])
     // #151: three screens use the fixture profiles. Only the consent screen sends a question.
     #expect(SnapshotScreen.allCases.filter(\.usesProviderProfiles) == [.settingsProviders, .qaConsent, .qaRemote, .qaExternalLocal,
                                                                        .qaIncomplete, .qaAuthError, .qaAnthropic,
@@ -179,7 +174,7 @@ private func temporaryFolder() throws -> URL {
                                                                          .videoUpNext, .videoUpNextTheater])
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: [.videoTranscript, .library]).map(\.url.lastPathComponent) == [
         "library-light.png", "library-dark.png",
-        "video-transcript-light.png", "video-transcript-dark.png", "video-transcript-unthemed-dark.png",
+        "video-transcript-light.png", "video-transcript-dark.png",
     ])
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: []).isEmpty)
     #expect(SnapshotPlan.outputs(outDirectory: out, screens: nil) == outputs)
@@ -192,7 +187,7 @@ private func temporaryFolder() throws -> URL {
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
-    #expect(Set(outputs.map(\.url)).count == SnapshotScreen.allCases.count * SnapshotAppearance.allCases.count + unthemed.count)
+    #expect(Set(outputs.map(\.url)).count == SnapshotScreen.allCases.count * SnapshotAppearance.allCases.count)
     #expect(SnapshotPlan.width == 1280 && SnapshotPlan.height == 800 && SnapshotPlan.scale == 2)
 }
 
@@ -221,7 +216,8 @@ private func temporaryFolder() throws -> URL {
             #expect(library.courses.map(\.id) == ["garden-tools", "sample-course"])
             #expect(library.continueCourse?.id == "sample-course")
             #expect(library.courses.map { library.summary(of: $0).status } == [.new, .inProgress])
-            #expect(library.accent(ofCourse: "garden-tools") == ThemeColor(hex: "#2F6FED"))
+            // #182: the manifest accent stays valid and loads. The app does not show it.
+            #expect(library.landings["garden-tools"]?.theme.accent == ThemeColor(hex: "#2F6FED"))
             #expect(library.libraryMeta == "2 courses · 1 in progress")
             library.selectCourse(courseID)
             library.selectDestination(nil)
@@ -429,7 +425,8 @@ private func temporaryFolder() throws -> URL {
             }
         case .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaArticle,
              .qaTheater, .qaCitations, .qaCitationExcerpt, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory,
-             .qaConsent, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .qaCitationRanges:
+             .qaConsent, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .qaCitationRanges,
+             .qaGuardEmpty:
             #expect(courseID == "sample-course")
             #expect(SnapshotPlan.imageLoads(for: screen) == 1)
             library.selectCourse(courseID)
@@ -481,6 +478,11 @@ private func temporaryFolder() throws -> URL {
                 #expect(citations.text == "It starts with a welcome [1].\nThen you plan the course [2] with outline (v2).\n"
                     + "The guide has more help [?].")
                 #expect(citations.sources.map(\.title) == ["1 · 0:00", "2 · 0:02", "? · Unknown source"])
+            case .qaGuardEmpty:
+                // #192: the echo turn saved no text. It shows the fixed failure text with Retry.
+                #expect(turns.map(\.answer) == ["You plan a course step by step [t1].", ""])
+                #expect(turns.map(\.status.label) == [nil, "No answer: The model repeated its instructions. Try again."])
+                #expect(conversation.canRetry(try #require(turns.last)))
             default:
                 #expect(turns.isEmpty)
             }
