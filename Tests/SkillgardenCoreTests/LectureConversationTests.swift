@@ -253,11 +253,11 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
 }
 
 @Test func longLecturePromptWithHistoryFitsTheBudget() throws {
-    // 2,000 cues, about 7 times the passage budget of 1,000 tokens. Cue 1,900 is the only cue about compost.
+    // 2,000 cues, about 6 times the passage budget of 1,200 tokens. Cue 1,900 is the only cue about compost.
     let cues = (0..<2_000).map { index in
         LecturePassage(id: "t\(index)", label: "0:00", text: index == 1_900 ? "Add compost in late autumn." : "Water the bed, step \(index).")
     }
-    let budget = LectureContextBudget(contextTokens: 1_600, answerTokens: 400, questionTokens: 200)
+    let budget = LectureContextBudget(contextTokens: 1_800, answerTokens: 400, questionTokens: 200)
     let context = LectureContext(courseTitle: "C", lectureTitle: "L", passages: cues, budget: budget)
     #expect(!context.fitsBudget)
     let now = context.sourceRevision
@@ -269,7 +269,7 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
     #expect(context.prompt(question: "Why?").noEvidence)
     let prompt = try #require(conversation.prompt(context: context, question: "Why?"))
     let priorQuestions = turns.dropFirst().map(\.question)
-    let retrieval = context.prompt(question: "Why?", priorQuestions: priorQuestions, historyTokens: 22 * 11)
+    let retrieval = context.prompt(question: "Why?", priorQuestions: priorQuestions, historyTokens: 27 * 11)
     #expect(prompt.isPartial && !prompt.noEvidence)
     #expect(prompt.passages == retrieval.passages && prompt.systemPrompt == retrieval.systemPrompt)
     // The reserve leaves out some passages of the selection without history. It adds none.
@@ -281,8 +281,8 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
     // The history is the newest complete turns that fit the free tokens. Old and failed turns stay out.
     let history = Array(prompt.messages.dropFirst().dropLast())
     let pairs = complete.flatMap { [ChatMessage(role: .user, content: $0.question), ChatMessage(role: .assistant, content: $0.answer)] }
-    // Retrieval keeps a quarter of the passage budget free for the newest turns: 22 turns of 11 tokens.
-    #expect(history.count >= 2 * 22 && history.count < pairs.count)
+    // Retrieval keeps a quarter of the passage budget free for the newest turns: 27 turns of 11 tokens.
+    #expect(history.count >= 2 * 27 && history.count < pairs.count)
     #expect(history == Array(pairs.suffix(history.count)))
     let free = budget.contextTokens - budget.answerTokens - budget.questionTokens - prompt.estimatedTokens
     func tokens(_ messages: [ChatMessage]) -> Int { messages.map { LectureContextBudget.estimatedTokens($0.content) }.reduce(0, +) }
@@ -291,7 +291,7 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
     // A match that fits only without the history reserve still gives a prompt. The passages take the history tokens.
     let big = LecturePassage(id: "a0", label: "Soil", text: "Compost " + String(repeating: "dirt ", count: 280))
     let small = LectureContext(courseTitle: "C", lectureTitle: "L", passages: [big] + passages(Array(repeating: "Water the bed.", count: 20)).dropFirst(),
-                               budget: LectureContextBudget(contextTokens: 1_000, answerTokens: 200, questionTokens: 100))
+                               budget: LectureContextBudget(contextTokens: 1_150, answerTokens: 200, questionTokens: 100))
     #expect(!small.fitsBudget)
     let saved = [turn(1, .complete, revision: small.sourceRevision, question: "Compost?", answer: String(repeating: "y", count: 450))]
     let fallback = try #require(LectureConversation(turns: saved, sourceRevision: small.sourceRevision).prompt(context: small, question: "Compost?"))
