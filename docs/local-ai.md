@@ -309,6 +309,30 @@ Use Settings > Q&A > "Add Provider" > "OpenAI API…". Type the API key, the mod
 | "OpenAI rate limit or quota reached. Try again later." | 429. |
 | "OpenAI sent an error (<status code>)." | Any other status. Skillgarden never reads or shows the response body. |
 
+## Anthropic API (#154)
+
+Use Settings > Q&A > "Add Provider" > "Anthropic API…". Use an API key from the Anthropic Console.
+Claude Pro and Max plans do not work here. Skillgarden never uses a Claude.ai sign-in, a copied session token or Claude Code.
+
+| Item | Rule |
+|---|---|
+| Host | Fixed: `https://api.anthropic.com`. The sheet does not let you change it. Redirects are not followed. |
+| API key | A Keychain item. Skillgarden sends it only in the `x-api-key` header. "Edit…" shows "Saved in the Keychain", never the key. |
+| Request | `POST /v1/messages` with `anthropic-version: 2023-06-01`, `stream: true` and `max_tokens`. The system text goes into `system`. |
+| Output limit | The "Output limit" field sets `max_tokens`. The default is 1024 tokens. |
+| Fallback | None. After an error, Retry uses the same profile. |
+
+| Turn text | Cause |
+|---|---|
+| "Stopped at the output limit" | `stop_reason` `max_tokens`. The partial answer stays. |
+| "The model declined to answer." | `stop_reason` `refusal`. |
+| "Anthropic did not accept the API key. Check it in Settings." | 401. The turn shows "Open Settings…". |
+| "This API key cannot use <model>." | 403. |
+| "Anthropic rate limit reached. Try again later." | 429. |
+| "Anthropic is busy. Try again later." | 529 or `overloaded_error`. |
+| "The output limit is too large for <model>. Lower it in Settings." | 400 with a `max_tokens` error. |
+| "Anthropic sent an error (<status code>)." | Any other error. Skillgarden never shows the response body. |
+
 ## Framework exception
 
 The engineering rules allow only Apple frameworks and the vendored Yams package.

@@ -301,7 +301,7 @@ private func json(_ request: URLRequest) throws -> [String: Any] {
 
 // MARK: - Connection test
 
-@MainActor @Test func connectionTestSendsOneShortSyntheticMessage() async throws {
+@MainActor @Test func openAIConnectionTestSendsOneShortSyntheticMessage() async throws {
     let transport = ScriptedTransport()
     let task = Task { await OpenAIAnswerProvider.testConnection(openAI(), key: key, transport: transport) }
     play(await transport.next(), incompleteStream("max_output_tokens"))
@@ -328,7 +328,7 @@ private func json(_ request: URLRequest) throws -> [String: Any] {
 // MARK: - Settings
 
 @MainActor @Test func presetSheetValuesAndValidationMatchTheDesignNotes() async throws {
-    #expect(RemoteAPIService.allCases.map(\.menuTitle) == ["OpenAI API…"])
+    #expect(APIService.allCases.map(\.menuTitle) == ["OpenAI API…", "Anthropic API…"])
     let preset = ProviderProfile.preset(.openAI)
     #expect(preset.kind == .api && preset.name == "OpenAI API" && preset.vendor == "OpenAI")
     #expect(preset.origin == "https://api.openai.com" && preset.host == "api.openai.com")
@@ -344,13 +344,15 @@ private func json(_ request: URLRequest) throws -> [String: Any] {
     #expect(ready.answerFooter == "Answers come from OpenAI and can be wrong.")
     ready.answerTokens = 15
     #expect(!ready.isValid(hasSecret: true))
-    #expect(RemoteAPIService.openAI.keyPrompt == "sk-…")
+    #expect(APIService.openAI.keyPrompt == "sk-…")
+    #expect(APIService.openAI.modelPrompt == "Model ID, for example gpt-5")
     #expect(ProviderProfile.noKeyText == "Enter an API key.")
-    #expect(ProviderProfile.answerTokensProblem("") == "Enter the output limit.")
-    #expect(ProviderProfile.answerTokensProblem("15") == "Enter 16 or more.")
-    #expect(ProviderProfile.answerTokensProblem("0") == "Enter 16 or more.")
-    #expect(ProviderProfile.answerTokensProblem("16") == nil)
-    #expect(ProviderProfile.answerTokensProblem("1024") == nil)
+    // An empty Output limit field is 0.
+    for (tokens, problem) in [(0, "Enter the output limit."), (15, "Enter 16 or more."), (1, "Enter 16 or more."),
+                              (16, nil), (1024, nil)] as [(Int, String?)] {
+        ready.answerTokens = tokens
+        #expect(ready.answerTokensProblem == problem)
+    }
 
     // The app routes the API kind to this adapter and its test.
     var keys: [String?] = []
@@ -432,9 +434,6 @@ private func json(_ request: URLRequest) throws -> [String: Any] {
     #expect(turns.map(\.status) == [.complete, .failed(reason: "Busy."), .incomplete, .declined,
                                      .failed(reason: "OpenAI sent an error (500).")])
     #expect(turns.map(\.answer) == ["Because.", "", "A loop", "", ""])
-    // A kind that a later version adds loads as a failure with its saved reason.
-    try database.execute("UPDATE qa_messages SET failure_kind = 'later', failure_reason = 'Later.' WHERE question = 'How?'")
-    #expect(try store.qaTurns(courseID: "c", lectureID: "a")[1].status == .failed(reason: "Later."))
 }
 
 // MARK: - Q&A, consent and history

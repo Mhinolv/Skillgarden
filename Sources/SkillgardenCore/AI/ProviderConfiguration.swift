@@ -75,28 +75,35 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
         kind == .externalLocal ? ExternalLocalServer(rawValue: vendor) : nil
     }
 
-    /// A new profile of a remote API preset (#153): the fixed origin and the default output limit.
-    /// The model ID is empty until the learner types it.
-    public static func preset(_ service: RemoteAPIService) -> ProviderProfile {
-        ProviderProfile(kind: .api, name: service.profileName, vendor: service.rawValue, origin: service.origin, modelID: "",
-                        answerTokens: OpenAIAnswerProvider.defaultAnswerTokens)
+    /// A new profile of a fixed API service (#153, #154). The model ID is empty until the learner types it.
+    public static func preset(_ service: APIService) -> ProviderProfile {
+        ProviderProfile(kind: .api, name: service.name, vendor: service.rawValue, origin: service.origin, modelID: "",
+                        answerTokens: APIService.defaultAnswerTokens)
     }
 
-    /// The remote API preset of an API profile with the fixed origin of the preset (#153). Nil for the other profiles.
-    public var apiService: RemoteAPIService? {
-        guard kind == .api, let service = RemoteAPIService(rawValue: vendor), origin == service.origin else { return nil }
+    /// The fixed API service of an API profile with the fixed origin of the service (#153, #154). Nil for the other profiles.
+    public var apiService: APIService? {
+        guard kind == .api, let service = APIService(rawValue: vendor), origin == service.origin else { return nil }
         return service
     }
 
-    /// The red caption under the "Output limit" field of a remote API preset (#153). Nil when the field is valid.
-    public static func answerTokensProblem(_ text: String) -> String? {
-        guard let tokens = Int(text) else { return text.isEmpty ? noAnswerTokensText : smallAnswerTokensText }
-        return tokens < OpenAIAnswerProvider.minimumAnswerTokens ? smallAnswerTokensText : nil
+    /// The red caption under the Output limit field of an API service (#153, #154). Nil when the limit is
+    /// `APIService.minimumAnswerTokens` or more, or not set, so the adapter uses `APIService.defaultAnswerTokens`.
+    /// The sheet sets 0 for an empty field.
+    public var answerTokensProblem: String? {
+        guard let service = apiService, let tokens = answerTokens, tokens < service.minimumAnswerTokens else { return nil }
+        switch service {
+        case .openAI: return tokens == 0 ? Self.noOutputLimitText : Self.smallAnswerTokensText
+        case .anthropic: return Self.noAnswerTokensText
+        }
     }
 
-    public static let noAnswerTokensText = "Enter the output limit."
+    public static let noAnswerTokensText = "Enter an output limit of 1 or more tokens."
+    /// The OpenAI caption of an empty Output limit field (#153).
+    public static let noOutputLimitText = "Enter the output limit."
+    /// The OpenAI caption of an Output limit under 16 (#153).
     public static let smallAnswerTokensText = "Enter 16 or more."
-    public static let noKeyText = "Enter an API key."
+    public static let noKeyText = APIService.noKeyText
 
     /// The host of `origin`, for example `api.openai.com`. The full origin when it has no host.
     /// An IPv6 host keeps its brackets, for example `[::1]:1234`.
@@ -149,8 +156,7 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
         let trimmed = [name, vendor, modelID].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard !trimmed.contains(where: \.isEmpty) else { return false }
         if kind == .externalLocal { return Self.loopbackBaseURL(origin) != nil }
-        guard Self.isValidOrigin(origin) else { return false }
-        if apiService != nil, let answerTokens, answerTokens < OpenAIAnswerProvider.minimumAnswerTokens { return false }
+        guard Self.isValidOrigin(origin), answerTokensProblem == nil else { return false }
         return !kind.needsAPIKey || hasSecret
     }
 
@@ -208,43 +214,72 @@ public enum ExternalLocalServer: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// The remote API presets of "Add Provider" (#153). The raw value is the vendor of the profile.
-/// #154 and #155 add their services here.
-public enum RemoteAPIService: String, CaseIterable, Identifiable, Sendable {
+/// The API services of "Add Provider" with a fixed host: OpenAI (#153) and Anthropic (#154).
+/// The raw value is the vendor of the profile.
+public enum APIService: String, CaseIterable, Identifiable, Sendable {
     case openAI = "OpenAI"
+    case anthropic = "Anthropic"
 
     public var id: String { rawValue }
 
-    /// The profile name and the Q&A header: "OpenAI API".
-    public var profileName: String {
+    /// The output limit of a new profile, in tokens.
+    public static let defaultAnswerTokens = 1024
+
+    /// The smallest output limit that the service accepts. OpenAI needs 16 or more `max_output_tokens` (#153).
+    public var minimumAnswerTokens: Int {
         switch self {
-        case .openAI: "OpenAI API"
+        case .openAI: OpenAIAnswerProvider.minimumAnswerTokens
+        case .anthropic: 1
         }
     }
 
-    /// The "Add Provider" menu item: "OpenAI API…".
-    public var menuTitle: String { profileName + "…" }
+    /// The profile name and the start of the Q&A header: "OpenAI API", "Anthropic API".
+    public var name: String { rawValue + " API" }
 
-    /// The fixed origin. The sheet shows its host and the learner can't change it.
+    /// The "Add Provider" menu item: "Anthropic API…".
+    public var menuTitle: String { name + "…" }
+
+    /// The only origin that the adapter sends to.
     public var origin: String {
         switch self {
         case .openAI: "https://api.openai.com"
+        case .anthropic: "https://api.anthropic.com"
         }
     }
 
-    /// The only URL that the adapter sends to.
+    /// The only URL that the OpenAI adapter sends to (#153).
     var endpoint: URL {
         switch self {
         case .openAI: URL(string: "https://api.openai.com/v1/responses")!
+        case .anthropic: URL(string: "https://api.anthropic.com/v1/messages")!
         }
     }
 
-    /// The prompt of the "API key" field.
+    /// The prompt of the empty API key field.
     public var keyPrompt: String {
         switch self {
         case .openAI: "sk-…"
+        case .anthropic: "sk-ant-…"
         }
     }
+
+    /// The prompt of the empty Model ID field.
+    public var modelPrompt: String {
+        switch self {
+        case .openAI: "Model ID, for example gpt-5"
+        case .anthropic: "Model ID, for example claude-sonnet-5-5"
+        }
+    }
+
+    /// The secondary caption of the provider sheet. Nil when the service has none.
+    public var footer: String? {
+        switch self {
+        case .openAI: nil
+        case .anthropic: "Claude Pro and Max plans do not work here. Use an API key from the Anthropic Console."
+        }
+    }
+
+    public static let noKeyText = "Enter an API key."
 }
 
 /// The saved provider choices: `Providers.json` in Application Support (#151).

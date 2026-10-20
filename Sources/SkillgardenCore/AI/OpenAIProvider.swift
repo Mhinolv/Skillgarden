@@ -84,7 +84,7 @@ public final class OpenAIAnswerProvider: AnswerProvider {
         let key = key?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard profile.apiService == .openAI, !model.isEmpty, !key.isEmpty,
               key.utf8.allSatisfy({ (0x21...0x7E).contains($0) }) else { return nil }
-        var request = URLRequest(url: RemoteAPIService.openAI.endpoint)
+        var request = URLRequest(url: APIService.openAI.endpoint)
         request.httpMethod = "POST"
         request.httpShouldHandleCookies = false
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData

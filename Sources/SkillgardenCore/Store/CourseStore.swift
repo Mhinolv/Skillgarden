@@ -440,13 +440,12 @@ public final class CourseStore: @unchecked Sendable {
     /// False when the turn is not pending any more, for example after Clear History or a restart.
     @discardableResult
     public func finishQATurn(id: Int64, status: QATurnStatus, answer: String) throws -> Bool {
-        let (name, reason, kind) = Self.qaStatusColumns(status)
+        let (name, reason) = Self.qaStatusColumns(status)
         guard status != .pending else { throw CourseStoreError.invalidData }
         return try lock.withLock {
             try !database.query("""
-                UPDATE qa_messages SET status = ?, failure_reason = ?, failure_kind = ?, answer = ?
-                WHERE id = ? AND status = 'pending' RETURNING id
-                """, [name, reason, kind, answer, String(id)]) { _ in () }.isEmpty
+                UPDATE qa_messages SET status = ?, failure_reason = ?, answer = ? WHERE id = ? AND status = 'pending' RETURNING id
+                """, [name, reason, answer, String(id)]) { _ in () }.isEmpty
         }
     }
 
@@ -454,12 +453,11 @@ public final class CourseStore: @unchecked Sendable {
     public func qaTurns(courseID: String, lectureID: String) throws -> [QATurn] {
         try lock.withLock {
             try database.query("""
-                SELECT id, question, answer, status, failure_reason, source_revision, asked_at, provider_id, model_id, failure_kind
-                FROM qa_messages WHERE course_id = ? AND lecture_id = ? ORDER BY id
+                SELECT id, question, answer, status, failure_reason, source_revision, asked_at, provider_id, model_id FROM qa_messages
+                WHERE course_id = ? AND lecture_id = ? ORDER BY id
                 """, [courseID, lectureID]) { row in
                 QATurn(id: sqlite3_column_int64(row, 0), question: SQLiteDatabase.text(row, 1), answer: SQLiteDatabase.text(row, 2),
-                       status: try Self.qaStatus(SQLiteDatabase.text(row, 3), reason: SQLiteDatabase.text(row, 4),
-                                                 kind: SQLiteDatabase.text(row, 9)),
+                       status: try Self.qaStatus(SQLiteDatabase.text(row, 3), reason: SQLiteDatabase.text(row, 4)),
                        sourceRevision: SQLiteDatabase.text(row, 5), askedAt: Date(timeIntervalSince1970: sqlite3_column_double(row, 6)),
                        origin: AnswerOrigin(providerID: SQLiteDatabase.text(row, 7),
                                             modelID: sqlite3_column_type(row, 8) == SQLITE_NULL ? nil : SQLiteDatabase.text(row, 8)))
@@ -482,29 +480,27 @@ public final class CourseStore: @unchecked Sendable {
         try lock.withLock { try database.execute("UPDATE qa_messages SET status = 'interrupted' WHERE status = 'pending'") }
     }
 
-    /// The status columns of a turn. The incomplete and declined turns of #153 are failed rows with a `failure_kind`.
-    private static func qaStatusColumns(_ status: QATurnStatus) -> (name: String, reason: String?, kind: String?) {
+    private static func qaStatusColumns(_ status: QATurnStatus) -> (name: String, reason: String?) {
         switch status {
-        case .pending: ("pending", nil, nil)
-        case .complete: ("complete", nil, nil)
-        case .cancelled: ("cancelled", nil, nil)
-        case .failed(let reason): ("failed", reason, nil)
-        case .interrupted: ("interrupted", nil, nil)
-        case .incomplete: ("failed", nil, "incomplete")
-        case .declined: ("failed", nil, "declined")
+        case .pending: ("pending", nil)
+        case .complete: ("complete", nil)
+        case .cancelled: ("cancelled", nil)
+        case .failed(let reason): ("failed", reason)
+        case .interrupted: ("interrupted", nil)
+        case .incomplete: ("incomplete", nil)
+        case .declined: ("declined", nil)
         }
     }
 
-    private static func qaStatus(_ name: String, reason: String, kind: String) throws -> QATurnStatus {
-        switch (name, kind) {
-        case ("pending", _): .pending
-        case ("complete", _): .complete
-        case ("cancelled", _): .cancelled
-        case ("failed", "incomplete"): .incomplete
-        case ("failed", "declined"): .declined
-        // A kind that this version does not know shows as a failure with its saved reason.
-        case ("failed", _): .failed(reason: reason)
-        case ("interrupted", _): .interrupted
+    private static func qaStatus(_ name: String, reason: String) throws -> QATurnStatus {
+        switch name {
+        case "pending": .pending
+        case "complete": .complete
+        case "cancelled": .cancelled
+        case "failed": .failed(reason: reason)
+        case "interrupted": .interrupted
+        case "incomplete": .incomplete
+        case "declined": .declined
         default: throw CourseStoreError.invalidData
         }
     }
@@ -643,9 +639,28 @@ public final class CourseStore: @unchecked Sendable {
         "ALTER TABLE qa_messages ADD COLUMN provider_id TEXT NOT NULL DEFAULT 'bundled-local'",
         "ALTER TABLE qa_messages ADD COLUMN model_id TEXT",
     ], [
-        // The remote outcomes of #153. They are failed rows with a kind, because the status column has a fixed list.
-        // Rows saved before this version have no kind.
-        "ALTER TABLE qa_messages ADD COLUMN failure_kind TEXT",
+        // Two more turn states (#154): 'incomplete' at the output limit and 'declined' for a model refusal.
+        // SQLite can't change a CHECK, so the table is made again with the same rows and ids.
+        """
+        CREATE TABLE qa_messages_v13 (
+            id INTEGER PRIMARY KEY, course_id TEXT NOT NULL, lecture_id TEXT NOT NULL,
+            question TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL
+                CHECK(status IN ('pending', 'complete', 'cancelled', 'failed', 'interrupted', 'incomplete', 'declined')),
+            failure_reason TEXT, source_revision TEXT NOT NULL, asked_at REAL NOT NULL,
+            provider_id TEXT NOT NULL DEFAULT 'bundled-local', model_id TEXT,
+            FOREIGN KEY(course_id, lecture_id) REFERENCES qa_threads(course_id, lecture_id) ON DELETE CASCADE
+        )
+        """,
+        """
+        INSERT INTO qa_messages_v13 (id, course_id, lecture_id, question, answer, status, failure_reason, source_revision,
+                                     asked_at, provider_id, model_id)
+        SELECT id, course_id, lecture_id, question, answer, status, failure_reason, source_revision, asked_at, provider_id, model_id
+        FROM qa_messages
+        """,
+        "DROP TABLE qa_messages",
+        "ALTER TABLE qa_messages_v13 RENAME TO qa_messages",
+        "CREATE INDEX qa_messages_thread ON qa_messages(course_id, lecture_id, id)",
     ]]
 }
 

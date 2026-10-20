@@ -12,13 +12,10 @@ public enum QATurnStatus: Equatable, Hashable, Sendable {
     case failed(reason: String)
     /// The app stopped while the turn was pending.
     case interrupted
-    /// A remote model stopped at the output limit (#153). The partial answer stays.
+    /// The model stopped at the output limit (#153, #154). The partial answer stays.
     case incomplete
-    /// A remote model declined to answer (#153).
+    /// The model declined to answer (#153, #154).
     case declined
-
-    public static let incompleteText = "Stopped at the output limit"
-    public static let declinedText = "The model declined to answer."
 
     /// The status of a turn whose request ended with `outcome`.
     public init(outcome: AnswerOutcome) {
@@ -38,8 +35,8 @@ public enum QATurnStatus: Equatable, Hashable, Sendable {
         case .cancelled: "Cancelled"
         case .failed(let reason): "No answer: \(reason)"
         case .interrupted: "Interrupted"
-        case .incomplete: Self.incompleteText
-        case .declined: Self.declinedText
+        case .incomplete: AnswerOutcome.incompleteText
+        case .declined: AnswerOutcome.declinedText
         }
     }
 
@@ -53,17 +50,17 @@ public enum QATurnStatus: Equatable, Hashable, Sendable {
         }
     }
 
-    /// True when the turn shows "Open Settings…" next to Retry (#153): the failure reason names Settings.
-    public var opensSettings: Bool {
-        if case .failed(let reason) = self { reason.contains("Settings") } else { false }
-    }
-
     /// True for a turn that ended without a full answer. Retry asks the question again as a new turn.
     var isRetryable: Bool {
         switch self {
         case .cancelled, .failed, .interrupted, .incomplete, .declined: true
         case .pending, .complete: false
         }
+    }
+
+    /// True when the reason names Settings (#153, #154). The turn then shows "Open Settings…" next to Retry.
+    public var opensSettings: Bool {
+        if case .failed(let reason) = self { reason.contains("Settings") } else { false }
     }
 }
 

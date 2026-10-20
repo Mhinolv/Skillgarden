@@ -161,20 +161,7 @@ struct QAProvidersSection: View {
             .pickerStyle(.menu)
             ForEach(providers.profiles) { row($0) }
             if !providers.adapterKinds.isDisjoint(with: [.externalLocal, .api]) {
-                Menu("Add Provider") {
-                    if providers.adapterKinds.contains(.externalLocal) {
-                        ForEach(ExternalLocalServer.allCases) { server in
-                            Button(server.menuTitle) { editing = .preset(server) }
-                        }
-                    }
-                    if providers.adapterKinds.isSuperset(of: [.externalLocal, .api]) { Divider() }
-                    if providers.adapterKinds.contains(.api) {
-                        ForEach(RemoteAPIService.allCases) { service in
-                            Button(service.menuTitle) { editing = .preset(service) }
-                        }
-                    }
-                }
-                .fixedSize()
+                addProviderMenu
             }
         } header: {
             Text("Q&A")
@@ -190,6 +177,27 @@ struct QAProvidersSection: View {
         } message: { _ in
             Text("Skillgarden deletes the key from the Keychain and removes the course permissions.")
         }
+    }
+
+    /// "Add Provider": the external local servers (#152), then the API services after them (#153, #154).
+    private var addProviderMenu: some View {
+        Menu("Add Provider") {
+            if providers.adapterKinds.contains(.externalLocal) {
+                Section(AnswerProviderKind.externalLocal.title) {
+                    ForEach(ExternalLocalServer.allCases) { server in
+                        Button(server.menuTitle) { editing = .preset(server) }
+                    }
+                }
+            }
+            if providers.adapterKinds.contains(.api) {
+                Section(AnswerProviderKind.api.title) {
+                    ForEach(APIService.allCases) { service in
+                        Button(service.menuTitle) { editing = .preset(service) }
+                    }
+                }
+            }
+        }
+        .fixedSize()
     }
 
     private func row(_ profile: ProviderProfile) -> some View {
@@ -226,15 +234,13 @@ struct QAProvidersSection: View {
 /// The provider sheet (#151): the fields of the kind, "Test Connection", "Cancel" and "Save".
 /// The key goes into the Keychain only. The field stays empty for a saved key.
 /// An external local server (#152) has the fields Name, Base URL, Model ID and an optional token, with a red caption
-/// under an invalid field and the footer of its preset.
-/// A remote API preset (#153) has the fixed host, the API key, Model ID and Output limit. A saved key is never shown.
+/// under an invalid field and the footer of its preset. An API service, OpenAI (#153) or Anthropic (#154), has a fixed host,
+/// the API key, Model ID and Output limit. A saved key is never shown.
 struct ProviderSheet: View {
     let providers: ProviderSettings
     @State private var profile: ProviderProfile
     @State private var testResult: ConnectionTestResult?
     @State private var secret: String
-    /// The text of the "Output limit" field (#153): digits only.
-    @State private var answerTokensText: String
     /// True after "Replace Key…": the sheet shows the key field in place of "Saved in the Keychain".
     @State private var replacesKey = false
     @State private var isTesting = false
@@ -247,14 +253,12 @@ struct ProviderSheet: View {
         _profile = State(initialValue: profile)
         _testResult = State(initialValue: testResult)
         _secret = State(initialValue: secret)
-        _answerTokensText = State(initialValue: String(profile.answerTokens ?? OpenAIAnswerProvider.defaultAnswerTokens))
     }
 
     private var hasTypedKey: Bool { !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     private var isValid: Bool {
-        if profile.apiService != nil, ProviderProfile.answerTokensProblem(answerTokensText) != nil { return false }
-        return profile.isValid(hasSecret: providers.hasSecret(profile) || hasTypedKey)
+        profile.isValid(hasSecret: providers.hasSecret(profile) || hasTypedKey)
     }
 
     private var canTest: Bool { providers.canTest(profile.kind) }
@@ -266,7 +270,7 @@ struct ProviderSheet: View {
                     if profile.kind == .externalLocal {
                         externalLocalFields
                     } else if let service = profile.apiService {
-                        apiFields(service)
+                        apiServiceFields(service)
                     } else {
                         TextField("Name", text: $profile.name)
                         TextField("Company", text: $profile.vendor)
@@ -287,6 +291,9 @@ struct ProviderSheet: View {
                         }
                         if let server = profile.externalServer {
                             Text(server.footer).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
+                        if let footer = profile.apiService?.footer {
+                            Text(footer).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -320,33 +327,31 @@ struct ProviderSheet: View {
         SecureField("Token", text: $secret, prompt: Text(providers.hasSecret(profile) ? "Saved in the Keychain" : "Bearer token (optional)"))
     }
 
-    /// The fields of a remote API preset (#153). The host is fixed. The saved key shows only as "Saved in the Keychain".
-    @ViewBuilder private func apiFields(_ service: RemoteAPIService) -> some View {
-        LabeledContent("Host", value: profile.host)
+    /// The fields of an API service with a fixed host (#153, #154). An edit shows "Saved in the Keychain", never the key.
+    @ViewBuilder private func apiServiceFields(_ service: APIService) -> some View {
+        LabeledContent("Host") { Text(profile.host) }
         if providers.hasSecret(profile) && !replacesKey {
-            LabeledContent("API key") {
+            LabeledContent("API Key") {
                 HStack(spacing: 8) {
                     Text("Saved in the Keychain")
                     Button("Replace Key…") { replacesKey = true }
                 }
             }
         } else {
-            validated(SecureField("API key", text: $secret, prompt: Text(service.keyPrompt)),
-                      problem: providers.hasSecret(profile) || hasTypedKey ? nil : ProviderProfile.noKeyText)
+            validated(SecureField("API Key", text: $secret, prompt: Text(service.keyPrompt)),
+                      problem: providers.hasSecret(profile) || hasTypedKey ? nil : APIService.noKeyText)
         }
-        validated(TextField("Model ID", text: $profile.modelID, prompt: Text("Model ID, for example gpt-5")),
-                  problem: profile.modelProblem)
+        validated(TextField("Model ID", text: $profile.modelID, prompt: Text(service.modelPrompt)), problem: profile.modelProblem)
         validated(HStack(spacing: 6) {
-                      TextField("Output limit", text: $answerTokensText)
-                      Text("tokens").foregroundStyle(.secondary).accessibilityHidden(true)
-                  }
-                  .onChange(of: answerTokensText) { _, text in
-                      // Numbers only. Seven digits keep the value far from an overflow.
-                      let digits = String(text.filter(\.isASCII).filter(\.isNumber).prefix(7))
-                      if digits != text { answerTokensText = digits }
-                      profile.answerTokens = Int(digits)
-                  },
-                  problem: ProviderProfile.answerTokensProblem(answerTokensText))
+            TextField("Output limit", text: answerTokensText, prompt: Text(String(APIService.defaultAnswerTokens)))
+            Text("tokens").foregroundStyle(.secondary)
+        }, problem: profile.answerTokensProblem)
+    }
+
+    /// The Output limit field: numbers only. An empty field is 0, so the sheet shows the problem and "Save" is off.
+    private var answerTokensText: Binding<String> {
+        Binding(get: { profile.answerTokens.map { $0 > 0 ? String($0) : "" } ?? "" },
+                set: { profile.answerTokens = Int($0.filter { $0.isASCII && $0.isNumber }.prefix(7)) ?? 0 })
     }
 
     private func validated(_ field: some View, problem: String?) -> some View {
