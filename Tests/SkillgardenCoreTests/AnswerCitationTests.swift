@@ -172,6 +172,75 @@ private let denseVideoContext: LectureContext = {
     #expect(mixed.sources.map(\.title) == ["1 · 1:36", "? · Unknown source"])
 }
 
+// MARK: Ranges and parentheses (#185)
+
+/// 60 cues, one each 20 seconds: t32 starts at 10:40.
+private let longVideoContext = LectureContext(
+    courseTitle: "C", lectureTitle: "L",
+    passages: (0..<60).map { LecturePassage(id: "t\($0)", label: "", text: "Cue \($0).") },
+    seekTimes: Dictionary(uniqueKeysWithValues: (0..<60).map { ("t\($0)", Double($0 * 20)) }))
+
+@Test func theOwnerRangeAnswerShowsOneMarkerAndChipForEachFact() {
+    // qa_messages id 15: claude-haiku-5-5 writes hyphen ranges.
+    let answer = "- Use an agent for open tasks [t32-36].\n- Not for fixed steps [t10-11].\n- Start small [t47-51]."
+    let citations = AnswerCitations(answer: answer, context: longVideoContext, isStale: false)
+    #expect(citations.text == "- Use an agent for open tasks [1].\n- Not for fixed steps [2].\n- Start small [3].")
+    #expect(citations.sources.map(\.title) == ["1 · 10:40", "2 · 3:20", "3 · 15:40"])
+    #expect(citations.sources.first?.kind == .video(seconds: 640, cueText: "Cue 32."))
+}
+
+@Test func aRangeSeeksToItsEarliestValidCueAfterTheMergeRules() {
+    func text(_ answer: String) -> String { AnswerCitations(answer: answer, context: longVideoContext, isStale: false).text }
+    func titles(_ answer: String) -> [String] { AnswerCitations(answer: answer, context: longVideoContext, isStale: false).sources.map(\.title) }
+    #expect(titles("A [t32-t36].") == ["1 · 10:40"])
+    #expect(titles("A [t32 – 36].") == ["1 · 10:40"])
+    // A list with a range is one group. The group keeps its earliest cue.
+    #expect(text("A [t20, t10-12] B.") == "A [1] B.")
+    #expect(titles("A [t20, t10-12] B.") == ["1 · 3:20"])
+    #expect(text("A [t20] [t10-12].") == "A [1].")
+    // A later range in the same line within 30 seconds shows the earlier number.
+    #expect(text("A [t10] B [t11-12].") == "A [1] B [1].")
+    // Missing IDs of a range drop. t58 and t59 are in the lecture.
+    #expect(titles("A [t58-62].") == ["1 · 19:20"])
+    // A range with no valid ID, mixed letters, more than 50 IDs or a reversed range is one unknown marker.
+    #expect(text("A [t70-72].") == "A [?].")
+    #expect(text("A [t3-a5].") == "A [?].")
+    #expect(text("A [t0-50].") == "A [?].")
+    #expect(text("A [t0-49].") == "A [1].")
+    #expect(text("A [t36-32].") == "A [?].")
+    #expect(text("A [t1, t70-72].") == "A [1][?].")
+    // A stale range is one marker with no action.
+    let stale = AnswerCitations(answer: "A [t32-36].", context: longVideoContext, isStale: true)
+    #expect(stale.text == "A [1].")
+    #expect(stale.sources.map(\.kind) == [.stale])
+    // An article range is one marker for its first valid excerpt.
+    let article = AnswerCitations(answer: "Spade [a0-2].", context: articleContext, isStale: false)
+    #expect(article.text == "Spade [1].")
+    #expect(article.sources.map(\.kind) == [.article(excerpt: "Soil holds water.")])
+}
+
+@Test func parenthesisMarkersNeedEachIDInTheLecture() {
+    func text(_ answer: String, _ context: LectureContext? = longVideoContext) -> String {
+        AnswerCitations(answer: answer, context: context, isStale: false).text
+    }
+    // qa_messages id 16: the local model writes `(t5)`.
+    #expect(text("Dig first (t5).") == "Dig first [1].")
+    #expect(text("A (t5, t6) and (t32-36).") == "A [1] and [2].")
+    // Prose stays text.
+    #expect(text("Use (v2) or (t58-62) or (t3-a5).") == "Use (v2) or (t58-62) or (t3-a5).")
+    #expect(text("Dig (t5).", nil) == "Dig (t5).")
+}
+
+@Test func passageIDsExpandValidRangesForTheCitationCheck() {
+    #expect(AnswerCitations.passageIDs(in: "A [t32-36].") == ["t32", "t33", "t34", "t35", "t36"])
+    #expect(AnswerCitations.passageIDs(in: "A [t5, t10-t12; a1].") == ["t5", "t10", "t11", "t12", "a1"])
+    // An invalid range stays one unknown ID.
+    #expect(AnswerCitations.passageIDs(in: "A [t3-a5] [t0-50] [t9-2].") == ["t3-a5", "t0-50", "t9-2"])
+    // Parentheses count only with each ID in the lecture.
+    #expect(AnswerCitations.passageIDs(in: "A (t5) (v2) (t58-62).", context: longVideoContext) == ["t5"])
+    #expect(AnswerCitations.passageIDs(in: "A (t5).").isEmpty)
+}
+
 // MARK: Lecture context
 
 @MainActor @Test func transcriptContextsStoreTheCueStartOfEachPassage() async throws {
