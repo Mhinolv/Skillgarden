@@ -138,6 +138,8 @@ public final class LectureQA {
     public static let saveFailedText = "Skillgarden can't save the question. Try again."
     /// The VoiceOver announcement at the end of an answer.
     public static let answerReadyText = "Answer ready"
+    /// The VoiceOver announcement after "Remove" (#170).
+    public static let questionRemovedText = "Question removed"
 
     public private(set) var key: Key?
     public private(set) var content: Content = .loading
@@ -161,9 +163,13 @@ public final class LectureQA {
     @ObservationIgnored private var requestProvider: (any AnswerProvider)?
     @ObservationIgnored private let announce: @MainActor (String) -> Void
     @ObservationIgnored private var context: LectureContext?
-    /// Goes up on each lecture change and Clear History. A request of an earlier generation changes no state.
+    /// Goes up on each lecture change, Clear History and "Remove" of the draft. A request of an earlier generation changes no state.
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var requestID: UUID?
+    /// The saved pending turn of the running request. Nil until its save ends.
+    @ObservationIgnored private var requestTurn: QATurn?
+    /// The generations whose draft the learner removed (#170). Their turn is removed, not finished.
+    @ObservationIgnored private var removedGenerations: Set<Int> = []
     @ObservationIgnored private var cancelRequested = false
     @ObservationIgnored private var throttle: DraftThrottle
     @ObservationIgnored private var pendingText = ""
@@ -308,6 +314,29 @@ public final class LectureQA {
         consentRequest = nil
     }
 
+    /// "Remove" of a saved turn, after the learner confirms (#170). The other turns stay. A running request continues.
+    public func remove(_ turn: QATurn) {
+        guard let key, conversation.turns.contains(where: { $0.id == turn.id }) else { return }
+        library.removeQATurn(turn, courseID: key.courseID, lectureID: key.lectureID)
+        conversation = LectureConversation(turns: conversation.turns.filter { $0.id != turn.id },
+                                           sourceRevision: conversation.sourceRevision)
+        citationCache[turn.id] = nil
+        announce(Self.questionRemovedText)
+    }
+
+    /// "Remove" of the draft (#170): cancels the request, clears the draft and saves no turn.
+    public func removeDraft() {
+        guard draft != nil, let key else { return }
+        if let requestTurn {
+            library.removeQATurn(requestTurn, courseID: key.courseID, lectureID: key.lectureID)
+        } else {
+            // The question is not saved yet. The request removes its turn when the save ends.
+            removedGenerations.insert(generation)
+        }
+        stopRequest()
+        announce(Self.questionRemovedText)
+    }
+
     /// The sources of a saved turn (#129). A turn of an earlier version of the lecture text gets stale sources.
     public func citations(for turn: QATurn) -> AnswerCitations {
         let isStale = conversation.isEarlierVersion(turn)
@@ -365,6 +394,7 @@ public final class LectureQA {
         flush?.cancel()
         flush = nil
         requestID = nil
+        requestTurn = nil
         setDraft(nil)
     }
 
@@ -383,6 +413,11 @@ public final class LectureQA {
             notice = Notice(question: question, text: Self.saveFailedText)
             return
         }
+        if removedGenerations.remove(generation) != nil {
+            library.removeQATurn(turn, courseID: key.courseID, lectureID: key.lectureID)
+            return
+        }
+        if generation == self.generation { requestTurn = turn }
         guard generation == self.generation, !cancelRequested else {
             library.finishQATurn(turn, outcome: .canceled, text: "")
             if generation == self.generation { await end(generation) }
@@ -412,6 +447,7 @@ public final class LectureQA {
         }
         guard generation == self.generation else { return }
         requestID = nil
+        requestTurn = nil
         setDraft(nil)
     }
 

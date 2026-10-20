@@ -55,6 +55,8 @@ struct LectureQAView: View, Equatable {
     @Environment(\.showsReviewInline) private var showsSheetsInline
     @State private var question = ""
     @State private var confirmsClear = false
+    /// The saved turn of the open "Remove" dialog (#170).
+    @State private var removesTurn: QATurn?
     /// The one open article excerpt of the panel (#129).
     @State private var openExcerpt: OpenExcerpt?
     @FocusState private var fieldFocused: Bool
@@ -111,6 +113,13 @@ struct LectureQAView: View, Equatable {
         .confirmationDialog("Clear the Q&A history for this lecture?", isPresented: $confirmsClear) {
             Button("Clear History", role: .destructive) { qa.clearHistory() }
         } message: {
+            Text("You cannot undo this.")
+        }
+        .confirmationDialog("Remove this question and its answer?",
+                            isPresented: Binding(get: { removesTurn != nil }, set: { if !$0 { removesTurn = nil } }),
+                            presenting: removesTurn) { turn in
+            Button("Remove", role: .destructive) { remove(turn) }
+        } message: { _ in
             Text("You cannot undo this.")
         }
         .sheet(item: Binding(get: { showsSheetsInline ? nil : qa.consentRequest }, set: { if $0 == nil { qa.cancelConsent() } })) { request in
@@ -268,7 +277,10 @@ struct LectureQAView: View, Equatable {
             // Only the start offset: a short thread stays at the top of the frame.
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .onAppear { proxy.scrollTo(Self.endID, anchor: .bottom) }
-            .onChange(of: qa.conversation.turns.count) { proxy.scrollTo(Self.endID, anchor: .bottom) }
+            // A removed turn keeps the scroll position (#170).
+            .onChange(of: qa.conversation.turns.count) { old, new in
+                if new > old { proxy.scrollTo(Self.endID, anchor: .bottom) }
+            }
             .onChange(of: qa.notice) { proxy.scrollTo(Self.endID, anchor: .bottom) }
         }
     }
@@ -278,8 +290,14 @@ struct LectureQAView: View, Equatable {
         return QATurnView(turn: turn, citations: qa.citations(for: turn), sourceText: providers.sourceText(for: turn.origin),
                           canRetry: qa.conversation.canRetry(turn), retryDisabled: qa.isAnswering || panelState != .ready,
                           openID: openID, setOpenID: { openExcerpt = $0.map { OpenExcerpt(turnID: turn.id, sourceID: $0) } },
-                          seek: { qa.seek(to: $0) }, retry: { qa.retry(turn) })
+                          seek: { qa.seek(to: $0) }, retry: { qa.retry(turn) }, remove: { removesTurn = turn })
             .equatable()
+    }
+
+    /// Removes the turn of the dialog. An open excerpt of the turn closes with it.
+    private func remove(_ turn: QATurn) {
+        if openExcerpt?.turnID == turn.id { openExcerpt = nil }
+        qa.remove(turn)
     }
 }
 
@@ -307,6 +325,8 @@ private struct QATurnView: View, Equatable {
     let setOpenID: (String?) -> Void
     let seek: (AnswerSource) -> Void
     let retry: () -> Void
+    /// Opens the "Remove" dialog of the turn (#170).
+    let remove: () -> Void
     @Environment(\.gardenPalette) private var palette
 
     nonisolated static func == (lhs: QATurnView, rhs: QATurnView) -> Bool {
@@ -337,8 +357,8 @@ private struct QATurnView: View, Equatable {
             if !citations.sources.isEmpty {
                 SourcesRow(sources: citations.sources, openID: Binding(get: { openID }, set: { setOpenID($0) }), seek: seek)
             }
-            if canRetry {
-                HStack(spacing: GardenSpacing.xs) {
+            HStack(spacing: GardenSpacing.xs) {
+                if canRetry {
                     Button("Retry", systemImage: "arrow.clockwise", action: retry)
                         .buttonStyle(.garden(.plain, .small))
                         .disabled(retryDisabled)
@@ -348,9 +368,21 @@ private struct QATurnView: View, Equatable {
                             .buttonStyle(.garden(.plain, .small))
                     }
                 }
+                Button("Remove", systemImage: "trash", action: remove)
+                    .buttonStyle(.garden(.plain, .small))
+                    .help("Remove this question and its answer")
+                    .accessibilityLabel(removeLabel(turn.question))
             }
         }
+        .contextMenu {
+            Button("Remove Question…", systemImage: "trash", action: remove)
+        }
     }
+}
+
+/// The VoiceOver label of a "Remove" button (#170): the first 60 characters of the question.
+private func removeLabel(_ question: String) -> String {
+    "Remove question: \(question.prefix(60))"
 }
 
 /// The draft answer of the running request. It alone reads the draft, so a flush draws only this view (#165).
@@ -369,10 +401,17 @@ private struct QADraftView: View {
                     } else {
                         Text(answerText(draft.citations, palette: palette)).fixedSize(horizontal: false, vertical: true)
                     }
-                    // Escape cancels the answer. Theater does not take Escape while an answer runs.
-                    Button("Cancel", systemImage: "stop.circle") { qa.cancel() }
-                        .buttonStyle(.garden(.plain, .small))
-                        .keyboardShortcut(.cancelAction)
+                    HStack(spacing: GardenSpacing.xs) {
+                        // Escape cancels the answer. Theater does not take Escape while an answer runs.
+                        Button("Cancel", systemImage: "stop.circle") { qa.cancel() }
+                            .buttonStyle(.garden(.plain, .small))
+                            .keyboardShortcut(.cancelAction)
+                        // The draft has no dialog (owner decision, #170): the request stops and no turn is saved.
+                        Button("Remove", systemImage: "trash") { qa.removeDraft() }
+                            .buttonStyle(.garden(.plain, .small))
+                            .help("Remove this question and its answer")
+                            .accessibilityLabel(removeLabel(draft.question))
+                    }
                 }
             }
         }
