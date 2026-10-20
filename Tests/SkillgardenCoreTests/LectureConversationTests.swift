@@ -120,6 +120,45 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
     }
 }
 
+// #170: "Remove" deletes one turn. The other turns, the thread and the other lectures stay.
+@Test func removeOneTurnKeepsTheOtherTurnSaved() throws {
+    try withStore { (store: CourseStore, root: URL) throws in
+        try store.saveCourse(course())
+        try store.saveCourse(course("d"))
+        let first = try store.startQATurn(question: "What is soil?", sourceRevision: "r", origin: .legacy, courseID: "c", lectureID: "a")
+        try store.finishQATurn(id: first.id, status: .complete, answer: "Soil holds water.")
+        let second = try store.startQATurn(question: "And sand?", sourceRevision: "r", origin: .legacy, courseID: "c", lectureID: "a")
+        try store.finishQATurn(id: second.id, status: .complete, answer: "Sand drains.")
+        for (courseID, lectureID) in [("c", "b"), ("d", "a")] {
+            _ = try store.startQATurn(question: "Q", sourceRevision: "r", origin: .legacy, courseID: courseID, lectureID: lectureID)
+        }
+
+        try store.removeQATurn(id: first.id, courseID: "c", lectureID: "a")
+        // The delete stays after a restart.
+        let reopened = try CourseStore(root: root)
+        #expect(try reopened.qaTurns(courseID: "c", lectureID: "a").map(\.question) == ["And sand?"])
+        #expect(try reopened.qaTurns(courseID: "c", lectureID: "b").count == 1)
+        #expect(try reopened.qaTurns(courseID: "d", lectureID: "a").count == 1)
+        #expect(try rowCount("qa_threads", reopened) == 3)
+        // A wrong lecture or course id removes nothing.
+        try reopened.removeQATurn(id: second.id, courseID: "c", lectureID: "b")
+        try reopened.removeQATurn(id: second.id, courseID: "d", lectureID: "a")
+        #expect(try reopened.qaTurns(courseID: "c", lectureID: "a").count == 1)
+
+        // A pending turn that is removed does not come back when its request ends.
+        let pending = try reopened.startQATurn(question: "Why?", sourceRevision: "r", origin: .legacy, courseID: "c", lectureID: "a")
+        try reopened.removeQATurn(id: pending.id, courseID: "c", lectureID: "a")
+        #expect(try !reopened.finishQATurn(id: pending.id, status: .cancelled, answer: "Late"))
+        #expect(try reopened.qaTurns(courseID: "c", lectureID: "a").map(\.question) == ["And sand?"])
+
+        // The last turn takes its thread with it, like Clear History.
+        try reopened.removeQATurn(id: second.id, courseID: "c", lectureID: "a")
+        #expect(try reopened.qaTurns(courseID: "c", lectureID: "a").isEmpty)
+        #expect(try rowCount("qa_threads", reopened) == 2)
+        try reopened.removeQATurn(id: 999, courseID: "c", lectureID: "a")
+    }
+}
+
 @Test func courseRemovalKeepsQAHistoryAndARepublishShowsIt() throws {
     try withStore { (store: CourseStore, root: URL) throws in
         for id in ["c", "d"] { try store.saveCourse(course(id)) }

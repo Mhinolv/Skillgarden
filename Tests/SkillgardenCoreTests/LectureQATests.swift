@@ -335,6 +335,115 @@ private func model(_ library: LibraryModel, transport: ScriptedTransport, interv
     }
 }
 
+/// Asks `question` and ends the answer with `answer`. `index` is the request number of the transport.
+@MainActor
+private func ask(_ qa: LectureQA, _ question: String, answer: String, transport: ScriptedTransport, index: Int) async throws {
+    #expect(qa.send(question))
+    let stream = try await transport.stream(index)
+    stream.yield(.response(status: 200))
+    stream.yield(.data(chunk(answer, finish: "stop")))
+    stream.finish()
+    await qa.waitForRequest()
+}
+
+// #170: "Remove" of a saved turn keeps the other turns, and a later Send leaves the removed turn out.
+@MainActor @Test func removeOneTurnKeepsTheOtherTurnAndLeavesItOutOfTheNextPrompt() async throws {
+    try await withLibrary { library throws in
+        let transport = ScriptedTransport()
+        let announcements = Announcements()
+        let qa = model(library, transport: transport, announcements: announcements)
+        open(library, "welcome")
+        qa.show(LectureQA.key(library: library))
+        await qa.load()
+        try await ask(qa, "What is the course about?", answer: "Planning.", transport: transport, index: 0)
+        open(library, "read")
+        qa.show(LectureQA.key(library: library))
+        await qa.load()
+        try await ask(qa, "What is step one?", answer: "Write the goal.", transport: transport, index: 1)
+        try await ask(qa, "What is step two?", answer: "List the tasks.", transport: transport, index: 2)
+        let removed = try #require(qa.conversation.turns.first)
+        for turn in qa.conversation.turns { _ = qa.citations(for: turn) }
+        let parses = qa.citationParseCount
+        announcements.texts = []
+
+        qa.remove(removed)
+        #expect(qa.conversation.turns.map(\.question) == ["What is step two?"])
+        #expect(announcements.texts == ["Question removed"])
+        // The second remove of the same turn does nothing.
+        qa.remove(removed)
+        #expect(announcements.texts == ["Question removed"])
+        await library.waitForWrites()
+        #expect(try await library.lectureConversation(forLecture: "read")?.turns.map(\.question) == ["What is step two?"])
+        #expect(try await library.lectureConversation(forLecture: "welcome")?.turns.count == 1)
+        // A panel open shows the same thread.
+        await qa.load()
+        #expect(qa.conversation.turns.map(\.question) == ["What is step two?"])
+        _ = qa.citations(for: qa.conversation.turns[0])
+        #expect(qa.citationParseCount == parses)
+
+        // The prompt and the consent sheet of the next question have the kept turn only.
+        guard case .ready(let context) = await library.lectureContext(forLecture: "read") else {
+            Issue.record("The article has no lecture text.")
+            return
+        }
+        let prompt = try #require(qa.conversation.prompt(context: context, question: "What is step three?"))
+        let history = prompt.messages.filter { $0.role != .system }.map(\.content)
+        #expect(history == ["What is step two?", "List the tasks.", "What is step three?"])
+        let destination = RemoteDestination(profileID: "p", kind: .api, host: "api.openai.com", modelID: "m")
+        let consent = RemoteConsentRequest(courseID: "sample-course", question: "What is step three?", providerName: "OpenAI API",
+                                           destination: destination, vendor: "OpenAI", context: context, prompt: prompt)
+        #expect(consent.earlierMessageCount == 2)
+        #expect(!consent.exactText.contains("What is step one?"))
+
+        // The last turn empties the thread.
+        qa.remove(qa.conversation.turns[0])
+        #expect(qa.conversation.turns.isEmpty && !qa.hasHistory)
+        #expect(try await library.lectureConversation(forLecture: "read")?.turns == [])
+    }
+}
+
+// #170: "Remove" of the draft stops the request and saves no turn. A saved turn stays.
+@MainActor @Test func removeDraftCancelsTheRequestAndSavesNoTurn() async throws {
+    try await withLibrary { library throws in
+        open(library, "read")
+        let transport = ScriptedTransport()
+        let announcements = Announcements()
+        let qa = model(library, transport: transport, announcements: announcements)
+        qa.show(LectureQA.key(library: library))
+        await qa.load()
+        try await ask(qa, "What is step one?", answer: "Write the goal.", transport: transport, index: 0)
+        announcements.texts = []
+
+        #expect(qa.send("What is step two?"))
+        let stream = try await transport.stream(1)
+        stream.yield(.response(status: 200))
+        stream.yield(.data(chunk("List")))
+        try await until { qa.draft?.text == "List" }
+        qa.removeDraft()
+        #expect(qa.draft == nil && !qa.isAnswering)
+        #expect(announcements.texts == ["Question removed"])
+        // Late events of the removed request change nothing and save nothing.
+        stream.yield(.data(chunk(" the tasks.", finish: "stop")))
+        stream.finish()
+        await qa.waitForRequest()
+        #expect(qa.draft == nil)
+        #expect(qa.conversation.turns.map(\.question) == ["What is step one?"])
+        #expect(announcements.texts == ["Question removed"])
+        #expect(try await library.lectureConversation(forLecture: "read")?.turns.map(\.question) == ["What is step one?"])
+
+        // A draft removed before its question is saved saves nothing too. The next question still works.
+        #expect(qa.send("What is step three?"))
+        qa.removeDraft()
+        await qa.waitForRequest()
+        #expect(try await library.lectureConversation(forLecture: "read")?.turns.map(\.question) == ["What is step one?"])
+        try await ask(qa, "What is step four?", answer: "Check.", transport: transport, index: 2)
+        #expect(qa.conversation.turns.map(\.question) == ["What is step one?", "What is step four?"])
+        // No draft: nothing happens.
+        qa.removeDraft()
+        #expect(qa.conversation.turns.count == 2)
+    }
+}
+
 @MainActor @Test func draftChangesAreThrottled() async throws {
     try await withLibrary { library throws in
         open(library, "read")
