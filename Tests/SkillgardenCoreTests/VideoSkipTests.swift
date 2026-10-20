@@ -44,3 +44,33 @@ import Testing
     #expect(VideoSkip.target(current: -3, delta: -10, duration: 120) == 0)
     #expect(VideoSkip.target(current: 130, delta: -10, duration: 120) == 120)
 }
+
+/// #177: in AVKit full screen, the event window is the full-screen window that hosts the player. The arrows skip there too.
+@Test func videoSkipArrowsInFullScreen() {
+    let fullScreen = VideoSkip.EventWindow(isPage: false, hostsPlayer: true)
+    #expect(VideoSkip.delta(keyCode: VideoSkip.leftArrowKeyCode, hasModifiers: false, in: fullScreen) == -10)
+    #expect(VideoSkip.delta(keyCode: VideoSkip.rightArrowKeyCode, hasModifiers: false, in: fullScreen) == 10)
+}
+
+/// #177: full screen uses the #104 rules. Modifiers, other keys, a sheet, a text field and a window that is not key return the event.
+@Test func videoSkipFullScreenKeepsTheKeyRules() {
+    let right = VideoSkip.rightArrowKeyCode
+    #expect(VideoSkip.delta(keyCode: right, hasModifiers: true, in: .init(isPage: false, hostsPlayer: true)) == nil)
+    #expect(VideoSkip.delta(keyCode: 53, hasModifiers: false, in: .init(isPage: false, hostsPlayer: true)) == nil) // Escape
+    #expect(VideoSkip.delta(keyCode: 49, hasModifiers: false, in: .init(isPage: false, hostsPlayer: true)) == nil) // Space
+    #expect(VideoSkip.delta(keyCode: right, hasModifiers: false, in: .init(isPage: false, hostsPlayer: true, hasSheet: true)) == nil)
+    #expect(VideoSkip.delta(keyCode: right, hasModifiers: false, in: .init(isPage: false, hostsPlayer: true, keepsArrows: true)) == nil)
+    #expect(VideoSkip.delta(keyCode: right, hasModifiers: false, in: .init(isPage: false, hostsPlayer: true, isKey: false)) == nil)
+    // Another window without the player of this page does not skip.
+    #expect(VideoSkip.delta(keyCode: right, hasModifiers: false, in: .init(isPage: false)) == nil)
+}
+
+/// #104 and #177: the lecture page window keeps the same rules outside full screen.
+@Test func videoSkipPageWindowRules() {
+    let left = VideoSkip.leftArrowKeyCode
+    #expect(VideoSkip.delta(keyCode: left, hasModifiers: false, in: .init(isPage: true)) == -10)
+    #expect(VideoSkip.delta(keyCode: left, hasModifiers: true, in: .init(isPage: true)) == nil)
+    #expect(VideoSkip.delta(keyCode: left, hasModifiers: false, in: .init(isPage: true, isKey: false)) == nil)
+    #expect(VideoSkip.delta(keyCode: left, hasModifiers: false, in: .init(isPage: true, hasSheet: true)) == nil)
+    #expect(VideoSkip.delta(keyCode: left, hasModifiers: false, in: .init(isPage: true, keepsArrows: true)) == nil)
+}
