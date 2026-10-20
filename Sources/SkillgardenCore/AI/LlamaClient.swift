@@ -186,13 +186,14 @@ public final class LlamaClient: @unchecked Sendable {
 }
 
 /// The real transport: an ephemeral URLSession with no cookies, cache, credential store, proxy or redirects.
+/// A remote API (#153) uses the system proxy settings, because a network can need them. A loopback server never does.
 public final class LoopbackTransport: LlamaTransport {
     private let router = Router()
     private let session: URLSession
 
-    public init() {
+    public init(usesSystemProxy: Bool = false) {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.connectionProxyDictionary = [:]
+        if !usesSystemProxy { configuration.connectionProxyDictionary = [:] }
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
@@ -246,7 +247,8 @@ public final class LoopbackTransport: LlamaTransport {
             continuation?.finish(throwing: error)
         }
 
-        /// The client talks only to the owned server, so it does not follow a redirect. The 3xx response comes through.
+        /// The client talks only to the owned server or a fixed origin, so it does not follow a redirect.
+        /// The 3xx response comes through.
         func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                         newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
             completionHandler(nil)

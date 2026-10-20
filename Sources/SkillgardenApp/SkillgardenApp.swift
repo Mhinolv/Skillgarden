@@ -22,7 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The one client of the owned server for all windows (#124). It runs one request at a time.
     let answers = LlamaClient()
     /// The Settings "Q&A" profiles, the "Answer with" choice and the course consents (#151). Secrets are in the Keychain.
-    /// LM Studio and Ollama answer through the OpenAI-compatible adapter (#152), Anthropic through the Messages API (#154).
+    /// LM Studio and Ollama answer through the OpenAI-compatible adapter (#152), OpenAI through the Responses API (#153)
+    /// and Anthropic through the Messages API (#154).
     let providers = AppDelegate.makeProviders()
 
     private static func makeProviders() -> ProviderSettings {

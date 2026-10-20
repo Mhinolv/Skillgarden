@@ -137,7 +137,7 @@ enum ModelChooser {
 }
 
 /// The Settings "Q&A" section (#151): the app-wide "Answer with" choice, one row for each provider profile, and the footer.
-/// "Add Provider" lists only kinds with a shipped adapter: LM Studio and Ollama first (#152).
+/// "Add Provider" lists only kinds with a shipped adapter: LM Studio and Ollama (#152), then the OpenAI API (#153).
 struct QAProvidersSection: View {
     let providers: ProviderSettings
     @State private var editing: ProviderProfile?
@@ -179,7 +179,7 @@ struct QAProvidersSection: View {
         }
     }
 
-    /// "Add Provider": the external local servers (#152), then the API services after them (#154).
+    /// "Add Provider": the external local servers (#152), then the API services after them (#153, #154).
     private var addProviderMenu: some View {
         Menu("Add Provider") {
             if providers.adapterKinds.contains(.externalLocal) {
@@ -234,22 +234,31 @@ struct QAProvidersSection: View {
 /// The provider sheet (#151): the fields of the kind, "Test Connection", "Cancel" and "Save".
 /// The key goes into the Keychain only. The field stays empty for a saved key.
 /// An external local server (#152) has the fields Name, Base URL, Model ID and an optional token, with a red caption
-/// under an invalid field and the footer of its preset. An API service (#154) has a fixed host, the API key, Model ID
-/// and Output limit.
+/// under an invalid field and the footer of its preset. An API service, OpenAI (#153) or Anthropic (#154), has a fixed host,
+/// the API key, Model ID and Output limit. A saved key is never shown.
 struct ProviderSheet: View {
     let providers: ProviderSettings
-    @State var profile: ProviderProfile
-    /// The snapshot harness injects a test result. The app starts with none.
-    @State var testResult: ConnectionTestResult?
-    @State private var secret = ""
-    /// True after "Replace Key…": the sheet shows an empty key field in place of "Saved in the Keychain".
+    @State private var profile: ProviderProfile
+    @State private var testResult: ConnectionTestResult?
+    @State private var secret: String
+    /// True after "Replace Key…": the sheet shows the key field in place of "Saved in the Keychain".
     @State private var replacesKey = false
     @State private var isTesting = false
     @State private var saveProblem: String?
     @Environment(\.dismiss) private var dismiss
 
+    /// The snapshot harness injects a test result and a key. The app starts with none.
+    init(providers: ProviderSettings, profile: ProviderProfile, testResult: ConnectionTestResult? = nil, secret: String = "") {
+        self.providers = providers
+        _profile = State(initialValue: profile)
+        _testResult = State(initialValue: testResult)
+        _secret = State(initialValue: secret)
+    }
+
+    private var hasTypedKey: Bool { !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
     private var isValid: Bool {
-        profile.isValid(hasSecret: providers.hasSecret(profile) || !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        profile.isValid(hasSecret: providers.hasSecret(profile) || hasTypedKey)
     }
 
     private var canTest: Bool { providers.canTest(profile.kind) }
@@ -283,8 +292,8 @@ struct ProviderSheet: View {
                         if let server = profile.externalServer {
                             Text(server.footer).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
-                        if let service = profile.apiService {
-                            Text(service.footer).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        if let footer = profile.apiService?.footer {
+                            Text(footer).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -318,7 +327,7 @@ struct ProviderSheet: View {
         SecureField("Token", text: $secret, prompt: Text(providers.hasSecret(profile) ? "Saved in the Keychain" : "Bearer token (optional)"))
     }
 
-    /// The fields of an API service with a fixed host (#154). An edit shows "Saved in the Keychain", never the key.
+    /// The fields of an API service with a fixed host (#153, #154). An edit shows "Saved in the Keychain", never the key.
     @ViewBuilder private func apiServiceFields(_ service: APIService) -> some View {
         LabeledContent("Host") { Text(profile.host) }
         if providers.hasSecret(profile) && !replacesKey {
@@ -330,8 +339,7 @@ struct ProviderSheet: View {
             }
         } else {
             validated(SecureField("API Key", text: $secret, prompt: Text(service.keyPrompt)),
-                      problem: providers.hasSecret(profile) || !secret.trimmingCharacters(in: .whitespaces).isEmpty
-                          ? nil : APIService.noKeyText)
+                      problem: providers.hasSecret(profile) || hasTypedKey ? nil : APIService.noKeyText)
         }
         validated(TextField("Model ID", text: $profile.modelID, prompt: Text(service.modelPrompt)), problem: profile.modelProblem)
         validated(HStack(spacing: 6) {

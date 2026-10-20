@@ -20,9 +20,10 @@ public enum AnswerOutcome: Equatable, Sendable {
     /// A provider other than the bundled model refused the request (#152). `reason` is the design-note text.
     /// It never holds the response body.
     case refused(reason: String)
-    /// The model stopped at the output limit of the profile (#154). The partial answer stays.
+    /// A remote model stopped before the end of the answer, for example at the output limit of the profile (#153, #154).
+    /// The partial answer stays.
     case incomplete
-    /// The model declined to answer, for example an Anthropic `refusal` stop (#154).
+    /// A remote model declined to answer, for example an Anthropic `refusal` stop (#153, #154). Its refusal text is not kept.
     case declined
 
     public static let incompleteText = "Stopped at the output limit"
