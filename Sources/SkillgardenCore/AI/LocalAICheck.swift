@@ -261,7 +261,7 @@ public enum LocalAICheck {
 
     /// True when the sentence holds the ID of a passage of the lecture.
     private static func citesKnownPassage(_ sentence: String, context: LectureContext) -> Bool {
-        AnswerCitations.passageIDs(in: sentence).contains { context.passage(id: $0) != nil }
+        AnswerCitations.passageIDs(in: sentence, context: context).contains { context.passage(id: $0) != nil }
     }
 
     /// The reasons that an answer fails the rules of its kind. Empty when it passes.
@@ -280,14 +280,14 @@ public enum LocalAICheck {
         if question.evidence != nil, citations.sources.isEmpty { reasons.append("no citation") }
         if citations.sources.contains(where: { $0.kind == .unknown }) { reasons.append("unknown passage") }
         if let evidence = question.evidence, !citations.sources.isEmpty {
-            let cited = AnswerCitations.passageIDs(in: answer.text).contains {
+            let cited = AnswerCitations.passageIDs(in: answer.text, context: context).contains {
                 context.passage(id: $0)?.text.range(of: evidence, options: .caseInsensitive) != nil
             }
             if !cited { reasons.append(question.kind == .followUp ? "ignored prior turn" : "no cited passage holds the evidence") }
         }
         let sentences = sentences(answer.text)
         if question.gap, !sentences.contains(where: marksGeneralKnowledge) { reasons.append("unmarked outside knowledge") }
-        if sentences.contains(where: { marksGeneralKnowledge($0) && !AnswerCitations.passageIDs(in: $0).isEmpty }) {
+        if sentences.contains(where: { marksGeneralKnowledge($0) && !AnswerCitations.passageIDs(in: $0, context: context).isEmpty }) {
             reasons.append("id after general knowledge")
         }
         if sentences.contains(where: { claimsSource($0) && !citesKnownPassage($0, context: context) }) {

@@ -82,11 +82,12 @@ private func temporaryFolder() throws -> URL {
         "qa-incomplete-light.png", "qa-incomplete-dark.png", "qa-incomplete-unthemed-dark.png",
         "qa-auth-error-light.png", "qa-auth-error-dark.png", "qa-auth-error-unthemed-dark.png",
         "qa-anthropic-light.png", "qa-anthropic-dark.png", "qa-anthropic-unthemed-dark.png",
+        "qa-citation-ranges-light.png", "qa-citation-ranges-dark.png", "qa-citation-ranges-unthemed-dark.png",
     ])
     // #82: every course screen except the dark-theme screen gets one dark capture with no course theme.
     #expect(SnapshotScreen.allCases.filter { $0.selectsCourse && !$0.hasUnthemedCapture } == [.courseLandingDarkTheme])
     let unthemed = outputs.filter(\.ignoresCourseTheme)
-    #expect(unthemed.count == 50)
+    #expect(unthemed.count == 51)
     #expect(unthemed.allSatisfy { $0.appearance == .dark && $0.screen.hasUnthemedCapture })
     #expect(unthemed.allSatisfy { $0.url.lastPathComponent == "\($0.screen.rawValue)-unthemed-dark.png" })
     #expect(outputs.filter { !$0.ignoresCourseTheme }.map(\.url.lastPathComponent) == SnapshotScreen.allCases.flatMap { screen in
@@ -106,30 +107,32 @@ private func temporaryFolder() throws -> URL {
         .courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureDownloads, .pdfPreview, .lectureSources,
         .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaTheater,
         .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
-        .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic,
+        .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .qaCitationRanges,
     ])
     // #128: the Q&A screens open the panel with an injected status. Only the draft screen shows a draft.
     #expect(SnapshotScreen.allCases.filter(\.showsQA) == [.qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting,
                                                           .qaStopping, .qaError, .qaNoCaptions, .qaArticle, .qaTheater,
                                                           .qaCitations, .qaCitationExcerpt, .qaCitationsStale,
                                                           .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
-                                                          .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic])
+                                                          .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic,
+                                                          .qaCitationRanges])
     #expect(SnapshotScreen.allCases.filter { $0.qaStatus != nil } == SnapshotScreen.allCases.filter(\.showsQA))
     #expect(SnapshotScreen.allCases.compactMap(\.qaStatus).map { LectureQAState(status: $0, content: .ready) }
         == [.ready, .ready, .ready, .noModel, .off, .starting, .stopping, .error(reason: "The server stopped. Exit code 9."),
             .ready, .ready, .ready, .ready, .ready, .ready, .off, .error(reason: "The server stopped. Exit code 9."), .starting,
-            .ready, .ready, .ready, .ready, .ready, .ready])
+            .ready, .ready, .ready, .ready, .ready, .ready, .ready])
     // #151: three screens use the fixture profiles. Only the consent screen sends a question.
     #expect(SnapshotScreen.allCases.filter(\.usesProviderProfiles) == [.settingsProviders, .qaConsent, .qaRemote, .qaExternalLocal,
-                                                                       .qaIncomplete, .qaAuthError, .qaAnthropic])
+                                                                       .qaIncomplete, .qaAuthError, .qaAnthropic,
+                                                                       .qaCitationRanges])
     #expect(SnapshotScreen.allCases.compactMap(\.selectedProviderID)
         == ["snapshot-openai", "snapshot-openai", "snapshot-openai", "snapshot-lm-studio", "snapshot-openai", "snapshot-openai",
-            "snapshot-anthropic"])
+            "snapshot-anthropic", "snapshot-anthropic"])
     #expect(SnapshotScreen.allCases.filter { $0.qaConsentQuestion != nil } == [.qaConsent])
     #expect(SnapshotPlan.providerProfiles.map(\.kind) == [.api, .externalLocal, .api])
     #expect(SnapshotPlan.providerProfiles.allSatisfy { $0.isValid(hasSecret: true) })
     #expect(SnapshotScreen.allCases.filter { SnapshotPlan.qaOrigin(for: $0).providerID != BundledAnswerProvider.providerID }
-        == [.qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic])
+        == [.qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .qaCitationRanges])
     // #152: the LM Studio sheet passed its test. The Ollama sheet has the loopback error, so "Save" is off.
     #expect(SnapshotScreen.allCases.filter { $0.providerSheet != nil } == [.providerSheetLMStudio, .providerSheetOllamaError,
                                                                            .providerSheetOpenAI, .providerSheetOpenAIEdit,
@@ -419,7 +422,7 @@ private func temporaryFolder() throws -> URL {
             }
         case .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaArticle,
              .qaTheater, .qaCitations, .qaCitationExcerpt, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory,
-             .qaConsent, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic:
+             .qaConsent, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .qaCitationRanges:
             #expect(courseID == "sample-course")
             #expect(SnapshotPlan.imageLoads(for: screen) == 1)
             library.selectCourse(courseID)
@@ -461,6 +464,16 @@ private func temporaryFolder() throws -> URL {
                 #expect(turns.map(\.answer) == ["You plan a course step by step [t1]. First you", "", "", ""])
                 #expect(turns.map(\.status.opensSettings) == [false, false, true, false])
                 #expect(turns.allSatisfy { conversation.canRetry($0) && $0.origin.providerID == "snapshot-anthropic" })
+            case .qaCitationRanges:
+                // #185: three markers and three chips. The stored answer keeps the raw range text.
+                guard case .ready(let lecture) = context else { break }
+                let turn = try #require(turns.first)
+                #expect(turns.map(\.status) == [.complete] && turn.origin.providerID == "snapshot-anthropic")
+                #expect(turn.answer.contains("[t0-1]"))
+                let citations = AnswerCitations(answer: turn.answer, context: lecture, isStale: false)
+                #expect(citations.text == "It starts with a welcome [1].\nThen you plan the course [2] with outline (v2).\n"
+                    + "The guide has more help [?].")
+                #expect(citations.sources.map(\.title) == ["1 · 0:00", "2 · 0:02", "? · Unknown source"])
             default:
                 #expect(turns.isEmpty)
             }
