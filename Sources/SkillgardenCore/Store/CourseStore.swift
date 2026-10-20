@@ -475,6 +475,21 @@ public final class CourseStore: @unchecked Sendable {
         }
     }
 
+    /// Removes one turn of a lecture (#170). The thread stays while other turns remain. A later `finishQATurn` of the turn
+    /// changes nothing, so a request that ends after the delete does not bring the turn back.
+    public func removeQATurn(id: Int64, courseID: String, lectureID: String) throws {
+        try lock.withLock {
+            try database.transaction {
+                try database.execute("DELETE FROM qa_messages WHERE id = ? AND course_id = ? AND lecture_id = ?",
+                                     [String(id), courseID, lectureID])
+                try database.execute("""
+                    DELETE FROM qa_threads WHERE course_id = ? AND lecture_id = ?
+                    AND NOT EXISTS (SELECT 1 FROM qa_messages WHERE course_id = ? AND lecture_id = ?)
+                    """, [courseID, lectureID, courseID, lectureID])
+            }
+        }
+    }
+
     /// Marks each pending turn as interrupted. The app calls it once at launch, before it starts a request.
     public func interruptPendingQATurns() throws {
         try lock.withLock { try database.execute("UPDATE qa_messages SET status = 'interrupted' WHERE status = 'pending'") }

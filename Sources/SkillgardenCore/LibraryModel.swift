@@ -528,6 +528,11 @@ public final class LibraryModel {
         enqueueWrite { try $0.clearQAHistory(courseID: courseID, lectureID: lectureID) }
     }
 
+    /// Removes one Q&A turn (#170). The course id comes from the caller, so a late request removes the turn of its own course.
+    public func removeQATurn(_ turn: QATurn, courseID: String, lectureID: String) {
+        enqueueWrite { try $0.removeQATurn(id: turn.id, courseID: courseID, lectureID: lectureID) }
+    }
+
     /// Waits until all queued progress writes finish.
     func waitForWrites() async { _ = await pendingWrite?.value }
 
