@@ -2,7 +2,8 @@ import Foundation
 
 /// Removes an echo of the system prompt from an answer before the learner sees it and before the save (#192).
 /// A model can repeat the framing of `LectureContext.framing` or the `[<id>] <text>` passage lines of the prompt.
-/// The guard removes each answer line that holds an echo. The other lines stay.
+/// The guard removes each answer line that holds an echo. The other lines stay. A quote of one or two passages after
+/// their IDs is not an echo (#198).
 public struct PromptEchoGuard: Sendable {
     /// The failure reason of a turn whose whole answer was an echo. The turn label is "No answer: <reason>".
     public static let echoText = "The model repeated its instructions. Try again."
@@ -43,30 +44,85 @@ public struct PromptEchoGuard: Sendable {
         clean(answer) != answer
     }
 
+    /// A group of this many `[<id>] <text>` passage lines in a row is a passage list of the prompt (#198). A valid answer
+    /// can quote one or two passages after their IDs.
+    static let minimumPassageList = 3
+
     /// The answer with no line of the system prompt. With `isComplete` false, `answer` is a draft: its last line can
     /// still grow, so it waits while it can be the start of an echo. The text is the same when it holds no echo.
     public func clean(_ answer: String, isComplete: Bool = true) -> String {
         let lines = answer.components(separatedBy: "\n")
-        var kept: [String] = []
-        /// The folded next lines of the passage of the last removed passage line. A list passage has more than one line.
+        let removed = removedLines(lines, isComplete: isComplete)
+        guard removed.contains(true) else { return answer }
+        return zip(lines, removed).filter { !$1 }.map(\.0).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The answer with `mask` in place of each group of removed lines, for the results file of the check (#198).
+    /// Empty lines between removed lines are part of the group. The text is the same when it holds no echo.
+    func masked(_ answer: String, with mask: String) -> String {
+        let lines = answer.components(separatedBy: "\n")
+        let removed = removedLines(lines, isComplete: true)
+        guard removed.contains(true) else { return answer }
+        var result: [String] = []
+        /// The empty lines after the last mask. They go into the result only when a kept line follows.
+        var empty: [String] = []
+        var lastIsMask = false
+        for (line, isRemoved) in zip(lines, removed) {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                empty.append(line)
+            } else if isRemoved {
+                if !lastIsMask { result += empty + [mask] }
+                empty = []
+                lastIsMask = true
+            } else {
+                result += empty + [line]
+                empty = []
+                lastIsMask = false
+            }
+        }
+        return (result + empty).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// True for each line of the system prompt. A group of passage lines is an echo when it lists `minimumPassageList`
+    /// passages or more, or when it comes after a line of the framing.
+    private func removedLines(_ lines: [String], isComplete: Bool) -> [Bool] {
+        var removed = Array(repeating: false, count: lines.count)
+        /// The folded next lines of the passage of the last passage line. A list passage has more than one line.
         var passageLines: ArraySlice<String> = []
+        /// The current group of passage lines: the line indexes, the number of passages and if a framing line is before it.
+        var group: [Int] = []
+        var groupPassages = 0
+        var groupFollowsEcho = false
+        /// True when the last line with text was a line of the framing.
+        var lastIsEcho = false
+        func endGroup() {
+            if groupFollowsEcho || groupPassages >= Self.minimumPassageList { group.forEach { removed[$0] = true } }
+            group = []
+            groupPassages = 0
+        }
         for (index, line) in lines.enumerated() {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
             let isDraftLine = !isComplete && index == lines.count - 1
             let text = Self.folded(line)
             if let next = passageLines.first, !text.isEmpty, isDraftLine ? next.hasPrefix(text) : text == next {
                 passageLines.removeFirst()
+                group.append(index)
                 continue
             }
             passageLines = []
             if let passage = passage(line, isComplete: !isDraftLine) {
                 passageLines = passage.text.components(separatedBy: .newlines).dropFirst().map(Self.folded).filter { !$0.isEmpty }[...]
+                if group.isEmpty { groupFollowsEcho = lastIsEcho }
+                group.append(index)
+                groupPassages += 1
                 continue
             }
-            if isEcho(line) || (isDraftLine && mayStartEcho(line)) { continue }
-            kept.append(line)
+            endGroup()
+            lastIsEcho = isEcho(line) || (isDraftLine && mayStartEcho(line))
+            removed[index] = lastIsEcho
         }
-        guard kept.count != lines.count else { return answer }
-        return kept.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        endGroup()
+        return removed
     }
 
     /// True for a line of the framing, a part of the framing, or a line with a framing sentence.
