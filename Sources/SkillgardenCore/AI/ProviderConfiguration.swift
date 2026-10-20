@@ -576,9 +576,22 @@ public final class ProviderSettings {
             expiredSessions.remove(id)
             return fresh
         case .failure(let error):
-            if error.needsSignIn, profiles.contains(where: { $0.id == id }) { expiredSessions.insert(id) }
+            guard error.needsSignIn, profiles.contains(where: { $0.id == id }) else { throw error }
+            expiredSessions.insert(id)
+            // A refused refresh token is dead. The tokens go, and the issued client ID stays for the next sign-in.
+            if error == .refused("invalid_grant") {
+                try? credentials.save(session.discardingTokens().keychainText, account: profile.keychainAccount)
+            }
             throw error
         }
+    }
+
+    /// The saved session of a ChatGPT plan profile, also an expired one (#156). A later sign-in reuses its issued client ID.
+    /// Nil when the profile has no session or the Keychain refuses the read.
+    public func savedChatGPTSession(for id: String) -> ChatGPTSession? {
+        guard let profile = profiles.first(where: { $0.id == id && $0.isChatGPTPlan }), profile.credentialReference != nil,
+              let text = try? credentials.secret(account: profile.keychainAccount) else { return nil }
+        return ChatGPTSession(keychainText: text)
     }
 
     /// Refreshes each ChatGPT plan session near its end, so an expired session shows "Sign in again." when Settings opens.

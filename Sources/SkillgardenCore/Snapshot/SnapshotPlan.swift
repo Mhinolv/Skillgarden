@@ -88,7 +88,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case providerSheetAnthropic = "provider-sheet-anthropic"
     /// The Anthropic API sheet in edit mode (#154): "Saved in the Keychain" with "Replace Key…".
     case providerSheetAnthropicEdit = "provider-sheet-anthropic-edit"
-    /// The ChatGPT plan sheet (#156) Signed out: the text and "Sign In with ChatGPT…". The harness draws it in place of the window.
+    /// The ChatGPT plan sheet (#156) Signed out: the text and "Continue with ChatGPT". The harness draws it in place of the window.
     case chatGPTSheetSignedOut = "chatgpt-sheet-signed-out"
     /// The ChatGPT plan sheet while it waits for the system sign-in sheet (#156).
     case chatGPTSheetWaiting = "chatgpt-sheet-waiting"

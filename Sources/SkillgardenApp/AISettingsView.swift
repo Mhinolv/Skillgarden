@@ -331,7 +331,7 @@ struct ChatGPTPlanSheet: View {
         case .signedOut:
             Button("Cancel", role: .cancel) { dismiss() }
                 .keyboardShortcut(.cancelAction)
-            Button("Sign In with ChatGPT…") { signIn.start() }
+            Button("Continue with ChatGPT") { signIn.start() }
                 .keyboardShortcut(.defaultAction)
         case .waiting:
             Button("Cancel", role: .cancel) {

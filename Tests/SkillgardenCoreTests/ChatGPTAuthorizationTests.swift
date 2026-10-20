@@ -1,16 +1,58 @@
 import Foundation
+import Security
 import Testing
 @testable import SkillgardenCore
 
-// Sign in with ChatGPT (#156). Every test runs offline: a fake transport, a fixed clock and fixture ID tokens.
+// Sign in with ChatGPT (#156). Every test runs offline: a fake transport, a fixed clock and fixture ID tokens that a test
+// RSA key signs. The fake transport serves the public key as the OpenAI JWKS.
+
+/// The RSA key of the fixture ID tokens.
+nonisolated(unsafe) private let signingKey: SecKey = {
+    let attributes: [CFString: Any] = [kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeySizeInBits: 2048]
+    return SecKeyCreateRandomKey(attributes as CFDictionary, nil)!
+}()
+
+/// The JWKS of `signingKey`, with the key ID `test-key`.
+private let jwksJSON: String = {
+    // PKCS #1 RSAPublicKey: SEQUENCE { INTEGER modulus, INTEGER exponent }.
+    let der = [UInt8](SecKeyCopyExternalRepresentation(SecKeyCopyPublicKey(signingKey)!, nil)! as Data)
+    var index = 0
+    func length() -> Int {
+        let first = der[index]
+        index += 1
+        guard first & 0x80 != 0 else { return Int(first) }
+        var count = 0
+        for _ in 0..<Int(first & 0x7F) {
+            count = count << 8 | Int(der[index])
+            index += 1
+        }
+        return count
+    }
+    func integer() -> Data {
+        index += 1
+        let count = length()
+        defer { index += count }
+        return Data(der[index..<index + count].drop { $0 == 0 })
+    }
+    index += 1
+    _ = length()
+    let modulus = integer()
+    let exponent = integer()
+    let key: [String: Any] = ["kty": "RSA", "kid": "test-key", "alg": "RS256", "use": "sig", "n": PKCE.base64URL(modulus),
+                              "e": PKCE.base64URL(exponent)]
+    return String(decoding: try! JSONSerialization.data(withJSONObject: ["keys": [key]]), as: UTF8.self)
+}()
 
 /// Answers each request with the next scripted status and JSON body, or with the reply of `respond`, and records the requests.
-/// With no reply left, the request fails as offline.
+/// A GET of the JWKS gets `jwks` and is counted in `keyFetches`, not in `requests`. With no reply left, the request fails as offline.
 private final class FakeAuthTransport: LlamaTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var replies: [(Int, String)]
     private let respond: (@Sendable (URLRequest) -> (Int, String))?
     private var sent: [URLRequest] = []
+    private var fetches = 0
+    /// Nil makes the JWKS offline.
+    var jwks: String? = jwksJSON
 
     init(_ replies: [(Int, String)]) {
         self.replies = replies
@@ -23,12 +65,21 @@ private final class FakeAuthTransport: LlamaTransport, @unchecked Sendable {
     }
 
     var requests: [URLRequest] { lock.withLock { sent } }
+    var keyFetches: Int { lock.withLock { fetches } }
 
     func send(_ request: URLRequest) -> AsyncThrowingStream<LlamaTransportEvent, any Error> {
-        let reply: (Int, String)? = lock.withLock {
-            sent.append(request)
-            return replies.isEmpty ? nil : replies.removeFirst()
-        } ?? respond?(request)
+        let reply: (Int, String)?
+        if request.url == ChatGPTAuthConfiguration.openAI.keysEndpoint {
+            reply = lock.withLock {
+                fetches += 1
+                return jwks.map { (200, $0) }
+            }
+        } else {
+            reply = lock.withLock {
+                sent.append(request)
+                return replies.isEmpty ? nil : replies.removeFirst()
+            } ?? respond?(request)
+        }
         return AsyncThrowingStream { continuation in
             guard let (status, body) = reply else { continuation.finish(throwing: URLError(.notConnectedToInternet)); return }
             continuation.yield(.response(status: status))
@@ -40,30 +91,37 @@ private final class FakeAuthTransport: LlamaTransport, @unchecked Sendable {
 
 private let now = Date(timeIntervalSince1970: 1_800_000_000)
 private let redirect = URL(string: "http://127.0.0.1:53682/auth/callback")!
-private let clientID = "client-123"
+/// The issued client ID of the first sign-in callback.
+private let clientID = "oaiapp_test123"
+private let hostID = "urn:uuid:3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 private let state = "state-abc"
 private let nonce = "nonce-xyz"
 private let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+private let grantedScope = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"
 
 private func base64URL(_ object: [String: Any]) -> String {
     PKCE.base64URL(try! JSONSerialization.data(withJSONObject: object, options: .sortedKeys))
 }
 
-/// A fixture ID token. Each argument overrides one claim. `nil` in `drop` leaves claims out.
+/// A fixture ID token that `key` signs. Each argument overrides one claim or header value. `nil` leaves it out.
 private func idToken(issuer: String = "https://auth.openai.com", audience: Any = clientID, azp: String? = nil,
                      subject: String = "user-1", expires: Date = now.addingTimeInterval(3600), issued: Date = now,
                      nonce tokenNonce: String? = nonce, email: String? = "learner@example.com", plan: String? = "plus",
-                     algorithm: String = "RS256") -> String {
+                     algorithm: String = "RS256", keyID: String? = "test-key", key: SecKey = signingKey) -> String {
     var claims: [String: Any] = ["iss": issuer, "aud": audience, "sub": subject, "exp": expires.timeIntervalSince1970,
                                  "iat": issued.timeIntervalSince1970]
     if let azp { claims["azp"] = azp }
     if let tokenNonce { claims["nonce"] = tokenNonce }
     if let email { claims["email"] = email }
     if let plan { claims[ChatGPTIDToken.authClaim] = ["chatgpt_plan_type": plan] }
-    return base64URL(["alg": algorithm, "typ": "JWT"]) + "." + base64URL(claims) + ".c2ln"
+    var header: [String: Any] = ["alg": algorithm, "typ": "JWT"]
+    if let keyID { header["kid"] = keyID }
+    let input = base64URL(header) + "." + base64URL(claims)
+    let signature = SecKeyCreateSignature(key, .rsaSignatureMessagePKCS1v15SHA256, Data(input.utf8) as CFData, nil)! as Data
+    return input + "." + PKCE.base64URL(signature)
 }
 
-private func tokenJSON(idToken: String? = idToken(), scope: String? = "openid profile email offline_access",
+private func tokenJSON(idToken: String? = idToken(), scope: String? = grantedScope,
                        access: String = "access-secret-1", refresh: String? = "refresh-secret-1") -> String {
     var object: [String: Any] = ["access_token": access, "token_type": "Bearer", "expires_in": 3600]
     if let idToken { object["id_token"] = idToken }
@@ -72,25 +130,35 @@ private func tokenJSON(idToken: String? = idToken(), scope: String? = "openid pr
     return String(decoding: try! JSONSerialization.data(withJSONObject: object, options: .sortedKeys), as: UTF8.self)
 }
 
-private func callback(code: String? = "code-1", state callbackState: String? = state, extra: [URLQueryItem] = [],
-                      base: URL = redirect) -> URL {
+/// A success callback of SIWC: `code`, `scope`, `state` and the issued `client_id`. `nil` leaves a parameter out.
+private func callback(code: String? = "code-1", state callbackState: String? = state, client: String? = clientID,
+                      scope: String? = grantedScope, extra: [URLQueryItem] = [], base: URL = redirect) -> URL {
     var components = URLComponents(url: base, resolvingAgainstBaseURL: false)!
     components.queryItems = [code.map { URLQueryItem(name: "code", value: $0) },
-                             callbackState.map { URLQueryItem(name: "state", value: $0) }].compactMap { $0 } + extra
+                             scope.map { URLQueryItem(name: "scope", value: $0) },
+                             callbackState.map { URLQueryItem(name: "state", value: $0) },
+                             client.map { URLQueryItem(name: "client_id", value: $0) }].compactMap { $0 } + extra
     return components.url!
 }
 
 @MainActor
-private func authorizer(_ replies: [(Int, String)]) -> (ChatGPTAuthorizer, FakeAuthTransport) {
+private func makeAuthorizer(_ transport: FakeAuthTransport,
+                            hostIDs: any CredentialStore = MemoryCredentialStore()) -> ChatGPTAuthorizer {
+    ChatGPTAuthorizer(transport: transport, hostIDs: hostIDs, now: { now })
+}
+
+/// An authorizer that waits for the callback of a first sign-in, or of a later sign-in of `issuedClientID`.
+@MainActor
+private func authorizer(_ replies: [(Int, String)], issuedClientID: String? = nil) -> (ChatGPTAuthorizer, FakeAuthTransport) {
     let transport = FakeAuthTransport(replies)
-    let authorizer = ChatGPTAuthorizer(transport: transport, now: { now })
-    authorizer.expect(authorizer.makeRequest(clientID: clientID, redirectURI: redirect, state: state, nonce: nonce,
-                                             codeVerifier: verifier))
+    let authorizer = makeAuthorizer(transport)
+    authorizer.expect(authorizer.makeRequest(redirectURI: redirect, hostID: hostID, issuedClientID: issuedClientID, state: state,
+                                             nonce: nonce, codeVerifier: verifier))
     return (authorizer, transport)
 }
 
 @MainActor
-private func expectFailure(_ expected: ChatGPTAuthError, token: String? = nil, scope: String? = "openid profile email offline_access",
+private func expectFailure(_ expected: ChatGPTAuthError, token: String? = nil, scope: String? = grantedScope,
                            callbackURL: URL = callback()) async {
     let (authorizer, _) = authorizer([(200, tokenJSON(idToken: token ?? idToken(), scope: scope))])
     await #expect(throws: expected) { try await authorizer.complete(callback: callbackURL) }
@@ -104,6 +172,11 @@ private func form(_ request: URLRequest) -> [String: String] {
     })
 }
 
+private func query(_ url: URL) -> [String: String] {
+    Dictionary(uniqueKeysWithValues: (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+        .map { ($0.name, $0.value ?? "") })
+}
+
 // MARK: Request
 
 @Test func pkceUsesS256WithTheRFC7636Vector() {
@@ -113,34 +186,65 @@ private func form(_ request: URLRequest) -> [String: String] {
     #expect(PKCE.randomText(bytes: 32) != PKCE.randomText(bytes: 32))
 }
 
-@MainActor @Test func beginRegistersAPublicLoopbackClientAndBuildsThePKCEURL() async throws {
-    let transport = FakeAuthTransport([(201, #"{"client_id":"client-new"}"#)])
-    let authorizer = ChatGPTAuthorizer(transport: transport, now: { now })
-    let request = try await authorizer.begin(redirectURI: redirect)
-    let registration = try #require(transport.requests.first)
-    #expect(registration.url?.absoluteString == "https://auth.openai.com/oauth/register")
-    let body = try #require(try JSONSerialization.jsonObject(with: registration.httpBody ?? Data()) as? [String: Any])
-    #expect(body["redirect_uris"] as? [String] == [redirect.absoluteString])
-    #expect(body["token_endpoint_auth_method"] as? String == "none")
-    #expect(body["client_name"] as? String == "Skillgarden")
-    #expect(body["client_secret"] == nil)
-    let items = Dictionary(uniqueKeysWithValues: (URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
-        .map { ($0.name, $0.value ?? "") })
-    #expect(request.url.host == "auth.openai.com" && request.url.path == "/oauth/authorize")
-    #expect(items["client_id"] == "client-new" && items["response_type"] == "code")
-    #expect(items["redirect_uri"] == redirect.absoluteString)
-    #expect(items["scope"] == "openid profile email offline_access")
+@Test func theConfigurationUsesTheSIWCEndpoints() {
+    let openAI = ChatGPTAuthConfiguration.openAI
+    #expect(openAI.authorizationEndpoint.absoluteString == "https://auth.openai.com/api/accounts/authorize")
+    #expect(openAI.tokenEndpoint.absoluteString == "https://auth.openai.com/api/accounts/oauth/token")
+    #expect(openAI.keysEndpoint.absoluteString == "https://auth.openai.com/.well-known/jwks.json")
+    #expect(openAI.issuer == "https://auth.openai.com" && openAI.resource == "https://api.openai.com/v1")
+    #expect(openAI.scopes.joined(separator: " ") == grantedScope)
+    #expect(openAI.requiredScopes == ["chatgpt.tokens.use.direct"])
+}
+
+@MainActor @Test func aFirstSignInRegistersThroughTheAuthorizeRequestAndSendsNoRequest() throws {
+    let transport = FakeAuthTransport([(201, #"{"client_id":"from-a-register-endpoint"}"#)])
+    let hostIDs = MemoryCredentialStore()
+    let request = try makeAuthorizer(transport, hostIDs: hostIDs).begin(redirectURI: redirect)
+    // No registration POST and no other request: SIWC has no registration endpoint.
+    #expect(transport.requests.isEmpty && transport.keyFetches == 0)
+    #expect(request.url.host == "auth.openai.com" && request.url.path == "/api/accounts/authorize")
+    let items = query(request.url)
+    #expect(items["client_id"] == "dynamic_agent_client" && request.clientID == "dynamic_agent_client")
+    #expect(request.issuedClientID == nil)
+    #expect(items["agent_name_hint"] == "Skillgarden")
+    let host = try #require(items["ext_agent_host_id"])
+    #expect(host.hasPrefix("urn:uuid:") && UUID(uuidString: String(host.dropFirst(9))) != nil)
+    #expect(try hostIDs.secret(account: ChatGPTAuthorizer.hostIDAccount) == host)
+    #expect(items["response_type"] == "code" && items["redirect_uri"] == redirect.absoluteString)
+    #expect(items["scope"] == grantedScope)
+    #expect(items["resource"] == "https://api.openai.com/v1")
     #expect(items["code_challenge_method"] == "S256")
     #expect(items["code_challenge"] == PKCE.challenge(for: request.codeVerifier))
     #expect(items["state"] == request.state && items["nonce"] == request.nonce)
+    #expect(items["id_token_hint"] == nil && items["client_secret"] == nil)
     #expect(request.state.count >= 43 && request.nonce.count >= 43 && request.codeVerifier.count >= 43)
+    // Each value is percent-encoded.
+    let raw = try #require(request.url.query)
+    #expect(raw.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A53682%2Fauth%2Fcallback"))
+    #expect(raw.contains("resource=https%3A%2F%2Fapi.openai.com%2Fv1") && raw.contains("scope=openid%20profile"))
 }
 
-@MainActor @Test func aFailedRegistrationDoesNotFinish() async {
-    let authorizer = ChatGPTAuthorizer(transport: FakeAuthTransport([(400, #"{"error":"invalid_client_metadata"}"#)]), now: { now })
-    await #expect(throws: ChatGPTAuthError.refused("invalid_client_metadata")) { try await authorizer.begin(redirectURI: redirect) }
-    let offline = ChatGPTAuthorizer(transport: FakeAuthTransport([]), now: { now })
-    await #expect(throws: ChatGPTAuthError.network) { try await offline.begin(redirectURI: redirect) }
+@MainActor @Test func theHostIDStaysTheSameAcrossSignIns() throws {
+    let hostIDs = MemoryCredentialStore()
+    let first = try makeAuthorizer(FakeAuthTransport([]), hostIDs: hostIDs).begin(redirectURI: redirect)
+    let second = try makeAuthorizer(FakeAuthTransport([]), hostIDs: hostIDs).begin(redirectURI: redirect,
+                                                                                  previous: signedInSession())
+    #expect(first.hostID == second.hostID && query(second.url)["ext_agent_host_id"] == first.hostID)
+    #expect(first.state != second.state)
+    // Another Mac gets another host ID.
+    let other = try makeAuthorizer(FakeAuthTransport([])).begin(redirectURI: redirect)
+    #expect(other.hostID != first.hostID)
+    // A refused Keychain stops the sign-in before the browser opens.
+    let denied = makeAuthorizer(FakeAuthTransport([]),
+                                hostIDs: MemoryCredentialStore(deniedAccounts: [ChatGPTAuthorizer.hostIDAccount]))
+    #expect(throws: ChatGPTAuthError.credential(.denied)) { try denied.begin(redirectURI: redirect) }
+}
+
+@MainActor @Test func aLaterSignInUsesTheSavedIssuedClientID() throws {
+    let request = try makeAuthorizer(FakeAuthTransport([])).begin(redirectURI: redirect, previous: signedInSession())
+    let items = query(request.url)
+    #expect(items["client_id"] == clientID && request.issuedClientID == clientID)
+    #expect(items["agent_name_hint"] == nil && items["resource"] == "https://api.openai.com/v1")
 }
 
 // MARK: Complete
@@ -151,18 +255,89 @@ private func form(_ request: URLRequest) -> [String: String] {
     #expect(session.clientID == clientID && session.accessToken == "access-secret-1" && session.refreshToken == "refresh-secret-1")
     #expect(session.email == "learner@example.com" && session.subject == "user-1")
     #expect(session.account.planName == "ChatGPT Plus")
-    #expect(session.expiresAt == now.addingTimeInterval(3600))
+    #expect(session.expiresAt == now.addingTimeInterval(3600) && session.scopes.contains("chatgpt.tokens.use.direct"))
+    #expect(transport.requests.count == 1 && transport.keyFetches == 1)
     let exchange = try #require(transport.requests.first)
-    #expect(exchange.url?.absoluteString == "https://auth.openai.com/oauth/token" && exchange.httpMethod == "POST")
+    #expect(exchange.url?.absoluteString == "https://auth.openai.com/api/accounts/oauth/token" && exchange.httpMethod == "POST")
+    #expect(exchange.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
     #expect(form(exchange) == ["grant_type": "authorization_code", "code": "code-1", "redirect_uri": redirect.absoluteString,
-                               "client_id": clientID, "code_verifier": verifier])
+                               "client_id": clientID, "code_verifier": verifier, "resource": "https://api.openai.com/v1"])
+}
+
+@MainActor @Test func aCallbackWithNoIssuerPasses() async throws {
+    let (authorizer, _) = authorizer([(200, tokenJSON())])
+    let session = try await authorizer.complete(callback: callback())
+    #expect(session.clientID == clientID)
+}
+
+@MainActor @Test func theFirstSignInSavesTheIssuedClientIDFromTheCallback() async throws {
+    let (issued, transport) = authorizer([(200, tokenJSON(idToken: idToken(audience: "oaiapp_new")))])
+    let session = try await issued.complete(callback: callback(client: "oaiapp_new"))
+    let exchange = try #require(transport.requests.first)
+    #expect(session.clientID == "oaiapp_new" && form(exchange)["client_id"] == "oaiapp_new")
+    // A callback with no issued client ID, or with the registration client ID, does not finish and sends nothing.
+    await expectFailure(.malformedResponse, callbackURL: callback(client: nil))
+    let (registration, registrationTransport) = authorizer([(200, tokenJSON())])
+    await #expect(throws: ChatGPTAuthError.malformedResponse) {
+        try await registration.complete(callback: callback(client: "dynamic_agent_client"))
+    }
+    #expect(registrationTransport.requests.isEmpty)
+}
+
+@MainActor @Test func aLaterSignInRejectsAnotherClientID() async throws {
+    let (later, transport) = authorizer([(200, tokenJSON())], issuedClientID: clientID)
+    await #expect(throws: ChatGPTAuthError.wrongClient) { try await later.complete(callback: callback(client: "oaiapp_other")) }
+    #expect(transport.requests.isEmpty)
+    #expect(ChatGPTAuthError.wrongClient.message == ChatGPTAuthError.unverifiedText)
+    let (same, _) = authorizer([(200, tokenJSON())], issuedClientID: clientID)
+    let session = try await same.complete(callback: callback(client: clientID))
+    #expect(session.clientID == clientID)
 }
 
 @MainActor @Test func aCallbackWithAWrongOrMissingStateIsRejectedBeforeAnyRequest() async {
     let (authorizer, transport) = authorizer([(200, tokenJSON())])
     await #expect(throws: ChatGPTAuthError.stateMismatch) { try await authorizer.complete(callback: callback(state: "other")) }
     await #expect(throws: ChatGPTAuthError.stateMismatch) { try await authorizer.complete(callback: callback(state: nil)) }
+    // The state check comes before the `error` check.
+    await #expect(throws: ChatGPTAuthError.stateMismatch) {
+        try await authorizer.complete(callback: callback(code: nil, state: "other", client: nil, scope: nil,
+                                                         extra: [URLQueryItem(name: "error", value: "access_denied")]))
+    }
     #expect(transport.requests.isEmpty)
+}
+
+@MainActor @Test func anAccessDeniedCallbackSendsNoTokenRequest() async {
+    let (denied, transport) = authorizer([(200, tokenJSON())])
+    await #expect(throws: ChatGPTAuthError.refused("access_denied")) {
+        try await denied.complete(callback: callback(code: nil, client: nil, scope: nil,
+                                                         extra: [URLQueryItem(name: "error", value: "access_denied")]))
+    }
+    #expect(transport.requests.isEmpty && transport.keyFetches == 0)
+    // An `error` with a code sends no request either.
+    let (withCode, withCodeTransport) = authorizer([(200, tokenJSON())])
+    await #expect(throws: ChatGPTAuthError.refused("access_denied")) {
+        try await withCode.complete(callback: callback(extra: [URLQueryItem(name: "error", value: "access_denied")]))
+    }
+    #expect(withCodeTransport.requests.isEmpty)
+    #expect(ChatGPTAuthError.refused("access_denied").message == "Sign-in did not finish. Try again.")
+}
+
+@MainActor @Test func aSignInWithoutTheDirectTokenScopeIsRejected() async {
+    // The callback scopes: rejected before the code exchange.
+    let (callbackCheck, transport) = authorizer([(200, tokenJSON())])
+    await #expect(throws: ChatGPTAuthError.missingScopes) {
+        try await callbackCheck.complete(callback: callback(scope: "openid profile email offline_access resource.invoke"))
+    }
+    #expect(transport.requests.isEmpty)
+    // The token response scopes.
+    await expectFailure(.missingScopes, scope: "openid email")
+    await expectFailure(.missingScopes, scope: "openid profile email offline_access resource.invoke")
+    // No `scope` in the callback or the response means the requested scopes (RFC 6749 5.1).
+    let (noScope, _) = authorizer([(200, tokenJSON(scope: nil))])
+    let session = try? await noScope.complete(callback: callback(scope: nil))
+    #expect(session?.scopes == ChatGPTAuthConfiguration.openAI.scopes)
+    // The callback scopes stand when the response has none.
+    await expectFailure(.missingScopes, scope: nil, callbackURL: callback(scope: "openid"))
 }
 
 @MainActor @Test func aWrongNonceIsRejected() async {
@@ -178,19 +353,11 @@ private func form(_ request: URLRequest) -> [String: String] {
 
 @MainActor @Test func aWrongAudienceIsRejected() async {
     await expectFailure(.wrongAudience, token: idToken(audience: "another-client"))
+    await expectFailure(.wrongAudience, token: idToken(audience: "dynamic_agent_client"))
     await expectFailure(.wrongAudience, token: idToken(audience: [clientID, "another-client"]))
     await expectFailure(.wrongAudience, token: idToken(audience: clientID, azp: "another-client"))
     let (authorizer, _) = authorizer([(200, tokenJSON(idToken: idToken(audience: [clientID, "api"], azp: clientID)))])
     await #expect(throws: Never.self) { try await authorizer.complete(callback: callback()) }
-}
-
-@MainActor @Test func missingScopesAreRejected() async {
-    await expectFailure(.missingScopes, scope: "openid email")
-    await expectFailure(.missingScopes, scope: "openid profile email")
-    // No `scope` in the response means the requested scopes (RFC 6749 5.1).
-    let (authorizer, _) = authorizer([(200, tokenJSON(scope: nil))])
-    let session = try? await authorizer.complete(callback: callback())
-    #expect(session?.scopes == ChatGPTAuthConfiguration.openAI.scopes)
 }
 
 @MainActor @Test func anExpiredOrFutureIDTokenIsRejected() async {
@@ -198,8 +365,38 @@ private func form(_ request: URLRequest) -> [String: String] {
     await expectFailure(.expiredToken, token: idToken(issued: now.addingTimeInterval(600)))
 }
 
+@MainActor @Test func anIDTokenWithABadSignatureIsRejected() async throws {
+    // Claims of one token with the signature of another.
+    let valid = idToken().split(separator: ".")
+    let other = idToken(subject: "user-2").split(separator: ".")
+    await expectFailure(.badSignature, token: "\(valid[0]).\(other[1]).\(valid[2])")
+    // A key that is not in the JWKS.
+    let attributes: [CFString: Any] = [kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeySizeInBits: 2048]
+    let stranger = try #require(SecKeyCreateRandomKey(attributes as CFDictionary, nil))
+    await expectFailure(.badSignature, token: idToken(key: stranger))
+    // An unknown key ID loads the keys one more time, then fails.
+    let (rotated, transport) = authorizer([(200, tokenJSON(idToken: idToken(keyID: "rotated")))])
+    await #expect(throws: ChatGPTAuthError.badSignature) { try await rotated.complete(callback: callback()) }
+    #expect(transport.keyFetches == 1)
+    // No key ID uses the one key of the JWKS.
+    let (noKeyID, _) = authorizer([(200, tokenJSON(idToken: idToken(keyID: nil)))])
+    await #expect(throws: Never.self) { try await noKeyID.complete(callback: callback()) }
+    // An unreachable JWKS does not finish.
+    let (offline, offlineTransport) = authorizer([(200, tokenJSON())])
+    offlineTransport.jwks = nil
+    await #expect(throws: ChatGPTAuthError.network) { try await offline.complete(callback: callback()) }
+}
+
+@MainActor @Test func theSigningKeysLoadOnce() async throws {
+    let (authorizer, transport) = authorizer([(200, tokenJSON()), (200, tokenJSON(idToken: idToken(nonce: nil)))])
+    let session = try await authorizer.complete(callback: callback())
+    _ = try await authorizer.refresh(session)
+    #expect(transport.keyFetches == 1)
+}
+
 @MainActor @Test func aMalformedTokenResponseIsRejected() async {
     await expectFailure(.malformedResponse, token: idToken(algorithm: "none"))
+    await expectFailure(.malformedResponse, token: idToken(algorithm: "HS256"))
     await expectFailure(.malformedResponse, token: "not.a-token")
     await expectFailure(.malformedResponse, token: idToken(audience: 7))
     let (noID, _) = authorizer([(200, tokenJSON(idToken: nil))])
@@ -214,11 +411,14 @@ private func form(_ request: URLRequest) -> [String: String] {
     await #expect(throws: ChatGPTAuthError.replayed) { try await authorizer.complete(callback: callback()) }
     #expect(transport.requests.count == 1)
     // The callback of a cancelled sign-in is a replay too, also while a new sign-in waits.
-    let (second, secondTransport) = ChatGPTAuthorizerPair.make()
-    second.expect(second.makeRequest(clientID: clientID, redirectURI: redirect, state: "first", nonce: nonce, codeVerifier: verifier))
+    let secondTransport = FakeAuthTransport([])
+    let second = makeAuthorizer(secondTransport)
+    second.expect(second.makeRequest(redirectURI: redirect, hostID: hostID, issuedClientID: nil, state: "first", nonce: nonce,
+                                     codeVerifier: verifier))
     second.cancel()
     await #expect(throws: ChatGPTAuthError.replayed) { try await second.complete(callback: callback(state: "first")) }
-    second.expect(second.makeRequest(clientID: clientID, redirectURI: redirect, state: "second", nonce: nonce, codeVerifier: verifier))
+    second.expect(second.makeRequest(redirectURI: redirect, hostID: hostID, issuedClientID: nil, state: "second", nonce: nonce,
+                                     codeVerifier: verifier))
     await #expect(throws: ChatGPTAuthError.replayed) { try await second.complete(callback: callback(state: "first")) }
     #expect(secondTransport.requests.isEmpty)
 }
@@ -236,17 +436,10 @@ private func form(_ request: URLRequest) -> [String: String] {
     await expectFailure(.wrongRedirect, callbackURL: callback(base: URL(string: "http://localhost:53682/auth/callback")!))
 }
 
-@MainActor @Test func aRefusedSignInDoesNotFinish() async {
-    let (authorizer, transport) = authorizer([])
-    await #expect(throws: ChatGPTAuthError.refused("access_denied")) {
-        try await authorizer.complete(callback: callback(code: nil, extra: [URLQueryItem(name: "error", value: "access_denied")]))
-    }
-    #expect(transport.requests.isEmpty)
-}
-
 @Test func failureTextsAreTheDesignTextsAndNeverHoldTokens() {
     #expect(ChatGPTAuthError.nonceMismatch.message == "OpenAI sent a response that Skillgarden can't verify.")
     #expect(ChatGPTAuthError.replayed.message == ChatGPTAuthError.unverifiedText)
+    #expect(ChatGPTAuthError.badSignature.message == ChatGPTAuthError.unverifiedText)
     #expect(ChatGPTAuthError.refused("access_denied").message == "Sign-in did not finish. Try again.")
     #expect(ChatGPTAuthError.network.message == ChatGPTAuthError.notFinishedText)
     #expect(ChatGPTAuthError.httpStatus(500).message == ChatGPTAuthError.notFinishedText)
@@ -258,16 +451,23 @@ private func form(_ request: URLRequest) -> [String: String] {
 
 @MainActor @Test func refreshKeepsTheAccountAndSavesRotatedTokens() async throws {
     let (authorizer, transport) = authorizer([(200, tokenJSON()),
-                                              (200, tokenJSON(idToken: idToken(nonce: nil), access: "access-2", refresh: "refresh-2")),
-                                              (200, tokenJSON(idToken: nil, scope: nil, access: "access-3", refresh: nil))])
+                                              (200, tokenJSON(idToken: idToken(nonce: nil), scope: "openid chatgpt.tokens.use.direct",
+                                                              access: "access-2", refresh: "refresh-2")),
+                                              (200, tokenJSON(idToken: nil, scope: nil, access: "access-3", refresh: nil)),
+                                              (200, tokenJSON(idToken: nil, scope: "openid", access: "access-4"))])
     let session = try await authorizer.complete(callback: callback())
     let refreshed = try await authorizer.refresh(session)
     #expect(refreshed.accessToken == "access-2" && refreshed.refreshToken == "refresh-2" && refreshed.subject == "user-1")
-    #expect(form(transport.requests[1]) == ["grant_type": "refresh_token", "refresh_token": "refresh-secret-1", "client_id": clientID])
+    #expect(refreshed.scopes == ["openid", "chatgpt.tokens.use.direct"] && refreshed.clientID == clientID)
+    #expect(transport.requests[1].url == ChatGPTAuthConfiguration.openAI.tokenEndpoint)
+    #expect(form(transport.requests[1]) == ["grant_type": "refresh_token", "refresh_token": "refresh-secret-1", "client_id": clientID,
+                                            "resource": "https://api.openai.com/v1"])
     // No new ID token and no new refresh token: the saved ones stay.
     let again = try await authorizer.refresh(refreshed)
     #expect(again.accessToken == "access-3" && again.refreshToken == "refresh-2" && again.idToken == refreshed.idToken)
-    #expect(again.email == "learner@example.com")
+    #expect(again.email == "learner@example.com" && again.scopes == refreshed.scopes)
+    // A refresh that drops the direct token scope fails.
+    await #expect(throws: ChatGPTAuthError.missingScopes) { try await authorizer.refresh(again) }
 }
 
 @MainActor @Test func refreshRejectsAnotherAccountAndAWrongAudience() async throws {
@@ -281,14 +481,6 @@ private func form(_ request: URLRequest) -> [String: String] {
     await #expect(throws: ChatGPTAuthError.refused("invalid_grant")) { try await authorizer.refresh(noRefresh) }
 }
 
-@MainActor
-private enum ChatGPTAuthorizerPair {
-    static func make(_ replies: [(Int, String)] = []) -> (ChatGPTAuthorizer, FakeAuthTransport) {
-        let transport = FakeAuthTransport(replies)
-        return (ChatGPTAuthorizer(transport: transport, now: { now }), transport)
-    }
-}
-
 // MARK: Settings
 
 private func temporaryFolder() throws -> URL {
@@ -297,7 +489,6 @@ private func temporaryFolder() throws -> URL {
     return url
 }
 
-@MainActor
 private func signedInSession(expires: Date = now.addingTimeInterval(3600)) -> ChatGPTSession {
     ChatGPTSession(clientID: clientID, accessToken: "access-secret-1", refreshToken: "refresh-secret-1", idToken: idToken(nonce: nil),
                    expiresAt: expires, scopes: ChatGPTAuthConfiguration.openAI.scopes, subject: "user-1",
@@ -311,13 +502,15 @@ private func signedInSession(expires: Date = now.addingTimeInterval(3600)) -> Ch
     let credentials = MemoryCredentialStore()
     let providers = ProviderSettings(store: store, credentials: credentials, adapterKinds: ShippedAdapters.kinds)
     let profile = ProviderProfile.chatGPTPlan()
-    try providers.saveChatGPT(signedInSession(), profile: profile)
+    let session = signedInSession()
+    try providers.saveChatGPT(session, profile: profile)
     let saved = try #require(providers.profiles.first)
     #expect(saved.kind == .subscription && saved.name == "ChatGPT Plan" && saved.credentialReference == profile.id)
     let text = try #require(try credentials.secret(account: profile.id))
-    #expect(ChatGPTSession(keychainText: text) == signedInSession())
+    #expect(ChatGPTSession(keychainText: text) == session)
+    #expect(providers.savedChatGPTSession(for: profile.id)?.clientID == clientID)
     let file = try String(contentsOf: store.fileURL, encoding: .utf8)
-    for secret in ["access-secret-1", "refresh-secret-1", "learner@example.com", "eyJ"] { #expect(!file.contains(secret)) }
+    for secret in ["access-secret-1", "refresh-secret-1", "learner@example.com", "eyJ", clientID] { #expect(!file.contains(secret)) }
     #expect(providers.caption(for: saved) == "learner@example.com · Subscription · Q&A not available yet")
     // A reload reads the account from the Keychain.
     let reloaded = ProviderSettings(store: store, credentials: credentials, adapterKinds: ShippedAdapters.kinds)
@@ -325,7 +518,7 @@ private func signedInSession(expires: Date = now.addingTimeInterval(3600)) -> Ch
     #expect(reloaded.accounts[saved.id] == ChatGPTAccount(email: "learner@example.com", planType: "plus"))
     #expect(reloaded.expiredSessions.isEmpty)
     // A sign-in again keeps one profile.
-    try reloaded.saveChatGPT(signedInSession(), profile: ChatGPTSignIn(providers: reloaded, browser: nil).profile)
+    try reloaded.saveChatGPT(session, profile: ChatGPTSignIn(providers: reloaded, browser: nil).profile)
     #expect(reloaded.profiles.count == 1)
 }
 
@@ -341,6 +534,7 @@ private func signedInSession(expires: Date = now.addingTimeInterval(3600)) -> Ch
     try providers.disconnect(profile.id)
     #expect(try credentials.secret(account: profile.id) == nil)
     #expect(providers.profiles.isEmpty && providers.consents.isEmpty && providers.accounts.isEmpty)
+    #expect(providers.savedChatGPTSession(for: profile.id) == nil)
     #expect(ProviderSettings(store: store, credentials: credentials).profiles.isEmpty)
     // A refused Keychain keeps the profile.
     let denied = ProviderSettings(store: nil, credentials: MemoryCredentialStore(deniedAccounts: ["chatgpt"]),
@@ -394,12 +588,12 @@ private func signedInSession(expires: Date = now.addingTimeInterval(3600)) -> Ch
 @MainActor @Test func anExpiredSessionRefreshesAndSavesTheNewTokens() async throws {
     let credentials = MemoryCredentialStore()
     let transport = FakeAuthTransport([(200, tokenJSON(idToken: idToken(nonce: nil), access: "access-2", refresh: "refresh-2"))])
-    let providers = ProviderSettings(store: nil, credentials: credentials, chatGPT: ChatGPTAuthorizer(transport: transport, now: { now }))
+    let providers = ProviderSettings(store: nil, credentials: credentials, chatGPT: makeAuthorizer(transport))
     let profile = ProviderProfile.chatGPTPlan()
     try providers.saveChatGPT(signedInSession(expires: now.addingTimeInterval(30)), profile: profile)
     await providers.refreshChatGPTSessions(now: now)
     let saved = try #require(try credentials.secret(account: profile.id).flatMap(ChatGPTSession.init(keychainText:)))
-    #expect(saved.accessToken == "access-2" && saved.refreshToken == "refresh-2")
+    #expect(saved.accessToken == "access-2" && saved.refreshToken == "refresh-2" && saved.clientID == clientID)
     #expect(providers.expiredSessions.isEmpty)
     // A valid session sends no request.
     _ = try await providers.chatGPTSession(for: profile.id, now: now)
@@ -407,27 +601,36 @@ private func signedInSession(expires: Date = now.addingTimeInterval(3600)) -> Ch
 }
 
 @MainActor @Test func aSessionThatCantRefreshShowsSignInAgain() async throws {
+    let credentials = MemoryCredentialStore()
     let transport = FakeAuthTransport([(400, #"{"error":"invalid_grant"}"#), (200, tokenJSON(idToken: idToken(nonce: nil)))])
-    let providers = ProviderSettings(store: nil, credentials: MemoryCredentialStore(),
-                                     chatGPT: ChatGPTAuthorizer(transport: transport, now: { now }))
+    let providers = ProviderSettings(store: nil, credentials: credentials, chatGPT: makeAuthorizer(transport))
     let profile = ProviderProfile.chatGPTPlan()
     try providers.saveChatGPT(signedInSession(expires: now.addingTimeInterval(-10)), profile: profile)
     await providers.refreshChatGPTSessions(now: now)
     #expect(providers.expiredSessions == [profile.id])
+    // `invalid_grant` discards the tokens. The issued client ID and the account stay for the next sign-in.
+    let discarded = try #require(providers.savedChatGPTSession(for: profile.id))
+    #expect(discarded.accessToken.isEmpty && discarded.refreshToken == nil && discarded.clientID == clientID)
+    #expect(!discarded.canRefresh(at: now) && discarded.subject == "user-1")
+    let text = try #require(try credentials.secret(account: profile.id))
+    #expect(!text.contains("access-secret-1") && !text.contains("refresh-secret-1"))
+    // A second refresh sends no request.
+    await providers.refreshChatGPTSessions(now: now)
+    #expect(transport.requests.count == 1)
     // A sign-in again clears it.
     try providers.saveChatGPT(signedInSession(), profile: profile)
     #expect(providers.expiredSessions.isEmpty)
-    // A network failure does not ask for a sign-in.
-    let offline = ProviderSettings(store: nil, credentials: MemoryCredentialStore(),
-                                   chatGPT: ChatGPTAuthorizer(transport: FakeAuthTransport([]), now: { now }))
+    // A network failure does not ask for a sign-in and keeps the tokens.
+    let offlineCredentials = MemoryCredentialStore()
+    let offline = ProviderSettings(store: nil, credentials: offlineCredentials, chatGPT: makeAuthorizer(FakeAuthTransport([])))
     try offline.saveChatGPT(signedInSession(expires: now), profile: profile)
     await #expect(throws: ChatGPTAuthError.network) { try await offline.chatGPTSession(for: profile.id, now: now) }
-    #expect(offline.expiredSessions.isEmpty)
+    #expect(offline.expiredSessions.isEmpty && offline.savedChatGPTSession(for: profile.id)?.refreshToken == "refresh-secret-1")
     // A Keychain item that is not a session asks for a sign-in.
     let broken = ProviderSettings(store: nil, credentials: MemoryCredentialStore(secrets: [profile.id: "not json"]),
                                   profiles: [{ var copy = profile; copy.credentialReference = profile.id; return copy }()])
     broken.checkCredentials()
-    #expect(broken.expiredSessions == [profile.id])
+    #expect(broken.expiredSessions == [profile.id] && broken.savedChatGPTSession(for: profile.id) == nil)
 }
 
 // MARK: Sheet
@@ -444,9 +647,8 @@ private final class FakeBrowser: ChatGPTBrowser {
 
     func signIn(at url: URL) async throws(ChatGPTAuthError) -> URL {
         opened.append(url)
-        let state = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "state" }?.value
         switch result {
-        case .success(let base): return callback(state: state, base: base)
+        case .success(let base): return callback(state: query(url)["state"], base: base)
         case .failure(let error): throw error
         }
     }
@@ -465,20 +667,18 @@ private func signInProviders(browser: FakeBrowser, tokenNonce: @escaping @Sendab
     final class Box: @unchecked Sendable { var browser: FakeBrowser? }
     let box = Box()
     box.browser = browser
-    let transport = FakeAuthTransport { request in
-        if request.url?.path == "/oauth/register" { return (201, #"{"client_id":"client-123"}"#) }
+    let transport = FakeAuthTransport { _ in
         let opened = MainActor.assumeIsolated { box.browser?.opened.last }
-        let sent = opened.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "nonce" }?.value }
+        let sent = opened.flatMap { query($0)["nonce"] }
         return (200, tokenJSON(idToken: idToken(nonce: tokenNonce(sent ?? ""))))
     }
-    let providers = ProviderSettings(store: nil, credentials: MemoryCredentialStore(),
-                                     chatGPT: ChatGPTAuthorizer(transport: transport, now: { now }))
+    let providers = ProviderSettings(store: nil, credentials: MemoryCredentialStore(), chatGPT: makeAuthorizer(transport))
     return (providers, transport)
 }
 
 @MainActor @Test func theSheetSignsInAndSavesOnlyAfterTheChecksPass() async throws {
     let browser = FakeBrowser(.success(redirect))
-    let (providers, _) = signInProviders(browser: browser) { $0 }
+    let (providers, transport) = signInProviders(browser: browser) { $0 }
     let signIn = ChatGPTSignIn(providers: providers, browser: browser)
     #expect(signIn.state == .signedOut && signIn.state.announcement == nil)
     signIn.start()
@@ -487,6 +687,20 @@ private func signInProviders(browser: FakeBrowser, tokenNonce: @escaping @Sendab
     #expect(signIn.state == .signedIn(ChatGPTAccount(email: "learner@example.com", planType: "plus")))
     #expect(signIn.state.announcement == "Signed in")
     #expect(providers.profiles.map(\.name) == ["ChatGPT Plan"] && browser.stops >= 1)
+    // The only request is the code exchange: no registration request.
+    #expect(transport.requests.map { $0.url } == [ChatGPTAuthConfiguration.openAI.tokenEndpoint])
+    let first = try #require(browser.opened.first)
+    #expect(query(first)["client_id"] == "dynamic_agent_client" && query(first)["agent_name_hint"] == "Skillgarden")
+    #expect(providers.savedChatGPTSession(for: signIn.profile.id)?.clientID == clientID)
+    // "Sign In…" again uses the saved issued client ID and the same host ID.
+    let again = ChatGPTSignIn(providers: providers, browser: browser)
+    again.start()
+    try await until { again.state != .waiting }
+    #expect(again.state == .signedIn(ChatGPTAccount(email: "learner@example.com", planType: "plus")))
+    let second = try #require(browser.opened.last)
+    #expect(query(second)["client_id"] == clientID && query(second)["agent_name_hint"] == nil)
+    #expect(query(second)["ext_agent_host_id"] == query(first)["ext_agent_host_id"])
+    #expect(providers.profiles.count == 1)
 }
 
 @MainActor @Test func theSheetShowsTheVerifyFailureAndSavesNothing() async throws {

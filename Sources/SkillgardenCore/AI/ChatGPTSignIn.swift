@@ -51,15 +51,17 @@ public final class ChatGPTSignIn {
         profile = providers.profiles.first(where: \.isChatGPTPlan) ?? .chatGPTPlan()
     }
 
-    /// "Sign In with ChatGPT…" and "Try Again".
+    /// "Continue with ChatGPT", "Try Again" and "Sign In…". A profile with a saved session signs in again with its issued
+    /// client ID.
     public func start() {
         guard state != .waiting else { return }
         guard let browser, let authorizer = providers.chatGPT else { state = .failed(ChatGPTAuthError.notFinishedText); return }
         state = .waiting
+        let previous = providers.savedChatGPTSession(for: profile.id)
         task = Task { [weak self] in
             do throws(ChatGPTAuthError) {
                 let redirectURI = try await browser.listen()
-                let request = try await authorizer.begin(redirectURI: redirectURI)
+                let request = try authorizer.begin(redirectURI: redirectURI, previous: previous)
                 let callback = try await browser.signIn(at: request.url)
                 browser.stop()
                 let session = try await authorizer.complete(callback: callback)

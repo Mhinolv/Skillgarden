@@ -24,7 +24,8 @@ public struct ChatGPTAccount: Equatable, Sendable {
 /// The tokens of a ChatGPT plan sign-in (#156). They are in the Keychain only, as one JSON item of the profile.
 /// No log, URL, alert or `Providers.json` holds them.
 public struct ChatGPTSession: Codable, Equatable, Sendable {
-    /// The client ID of the dynamic registration. The refresh uses the same client.
+    /// The issued client ID of the first sign-in callback, for example `oaiapp_…`. Never `dynamic_agent_client`.
+    /// The refresh and a later sign-in use the same client.
     public var clientID: String
     public var accessToken: String
     public var refreshToken: String?
@@ -60,6 +61,15 @@ public struct ChatGPTSession: Codable, Equatable, Sendable {
 
     /// False when the access token needs a refresh and no refresh token exists, so only a new sign-in helps.
     public func canRefresh(at now: Date) -> Bool { refreshToken != nil || !needsRefresh(at: now) }
+
+    /// The session with no access token and no refresh token. It keeps the issued client ID and the account.
+    func discardingTokens() -> ChatGPTSession {
+        var session = self
+        session.accessToken = ""
+        session.refreshToken = nil
+        session.expiresAt = Date(timeIntervalSince1970: 0)
+        return session
+    }
 
     /// The Keychain text of the session.
     var keychainText: String {
