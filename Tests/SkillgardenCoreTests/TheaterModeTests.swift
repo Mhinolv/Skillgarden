@@ -98,7 +98,7 @@ private final class TestBundleMarker {}
     let errorText = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     #expect(errorText.isEmpty)
     #expect(process.terminationStatus == 0)
-    for name in ["light", "dark", "unthemed-dark"] {
+    for name in ["light", "dark"] {
         #expect(FileManager.default.fileExists(atPath: out.appending(path: "video-theater-\(name).png").path), "\(name)")
     }
 }

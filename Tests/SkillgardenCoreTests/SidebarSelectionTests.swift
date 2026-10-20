@@ -11,6 +11,12 @@ private func bytes(_ color: ThemeColor) -> [UInt8] {
     [color.red, color.green, color.blue].map { UInt8(($0 * 255).rounded()) }
 }
 
+/// The selection fill of the app: the system accent at `SidebarSelection.fraction(for:)` on the sidebar base (#182).
+/// The system accent does not get the `displayAccent` change, so the test does not use `SidebarSelection.color`.
+private func systemSelection(_ appearance: CourseAppearance) -> ThemeColor {
+    appearance.sidebarBase.mixed(with: systemAccent(for: appearance), by: SidebarSelection.fraction(for: appearance))
+}
+
 /// #89: the selection fill is a soft accent tint, so ink text stays readable in light and dark mode.
 @Test(arguments: [CourseAppearance.light, .dark], ["#286644", "#7FD3A0", "#2F6FED", "#000000", "#FFFFFF", "#C2412C"])
 func sidebarSelectionKeepsInkReadable(appearance: CourseAppearance, hex: String) throws {
@@ -61,20 +67,19 @@ func sidebarSelectionKeepsInkReadable(appearance: CourseAppearance, hex: String)
         }.count
     }
 
-    let lightAccent = ThemeColor(hex: "#286644")!
-    let darkAccent = ThemeColor(hex: SnapshotPlan.darkThemeAccent)!
-    // #93: the app setting (the capture appearance) wins over the theme appearance. The theme keeps its accent.
+    // #93: the app setting (the capture appearance) wins over the theme appearance.
+    // #182: the fill uses the system accent for every course. The fixture accents do not show.
     // Each column is in the row fill with no text, icon or duration (#103).
     // The selected lecture row: x = 30 pt is left of the lecture icon (about 43 pt).
     // The selected overview row: x = 200 pt is right of the "Course Overview" title (about 136 pt).
-    let cases: [(name: String, column: Int, accent: ThemeColor, appearance: CourseAppearance)] = [
-        ("lecture-light", 30, lightAccent, .light), ("lecture-dark", 30, lightAccent, .dark),
-        ("course-landing-dark-theme-light", 200, darkAccent, .light),
-        ("course-landing-dark-theme-dark", 200, darkAccent, .dark),
+    let cases: [(name: String, column: Int, appearance: CourseAppearance)] = [
+        ("lecture-light", 30, .light), ("lecture-dark", 30, .dark),
+        ("course-landing-dark-theme-light", 200, .light),
+        ("course-landing-dark-theme-dark", 200, .dark),
     ]
     // One 26 pt row is 52 pixels. Allow a few pixels for the rounded corners and antialiasing.
     for item in cases {
-        let selection = bytes(SidebarSelection.color(accent: item.accent, appearance: item.appearance))
+        let selection = bytes(systemSelection(item.appearance))
         let count = selectionPixels(item.name, column: item.column, selection)
         #expect(count >= 40, "\(item.name): \(count) pixels with the selection tint \(selection)")
     }
@@ -100,11 +105,11 @@ func sidebarSelectionKeepsInkReadable(appearance: CourseAppearance, hex: String)
     #expect(process.terminationStatus == 0)
 
     // The first result row is at about 140–165 pt. The column at x = 270 pt is in the row fill, right of the snippet.
-    // #93: the app setting (the capture appearance) wins over the theme appearance. The theme keeps its accent.
-    let accent = ThemeColor(hex: "#286644")!
+    // #93: the app setting (the capture appearance) wins over the theme appearance.
+    // #182: the fill uses the system accent, not the fixture accent #286644.
     for (name, appearance) in [("transcript-search-selected-light", CourseAppearance.light),
                                ("transcript-search-selected-dark", .dark)] {
-        let selection = bytes(SidebarSelection.color(accent: accent, appearance: appearance))
+        let selection = bytes(systemSelection(appearance))
         let png = try #require(try? Data(contentsOf: out.appending(path: "\(name).png")))
         let x = 270 * SnapshotPlan.scale
         let count = (100 * SnapshotPlan.scale..<220 * SnapshotPlan.scale).filter { y in
