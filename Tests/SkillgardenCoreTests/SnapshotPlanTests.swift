@@ -85,6 +85,7 @@ private func temporaryFolder() throws -> URL {
         "notes-page-light.png", "notes-page-dark.png",
         "notes-page-empty-light.png", "notes-page-empty-dark.png",
         "qa-citation-ranges-light.png", "qa-citation-ranges-dark.png",
+        "qa-guard-empty-light.png", "qa-guard-empty-dark.png",
     ])
     // #182 retired the `-unthemed-dark` captures: each screen has one light and one dark capture.
     #expect(!outputs.contains { $0.url.lastPathComponent.contains("unthemed") })
@@ -105,7 +106,7 @@ private func temporaryFolder() throws -> URL {
         .courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureDownloads, .pdfPreview, .lectureSources,
         .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaTheater,
         .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
-        .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .qaCitationRanges,
+        .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .qaCitationRanges, .qaGuardEmpty,
     ])
     // #181: two screens open the Notes panel. Only the video screen opens a note in edit.
     #expect(SnapshotScreen.allCases.filter(\.showsNotes) == [.notesVideo, .notesArticleEmpty])
@@ -116,12 +117,12 @@ private func temporaryFolder() throws -> URL {
                                                           .qaCitations, .qaCitationExcerpt, .qaCitationsStale,
                                                           .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
                                                           .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic,
-                                                          .qaCitationRanges])
+                                                          .qaCitationRanges, .qaGuardEmpty])
     #expect(SnapshotScreen.allCases.filter { $0.qaStatus != nil } == SnapshotScreen.allCases.filter(\.showsQA))
     #expect(SnapshotScreen.allCases.compactMap(\.qaStatus).map { LectureQAState(status: $0, content: .ready) }
         == [.ready, .ready, .ready, .noModel, .off, .starting, .stopping, .error(reason: "The server stopped. Exit code 9."),
             .ready, .ready, .ready, .ready, .ready, .ready, .off, .error(reason: "The server stopped. Exit code 9."), .starting,
-            .ready, .ready, .ready, .ready, .ready, .ready, .ready])
+            .ready, .ready, .ready, .ready, .ready, .ready, .ready, .ready])
     // #151: three screens use the fixture profiles. Only the consent screen sends a question.
     #expect(SnapshotScreen.allCases.filter(\.usesProviderProfiles) == [.settingsProviders, .qaConsent, .qaRemote, .qaExternalLocal,
                                                                        .qaIncomplete, .qaAuthError, .qaAnthropic,
@@ -424,7 +425,8 @@ private func temporaryFolder() throws -> URL {
             }
         case .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaArticle,
              .qaTheater, .qaCitations, .qaCitationExcerpt, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory,
-             .qaConsent, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .qaCitationRanges:
+             .qaConsent, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .qaCitationRanges,
+             .qaGuardEmpty:
             #expect(courseID == "sample-course")
             #expect(SnapshotPlan.imageLoads(for: screen) == 1)
             library.selectCourse(courseID)
@@ -476,6 +478,11 @@ private func temporaryFolder() throws -> URL {
                 #expect(citations.text == "It starts with a welcome [1].\nThen you plan the course [2] with outline (v2).\n"
                     + "The guide has more help [?].")
                 #expect(citations.sources.map(\.title) == ["1 · 0:00", "2 · 0:02", "? · Unknown source"])
+            case .qaGuardEmpty:
+                // #192: the echo turn saved no text. It shows the fixed failure text with Retry.
+                #expect(turns.map(\.answer) == ["You plan a course step by step [t1].", ""])
+                #expect(turns.map(\.status.label) == [nil, "No answer: The model repeated its instructions. Try again."])
+                #expect(conversation.canRetry(try #require(turns.last)))
             default:
                 #expect(turns.isEmpty)
             }
