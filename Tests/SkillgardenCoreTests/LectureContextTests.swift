@@ -84,8 +84,19 @@ private func ready(_ outcome: LectureContextOutcome) throws -> LectureContext {
         #expect(!prompt.isPartial && !prompt.noEvidence)
         #expect(prompt.systemPrompt.contains("\"Garden Basics\""))
         #expect(prompt.systemPrompt.contains("\"Soil\""))
-        #expect(prompt.systemPrompt.contains("Answer only from the passages"))
-        #expect(prompt.systemPrompt.contains("If the passages do not hold the answer"))
+        // #175: tutor mode. General knowledge is allowed and marked. IDs only for lecture claims.
+        #expect(!prompt.systemPrompt.contains("Answer only from the passages"))
+        #expect(!prompt.systemPrompt.contains("Do not guess"))
+        #expect(prompt.systemPrompt.contains("""
+            You are a tutor. Help the learner understand this lecture.
+            The passages below are from the lecture. Each passage starts with its ID in square brackets.
+            Use the passages first. Use general knowledge to explain ideas, give examples and answer related questions.
+            Put passage IDs only after claims about what the lecture says. Do not put IDs after general knowledge.
+            If the lecture does not explain a point, start that part with "The lecture doesn't explain this, but".
+            If general knowledge differs from the lecture, say what the lecture says, then explain the difference.
+            Never say that the instructor said something that is not in the passages.
+            After each fact,
+            """))
         #expect(!prompt.systemPrompt.contains("Do not summarize"))
         // #171: one ID, of the first passage, for each fact.
         #expect(prompt.systemPrompt.hasSuffix("After each fact, put the ID of the first passage that states it, for example [t0]. "
