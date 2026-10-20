@@ -338,7 +338,7 @@ private struct QATurnView: View, Equatable {
                 SourcesRow(sources: citations.sources, openID: Binding(get: { openID }, set: { setOpenID($0) }), seek: seek)
             }
             if canRetry {
-                HStack(spacing: 8) {
+                HStack(spacing: GardenSpacing.xs) {
                     Button("Retry", systemImage: "arrow.clockwise", action: retry)
                         .buttonStyle(.garden(.plain, .small))
                         .disabled(retryDisabled)

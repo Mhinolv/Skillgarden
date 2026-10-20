@@ -282,6 +282,33 @@ You can also set `"disable_ollama_cloud": true` in `~/.ollama/server.json`. Use 
 | "The server did not accept the token." | The server returned 401 or 403. |
 | "The server sent an error (<status code>)." | Any other error. Skillgarden never shows the response body. |
 
+## OpenAI API (#153)
+
+Use Settings > Q&A > "Add Provider" > "OpenAI API…". Type the API key, the model ID and the output limit.
+
+| Item | Rule |
+|---|---|
+| Host | Fixed: `api.openai.com`. The learner can't change it. Skillgarden does not follow redirects. |
+| API key | A Keychain item. The sheet never shows a saved key. "Replace Key…" saves a new one. |
+| Request | `POST https://api.openai.com/v1/responses` with `instructions`, `input`, `stream: true`, `store: false` and `max_output_tokens`. |
+| Output limit | Default 1024 tokens. The smallest value is 16. |
+| Consent | Each course asks before the first question goes to OpenAI. |
+
+| Outcome | Turn |
+|---|---|
+| Completed | The answer, with no status. |
+| Incomplete | The partial answer, "Stopped at the output limit" and Retry. |
+| Refused | "The model declined to answer." and Retry. A content filter stop is also a refusal. |
+| Failed | "No answer: <reason>" and Retry. |
+| Cancelled | The partial answer and "Cancelled". Text that comes after Cancel is not saved. |
+
+| Error text | Cause |
+|---|---|
+| "OpenAI did not accept the API key. Check it in Settings." | 401. The turn also shows "Open Settings…". |
+| "This API key cannot use <model>." | 403, or 404 for a model that the key can't use. |
+| "OpenAI rate limit or quota reached. Try again later." | 429. |
+| "OpenAI sent an error (<status code>)." | Any other status. Skillgarden never reads or shows the response body. |
+
 ## Anthropic API (#154)
 
 Use Settings > Q&A > "Add Provider" > "Anthropic API…". Use an API key from the Anthropic Console.

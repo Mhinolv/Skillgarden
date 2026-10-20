@@ -329,7 +329,7 @@ private func json(_ request: URLRequest) throws -> [String: Any] {
 // MARK: - Profile and text
 
 @MainActor @Test func presetAndTextMatchTheDesignNotes() {
-    #expect(APIService.allCases.map(\.menuTitle) == ["Anthropic API…"])
+    #expect(APIService.allCases.map(\.menuTitle) == ["OpenAI API…", "Anthropic API…"])
     let preset = ProviderProfile.preset(.anthropic)
     #expect(preset.kind == .api && preset.name == "Anthropic API" && preset.vendor == "Anthropic")
     #expect(preset.origin == "https://api.anthropic.com" && preset.host == "api.anthropic.com")
@@ -360,7 +360,7 @@ private func json(_ request: URLRequest) throws -> [String: Any] {
     #expect(ShippedAdapters.provider(for: anthropic(), credentials: credentials) is AnthropicAnswerProvider)
     #expect(ShippedAdapters.provider(for: anthropic(origin: "https://api.example.com"), credentials: credentials) == nil)
     #expect(ShippedAdapters.provider(for: .preset(.lmStudio), credentials: credentials) is CompatibleAnswerProvider)
-    #expect(ShippedAdapters.provider(for: SnapshotPlan.providerProfiles[0], credentials: credentials) == nil)
+    #expect(ShippedAdapters.provider(for: SnapshotPlan.providerProfiles[0], credentials: credentials) is OpenAIAnswerProvider)
 }
 
 // MARK: - Q&A, consent, internal text and no fallback
