@@ -129,6 +129,8 @@ enum SnapshotRenderer {
             .environment(\.snapshotShowsUpNext, output.screen.showsUpNext)
             .environment(\.snapshotStartsTheater, output.screen.startsTheater)
             .environment(\.snapshotShowsQA, output.screen.showsQA)
+            .environment(\.snapshotShowsNotes, output.screen.showsNotes)
+            .environment(\.snapshotEditsNote, output.screen.editsNote)
             .environment(\.snapshotQADraft, output.screen.qaDraft)
             .environment(\.snapshotOpensCitationExcerpt, output.screen.opensCitationExcerpt)
             .environment(\.snapshotQAConsentQuestion, output.screen.qaConsentQuestion)

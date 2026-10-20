@@ -47,7 +47,7 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
 
         let store = try CourseStore(root: other)
         #expect(try store.schemaVersion == CourseStore.currentSchemaVersion)
-        #expect(CourseStore.currentSchemaVersion == 13)
+        #expect(CourseStore.currentSchemaVersion == 14)
         #expect(try store.loadCourse(id: "c") == course())
         #expect(try store.allProgress() == ["c": ["a": LectureProgress(completed: false, autoCompleteOff: true)]])
         #expect(try store.lastOpenedLectures() == ["c": "b"])

@@ -3,7 +3,7 @@ import SQLite3
 
 /// A synchronous local store. The lock protects the connection and each complete operation.
 public final class CourseStore: @unchecked Sendable {
-    public static let currentSchemaVersion = 13
+    public static let currentSchemaVersion = 14
     static let databaseName = "library.sqlite"
     public let databaseURL: URL
     private let database: SQLiteDatabase
@@ -490,6 +490,57 @@ public final class CourseStore: @unchecked Sendable {
         }
     }
 
+    // MARK: Lecture notes (#181)
+
+    /// Saves a new note of a lecture. Empty text throws `invalidData`. `videoSeconds` is nil for a lecture that is not a video.
+    public func addNote(text: String, videoSeconds: Double?, courseID: String, lectureID: String,
+                        createdAt: Date = Date()) throws -> LectureNote {
+        guard let text = LectureNote.cleanText(text) else { throw CourseStoreError.invalidData }
+        let seconds = LectureNote.cleanSeconds(videoSeconds)
+        return try lock.withLock {
+            let ids = try database.query("""
+                INSERT INTO lecture_notes (course_id, lecture_id, text, video_seconds, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id
+                """, [courseID, lectureID, text, seconds.map { String($0) }, String(createdAt.timeIntervalSince1970)]) {
+                sqlite3_column_int64($0, 0)
+            }
+            guard let id = ids.first else { throw CourseStoreError.databaseFailure }
+            return LectureNote(id: id, lectureID: lectureID, text: text, videoSeconds: seconds,
+                               createdAt: Date(timeIntervalSince1970: createdAt.timeIntervalSince1970))
+        }
+    }
+
+    /// Replaces the text of a note and keeps its time. Empty text throws `invalidData`. An unknown note throws `databaseFailure`.
+    public func updateNote(id: Int64, text: String, courseID: String) throws {
+        guard let text = LectureNote.cleanText(text) else { throw CourseStoreError.invalidData }
+        try lock.withLock {
+            guard try !database.query("UPDATE lecture_notes SET text = ? WHERE id = ? AND course_id = ? RETURNING id",
+                                      [text, String(id), courseID], row: { _ in () }).isEmpty
+            else { throw CourseStoreError.databaseFailure }
+        }
+    }
+
+    /// Removes one note. An unknown note changes nothing.
+    public func deleteNote(id: Int64, courseID: String) throws {
+        try lock.withLock {
+            try database.execute("DELETE FROM lecture_notes WHERE id = ? AND course_id = ?", [String(id), courseID])
+        }
+    }
+
+    /// All notes by course id, then lecture id, in creation order. Stores saved before schema version 14 have none.
+    public func allNotes() throws -> [String: [String: [LectureNote]]] {
+        try lock.withLock {
+            var result: [String: [String: [LectureNote]]] = [:]
+            try database.query("SELECT id, course_id, lecture_id, text, video_seconds, created_at FROM lecture_notes ORDER BY id") {
+                let lectureID = SQLiteDatabase.text($0, 2)
+                result[SQLiteDatabase.text($0, 1), default: [:]][lectureID, default: []].append(LectureNote(
+                    id: sqlite3_column_int64($0, 0), lectureID: lectureID, text: SQLiteDatabase.text($0, 3),
+                    videoSeconds: sqlite3_column_type($0, 4) == SQLITE_NULL ? nil : sqlite3_column_double($0, 4),
+                    createdAt: Date(timeIntervalSince1970: sqlite3_column_double($0, 5))))
+            }
+            return result
+        }
+    }
+
     /// Marks each pending turn as interrupted. The app calls it once at launch, before it starts a request.
     public func interruptPendingQATurns() throws {
         try lock.withLock { try database.execute("UPDATE qa_messages SET status = 'interrupted' WHERE status = 'pending'") }
@@ -676,6 +727,16 @@ public final class CourseStore: @unchecked Sendable {
         "DROP TABLE qa_messages",
         "ALTER TABLE qa_messages_v13 RENAME TO qa_messages",
         "CREATE INDEX qa_messages_thread ON qa_messages(course_id, lecture_id, id)",
+    ], [
+        // Learner notes (#181), many for each lecture. Like learner progress, they have no foreign key to `courses` or `lectures`,
+        // so a republish keeps them. `video_seconds` is NULL for a lecture that is not a video. `created_at` is seconds since 1970.
+        """
+        CREATE TABLE lecture_notes (
+            id INTEGER PRIMARY KEY, course_id TEXT NOT NULL, lecture_id TEXT NOT NULL, text TEXT NOT NULL,
+            video_seconds REAL, created_at REAL NOT NULL
+        )
+        """,
+        "CREATE INDEX lecture_notes_lecture ON lecture_notes(course_id, lecture_id, id)",
     ]]
 }
 

@@ -149,8 +149,13 @@ struct LectureFrameView<Content: View>: View {
     var completeIsPrimary = true
     /// False hides the complete row below the sources, because the content has its own complete control (a video).
     var showsCompleteRow = true
+    /// The Notes pill at the left end of the complete row and its panel above the row (#181). Nil for a video or an article,
+    /// which show the pill next to Q&A.
+    var notesPanel: LectureNotesPanel? = nil
     @ViewBuilder let content: Content
     @State private var visibleTop: CGFloat?
+    /// True while a notes field has focus. Quiz number keys and Return then type text (#181).
+    @State private var notesFieldFocused = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -170,11 +175,15 @@ struct LectureFrameView<Content: View>: View {
                     if !stones.isEmpty { SteppingStones(states: stones).padding(.top, 6) }
                 }
                 ObjectiveCallout(objective: lecture.objective)
-                content
+                content.environment(\.textEntryFocused, notesFieldFocused)
                 DownloadsBlock(downloads: downloads)
                 SourcesSection(sources: sources)
                 if showsCompleteRow {
+                    if let notesPanel, notesPanel.isShown {
+                        notesPanel.panel(focusChanged: { notesFieldFocused = $0 })
+                    }
                     HStack {
+                        notesPanel?.pill()
                         Spacer()
                         MarkCompleteButton(completed: completed, isPrimary: completeIsPrimary, toggle: toggleComplete)
                     }
@@ -198,6 +207,7 @@ struct LectureFrameView<Content: View>: View {
         // The proxy frame leaves out the safe area, so its top is the bottom edge of the toolbar.
         // It changes with the window layout, not on a scroll.
         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { visibleTop = $0 }
+        .focusedSceneValue(\.showsNotes, showsCompleteRow ? notesPanel.map { MenuToggle($0.isOn) } : nil)
     }
 }
 

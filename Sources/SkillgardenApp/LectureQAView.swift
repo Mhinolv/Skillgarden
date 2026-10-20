@@ -29,6 +29,7 @@ struct LectureQAPanel {
             .help(isShown ? "Hide Q&A (⌥⌘A)" : "Show Q&A (⌥⌘A)")
             .toggleStyle(GardenPillToggleStyle())
             .labelStyle(ToolbarLabelStyle(iconOnly: iconOnly))
+            .environment(\.gardenLabelIconOnly, iconOnly)
     }
 
     /// The page draws again on each caption cue and progress save. The panel skips these redraws (#165).

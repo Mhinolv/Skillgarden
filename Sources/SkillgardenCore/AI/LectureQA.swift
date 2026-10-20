@@ -55,17 +55,27 @@ public enum LectureQAState: Equatable, Sendable {
     }
 }
 
-/// The slot under the video controls row (#128 owner decision). One of Transcript or Q&A shows at a time.
+/// The slot under the video controls row (#128 owner decision). One of Transcript, Q&A or Notes (#181) shows at a time.
 /// The saved Transcript choice changes only when the learner uses the Transcript pill or menu item.
 public enum LecturePanelSlot {
-    /// True when the Transcript panel shows and its pill is on.
-    public static func showsTranscript(saved: Bool, showsQA: Bool) -> Bool {
-        saved && !showsQA
+    /// The panels that the window opens in the slot. The saved Transcript choice shows when none is open.
+    public enum Panel: Sendable {
+        case qa, notes
     }
 
-    /// A Transcript change from the pill, the menu or a transcript search result: the new saved choice and Q&A state.
-    public static func setTranscript(_ on: Bool, showsQA: Bool) -> (saved: Bool, showsQA: Bool) {
-        (on, on ? false : showsQA)
+    /// True when the Transcript panel shows and its pill is on.
+    public static func showsTranscript(saved: Bool, open: Panel?) -> Bool {
+        saved && open == nil
+    }
+
+    /// A Transcript change from the pill, the menu or a transcript search result: the new saved choice and open panel.
+    public static func setTranscript(_ on: Bool, open: Panel?) -> (saved: Bool, open: Panel?) {
+        (on, on ? nil : open)
+    }
+
+    /// A Q&A or Notes change from its pill or menu item: the new open panel. On closes the other panel.
+    public static func set(_ panel: Panel, _ on: Bool, open: Panel?) -> Panel? {
+        on ? panel : (open == panel ? nil : open)
     }
 }
 

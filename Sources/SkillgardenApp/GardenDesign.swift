@@ -424,12 +424,32 @@ private struct GardenButton: View {
 }
 
 /// A 13 pt icon 6 pt before the title, like the mockup buttons.
+/// `ToolbarLabelStyle(iconOnly: true)` shows the icon only and keeps the title as the accessibility label (#181).
 private struct GardenButtonLabelStyle: LabelStyle {
+    @Environment(\.gardenLabelIconOnly) private var iconOnly
+
     func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            configuration.icon.imageScale(.small)
-            configuration.title
+        if iconOnly {
+            Label(configuration).labelStyle(.iconOnly).imageScale(.small)
+        } else {
+            HStack(spacing: 6) {
+                configuration.icon.imageScale(.small)
+                configuration.title
+            }
         }
+    }
+}
+
+private struct GardenLabelIconOnlyKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// True draws the icon only in a Garden button label. `ToolbarLabelStyle` sets it, because the button style
+    /// replaces the label style of its label.
+    var gardenLabelIconOnly: Bool {
+        get { self[GardenLabelIconOnlyKey.self] }
+        set { self[GardenLabelIconOnlyKey.self] = newValue }
     }
 }
 

@@ -89,7 +89,7 @@ extension EnvironmentValues {
     }
 }
 
-/// The outline column: the course card, "Course Overview", one row for each section, then "Credits".
+/// The outline column: the course card, "Course Overview", "Notes" (#181), one row for each section, then "Credits".
 /// Only the open section shows its lectures (#70). The selection decides the open section, so the arrow keys
 /// onto a closed section header open it. It keeps `List(selection:)`, so the arrow keys move the selection.
 struct CourseOutlineView: View {
@@ -113,6 +113,9 @@ struct CourseOutlineView: View {
             OutlineLinkRow(title: "Course Overview", systemImage: "info.circle", isSelected: selection == .overview)
                 .outlineSelection(selection == .overview)
                 .tag(CourseDestination.overview)
+            OutlineLinkRow(title: "Notes", systemImage: LectureNotesPanel.symbol, isSelected: selection == .notes)
+                .outlineSelection(selection == .notes)
+                .tag(CourseDestination.notes)
             ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
                 let isOpen = section.id == openSectionID
                 let destination = CourseDestination.section(sectionID: section.id)
@@ -191,7 +194,7 @@ struct SystemSelectionHighlightOff: NSViewRepresentable {
     func updateNSView(_ view: Probe, context: Context) {}
 }
 
-/// "Course Overview" or "Credits": an icon and the title. The selected row has the `accentInk` icon.
+/// "Course Overview", "Notes" or "Credits": an icon and the title. The selected row has the `accentInk` icon.
 struct OutlineLinkRow: View {
     let title: String
     let systemImage: String

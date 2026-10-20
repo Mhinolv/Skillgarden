@@ -48,10 +48,13 @@ struct RenderedMarkdown: Sendable {
 
 /// The content block of an article lecture: the reading time, then the Markdown in a card.
 /// The Q&A pill is at the right end of the meta row. Its panel is between the meta row and the card (#128).
+/// The Notes pill follows the Q&A pill. Its panel shows in the same place (#181).
 struct ArticleLectureView: View {
     let article: LectureArticle?
     /// The Q&A pill and panel (#128). Nil shows no pill.
     var qaPanel: LectureQAPanel? = nil
+    /// The Notes pill and panel (#181), after Q&A. Nil shows no pill.
+    var notesPanel: LectureNotesPanel? = nil
     @Environment(\.imageLoads) private var imageLoads
     @Environment(\.gardenPalette) private var palette
     @State private var content: RenderedMarkdown?
@@ -66,8 +69,10 @@ struct ArticleLectureView: View {
                             .gardenText(.meta)
                         Spacer()
                         qaPanel?.pill()
+                        notesPanel?.pill()
                     }
                     if let qaPanel, qaPanel.isShown { qaPanel.panel() }
+                    if let notesPanel, notesPanel.isShown { notesPanel.panel() }
                     GardenCard(padding: GardenSpacing.l) { MarkdownBlocksView(markdown: content) }
                 }
             } else if unavailable {
@@ -77,6 +82,7 @@ struct ArticleLectureView: View {
             }
         }
         .focusedSceneValue(\.showsQA, content == nil ? nil : qaPanel.map { MenuToggle($0.isOn) })
+        .focusedSceneValue(\.showsNotes, content == nil ? nil : notesPanel.map { MenuToggle($0.isOn) })
         .task(id: article) {
             content = nil
             unavailable = false

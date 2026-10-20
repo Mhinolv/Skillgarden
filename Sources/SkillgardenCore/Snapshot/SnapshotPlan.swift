@@ -138,6 +138,14 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The Q&A panel with the Anthropic API profile as "Answer with" (#154): a turn at the output limit, a declined turn,
     /// a 401 turn with "Open Settings…" and a busy turn.
     case qaAnthropic = "qa-anthropic"
+    /// The Notes panel of the video lecture (#181), scrolled to the end: three notes with times, the second in edit.
+    case notesVideo = "notes-video"
+    /// The Notes panel of the article lecture with no notes (#181): "No notes yet" and the composer.
+    case notesArticleEmpty = "notes-article-empty"
+    /// The course Notes page (#181) with notes in two sections: a video, an article and a quiz lecture.
+    case notesPage = "notes-page"
+    /// The course Notes page with no notes (#181).
+    case notesPageEmpty = "notes-page-empty"
     /// The Q&A panel with the Anthropic API profile (#185): an answer with a range marker, a `(t1)` marker and a range
     /// with no valid ID. It shows three markers and three chips.
     case qaCitationRanges = "qa-citation-ranges"
@@ -164,6 +172,12 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// True when the harness opens the Q&A panel of the lecture (#128).
     public var showsQA: Bool { rawValue.hasPrefix("qa-") }
+
+    /// True when the harness opens the Notes panel of the lecture (#181).
+    public var showsNotes: Bool { self == .notesVideo || self == .notesArticleEmpty }
+
+    /// True when the harness opens the second note of the panel in edit (#181).
+    public var editsNote: Bool { self == .notesVideo }
 
     /// The local AI status that the harness gives to the Q&A panel (#128). Nil for the other screens.
     public var qaStatus: LocalAIStatus? {
@@ -256,8 +270,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// True when the harness scrolls the lecture page, or the course landing with "Details" open, to the end.
     public var scrollsLectureToEnd: Bool {
-        [.courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureSources, .lectureDownloads, .pdfPreview]
-            .contains(self) || (showsQA && self != .qaArticle && self != .qaCitationExcerpt)
+        [.courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureSources, .lectureDownloads, .pdfPreview,
+         .notesVideo].contains(self) || (showsQA && self != .qaArticle && self != .qaCitationExcerpt)
     }
 
     /// True when the harness opens the first article excerpt of the last Q&A answer (#129).
@@ -356,10 +370,11 @@ public enum SnapshotPlan {
              .videoQuickCheck, .videoTheater, .lectureSources, .videoUpNext, .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft,
              .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaArticle, .qaTheater, .qaCitations, .qaCitationExcerpt,
              .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote, .qaExternalLocal,
-             .qaIncomplete, .qaAuthError, .qaAnthropic, .qaCitationRanges:
+             .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .notesArticleEmpty, .qaCitationRanges:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
+            if screen == .notesVideo { try seedNotes(notesVideoNotes, store: store, courseID: id) }
             // Mixed completion: one of the two learner lectures is complete.
             if screen == .library || screen == .lectureComplete { try store.setCompleted(true, courseID: id, lectureID: "welcome") }
             if screen == .courseLanding { try store.saveLastOpenedLecture(courseID: id, lectureID: "read") }
@@ -380,11 +395,13 @@ public enum SnapshotPlan {
             try CourseStore(root: root).saveInteractiveResult(
                 InteractiveResult(score: 75, objective: "Order the steps of a course plan"), courseID: id, lectureID: "order-steps")
             return id
-        case .quizQuestion, .quizWrongAnswer, .quizResults:
+        case .quizQuestion, .quizWrongAnswer, .quizResults, .notesPage, .notesPageEmpty:
             // The fixture quiz is in a draft section. The copy publishes that section so the learner sees the quiz.
-            return try publishCopy(of: fixture, root: root, replacing: [
+            let id = try publishCopy(of: fixture, root: root, replacing: [
                 ("objective: Apply the course plan\n    state: draft", "objective: Apply the course plan\n    state: published"),
             ])
+            if screen == .notesPage { try seedNotes(notesPageNotes, store: CourseStore(root: root), courseID: id) }
+            return id
         case .assignment, .assignmentComplete:
             // The fixture assignment is a draft lecture in a draft section. The copy publishes both.
             return try publishCopy(of: fixture, root: root, replacing: [
@@ -410,6 +427,30 @@ public enum SnapshotPlan {
             let id = try publishCopy(of: fixture, root: root, replacing: outlineDurationsCourse)
             try CourseStore(root: root).setCompleted(true, courseID: id, lectureID: "welcome")
             return id
+        }
+    }
+
+    /// The notes of the `notes-video` screen (#181): lecture id, text and video time. The 4 s fixture video gives short times.
+    static let notesVideoNotes: [(lectureID: String, text: String, seconds: Double?)] = [
+        ("welcome", "The course lives on this Mac, not on a server.", 0.5),
+        ("welcome", "The outline lists the sections first, then the lectures of each section.", 2),
+        ("welcome", "Check the quick checks after the video.", 3.5),
+    ]
+
+    /// The notes of the `notes-page` screen (#181): two sections, with video, article and quiz lectures.
+    static let notesPageNotes: [(lectureID: String, text: String, seconds: Double?)] = [
+        ("welcome", "The outline lists the sections first.", 2),
+        ("welcome", "The course lives on this Mac.", 0.5),
+        ("read", "Write the goal of the course before the sections.", nil),
+        ("check", "Review the order of the sections before the quiz.", nil),
+    ]
+
+    /// Saves notes with fixed creation times, so each capture is the same.
+    private static func seedNotes(_ notes: [(lectureID: String, text: String, seconds: Double?)], store: CourseStore,
+                                  courseID: String) throws {
+        for (index, note) in notes.enumerated() {
+            _ = try store.addNote(text: note.text, videoSeconds: note.seconds, courseID: courseID, lectureID: note.lectureID,
+                                  createdAt: Date(timeIntervalSince1970: 1_800_000_000 + Double(index)))
         }
     }
 
@@ -660,10 +701,11 @@ public enum SnapshotPlan {
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
              .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions,
              .qaTheater, .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
-             .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .qaCitationRanges:
+             .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .qaCitationRanges:
             .lecture(sectionID: "plan", lectureID: "welcome")
-        case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle, .qaCitationExcerpt:
+        case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle, .qaCitationExcerpt, .notesArticleEmpty:
             .lecture(sectionID: "plan", lectureID: "read")
+        case .notesPage, .notesPageEmpty: .notes
         case .courseLanding, .courseLandingDarkTheme, .courseLandingDetails, .transcriptSearch, .transcriptSearchSelected,
              .transcriptSearchNoResults: .overview
         case .courseCredits: .credits

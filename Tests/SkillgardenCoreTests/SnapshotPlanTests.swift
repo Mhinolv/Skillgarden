@@ -82,12 +82,16 @@ private func temporaryFolder() throws -> URL {
         "qa-incomplete-light.png", "qa-incomplete-dark.png", "qa-incomplete-unthemed-dark.png",
         "qa-auth-error-light.png", "qa-auth-error-dark.png", "qa-auth-error-unthemed-dark.png",
         "qa-anthropic-light.png", "qa-anthropic-dark.png", "qa-anthropic-unthemed-dark.png",
+        "notes-video-light.png", "notes-video-dark.png", "notes-video-unthemed-dark.png",
+        "notes-article-empty-light.png", "notes-article-empty-dark.png", "notes-article-empty-unthemed-dark.png",
+        "notes-page-light.png", "notes-page-dark.png", "notes-page-unthemed-dark.png",
+        "notes-page-empty-light.png", "notes-page-empty-dark.png", "notes-page-empty-unthemed-dark.png",
         "qa-citation-ranges-light.png", "qa-citation-ranges-dark.png", "qa-citation-ranges-unthemed-dark.png",
     ])
     // #82: every course screen except the dark-theme screen gets one dark capture with no course theme.
     #expect(SnapshotScreen.allCases.filter { $0.selectsCourse && !$0.hasUnthemedCapture } == [.courseLandingDarkTheme])
     let unthemed = outputs.filter(\.ignoresCourseTheme)
-    #expect(unthemed.count == 51)
+    #expect(unthemed.count == 55)
     #expect(unthemed.allSatisfy { $0.appearance == .dark && $0.screen.hasUnthemedCapture })
     #expect(unthemed.allSatisfy { $0.url.lastPathComponent == "\($0.screen.rawValue)-unthemed-dark.png" })
     #expect(outputs.filter { !$0.ignoresCourseTheme }.map(\.url.lastPathComponent) == SnapshotScreen.allCases.flatMap { screen in
@@ -107,8 +111,11 @@ private func temporaryFolder() throws -> URL {
         .courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureDownloads, .pdfPreview, .lectureSources,
         .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaTheater,
         .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
-        .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .qaCitationRanges,
+        .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .qaCitationRanges,
     ])
+    // #181: two screens open the Notes panel. Only the video screen opens a note in edit.
+    #expect(SnapshotScreen.allCases.filter(\.showsNotes) == [.notesVideo, .notesArticleEmpty])
+    #expect(SnapshotScreen.allCases.filter(\.editsNote) == [.notesVideo])
     // #128: the Q&A screens open the panel with an injected status. Only the draft screen shows a draft.
     #expect(SnapshotScreen.allCases.filter(\.showsQA) == [.qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting,
                                                           .qaStopping, .qaError, .qaNoCaptions, .qaArticle, .qaTheater,
@@ -476,6 +483,28 @@ private func temporaryFolder() throws -> URL {
                 #expect(citations.sources.map(\.title) == ["1 · 0:00", "2 · 0:02", "? · Unknown source"])
             default:
                 #expect(turns.isEmpty)
+            }
+        case .notesVideo, .notesArticleEmpty, .notesPage, .notesPageEmpty:
+            #expect(courseID == "sample-course")
+            #expect(SnapshotPlan.imageLoads(for: screen) == 1)
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            switch screen {
+            case .notesVideo:
+                #expect(library.selectedLecture?.id == "welcome")
+                #expect(library.notes(forLecture: "welcome").map(\.timeLabel) == ["0:00", "0:02", "0:03"])
+            case .notesArticleEmpty:
+                #expect(library.selectedLecture?.id == "read")
+                #expect(library.notes(forLecture: "read").isEmpty)
+            case .notesPage:
+                // Two sections: a video and an article in "plan", a quiz in "practice". The video notes are in time order.
+                #expect(library.destination == .notes)
+                #expect(library.selectedNoteGroups.map(\.sectionID) == ["plan", "plan", "practice"])
+                #expect(library.selectedNoteGroups.map(\.lecture.id) == ["welcome", "read", "check"])
+                #expect(library.selectedNoteGroups[0].notes.map(\.videoSeconds) == [0.5, 2])
+            default:
+                #expect(library.destination == .notes)
+                #expect(library.selectedNoteGroups.isEmpty)
             }
         case .outlineDurations:
             #expect(courseID == "sample-course")

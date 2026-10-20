@@ -140,7 +140,7 @@ final class VideoPlayback {
 /// The quick-check card is hidden when the lecture opens. It shows at the video end or from the "Quick Check" button.
 /// With Auto-play on, the video end shows the "Up next" overlay on the player (#99). Open quick checks hold it back.
 /// Left Arrow and Right Arrow skip 10 seconds back and forward (#104).
-/// The Q&A panel and the transcript share the slot under the controls row. One of them shows at a time (#128).
+/// The Q&A panel, the Notes panel (#181) and the transcript share the slot under the controls row. One of them shows at a time (#128).
 struct VideoLectureView: View {
     let video: LectureVideo?
     /// Nil when the video has no quick checks.
@@ -178,6 +178,8 @@ struct VideoLectureView: View {
     var upNextShowsChanged: (Bool) -> Void = { _ in }
     /// The Q&A pill and panel (#128). Nil shows no pill.
     var qaPanel: LectureQAPanel? = nil
+    /// The Notes pill and panel (#181), after Q&A. Nil shows no pill.
+    var notesPanel: LectureNotesPanel? = nil
     @Environment(\.imageLoads) private var imageLoads
     @Environment(\.opensVideoPlayer) private var opensVideoPlayer
     @Environment(\.snapshotVideoStart) private var snapshotVideoStart
@@ -197,6 +199,11 @@ struct VideoLectureView: View {
     @State private var upNext = UpNextCountdown()
     /// True while the Q&A question field has focus. Space and the arrows then type text (#128).
     @State private var qaFieldFocused = false
+    /// True while a notes field has focus. Space and the arrows then type text (#181).
+    @State private var notesFieldFocused = false
+    /// The width of the pills with titles, and the width that the controls row gives them (#181).
+    @State private var pillsFullWidth: CGFloat = 0
+    @State private var pillsSpace: CGFloat = .infinity
 
     /// The transcript and the quick checks keep this cap in theater.
     private static let maxWidth = TheaterMode.videoWidth
@@ -213,11 +220,14 @@ struct VideoLectureView: View {
                                        description: Text("Publish the course again to restore this file."))
                 controlsRow
                 qaSlot
+                notesSlot
             } else {
                 player
                 controlsRow
                 if showsQA {
                     qaSlot
+                } else if showsNotes {
+                    notesSlot
                 } else if hasCaptions, showsTranscript, let transcript {
                     TranscriptPanel(transcript: transcript, activeLine: playback?.activeLine, seek: seek)
                         .frame(maxWidth: Self.maxWidth)
@@ -234,6 +244,7 @@ struct VideoLectureView: View {
         .focusedSceneValue(\.showsTranscript, hasCaptions ? MenuToggle($showsTranscript) : nil)
         .focusedSceneValue(\.theaterMode, isUnavailable ? nil : MenuToggle($theater))
         .focusedSceneValue(\.showsQA, qaPanel.map { MenuToggle($0.isOn) })
+        .focusedSceneValue(\.showsNotes, notesPanel.map { MenuToggle($0.isOn) })
         .task(id: video) { await load() }
         .onChange(of: seekRequest) { applySeekRequest() }
         .onChange(of: playback?.endCount) { _, count in
@@ -322,23 +333,56 @@ struct VideoLectureView: View {
         }
     }
 
+    private var showsNotes: Bool { notesPanel?.isShown == true }
+
+    /// The Notes panel in the slot under the controls row, with the width cap of the transcript.
+    /// A new note records the playback time at the first key press (#181).
+    @ViewBuilder private var notesSlot: some View {
+        if let notesPanel, showsNotes {
+            notesPanel.panel(currentSeconds: { noteSeconds() }, focusChanged: { notesFieldFocused = $0 })
+                .frame(maxWidth: Self.maxWidth)
+        }
+    }
+
+    /// The playback time for a new note. Before the first play, the time where the player opens. Nil with no video.
+    private func noteSeconds() -> Double? {
+        guard video != nil, available == true else { return nil }
+        guard let playback else { return snapshotVideoStart ?? startSeconds() }
+        let seconds = playback.player.currentTime().seconds
+        return seconds.isFinite ? seconds : nil
+    }
+
+    /// True while the Q&A or a notes field has focus. Space and the arrows then type text.
+    private var textFieldFocused: Bool { qaFieldFocused || notesFieldFocused }
+
     /// True shows "Video unavailable" and a controls row with the complete control only.
     private var isUnavailable: Bool { available == false || video == nil }
 
     /// False hides the Captions and Transcript toggles and the transcript.
     private var hasCaptions: Bool { video?.captionsURL != nil && available != false }
 
-    /// Captions, Transcript, Q&A, Theater, Quick Check, then the complete control at the right edge.
-    /// If the row is too narrow, Captions, Transcript, Q&A and Theater become icon-only. The complete label stays.
+    /// Captions, Transcript, Q&A, Notes, Theater, Quick Check, then the complete control at the right edge.
+    /// If the row is too narrow, Captions, Transcript, Q&A, Notes and Theater become icon-only. The trailing labels stay (#181).
     private var controlsRow: some View {
-        ViewThatFits(in: .horizontal) {
-            controls(iconOnly: false)
-            controls(iconOnly: true)
+        HStack(spacing: GardenSpacing.xs) {
+            // The pills get the width that the trailing buttons leave. A hidden copy measures the full form.
+            // If the full form does not fit, the icon-only form shows, so no label is cut (#181).
+            pills(iconOnly: pillsFullWidth > pillsSpace)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pillsSpace = $0 }
+                .background(alignment: .leading) {
+                    pills(iconOnly: false)
+                        .fixedSize()
+                        .hidden()
+                        .accessibilityHidden(true)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pillsFullWidth = $0 }
+                }
+            trailingControls.fixedSize(horizontal: true, vertical: false)
         }
         .frame(maxWidth: playerMaxWidth)
     }
 
-    private func controls(iconOnly: Bool) -> some View {
+    private func pills(iconOnly: Bool) -> some View {
         HStack(spacing: GardenSpacing.xs) {
             if hasCaptions {
                 Group {
@@ -349,16 +393,23 @@ struct VideoLectureView: View {
                 }
                 .toggleStyle(GardenPillToggleStyle())
                 .labelStyle(ToolbarLabelStyle(iconOnly: iconOnly))
+                .environment(\.gardenLabelIconOnly, iconOnly)
                 .disabled(captions == nil)
             }
             qaPanel?.pill(iconOnly: iconOnly)
+            notesPanel?.pill(iconOnly: iconOnly)
             if !isUnavailable {
                 Toggle(isOn: $theater) { Label("Theater", systemImage: "tv") }
                     .help(theater ? "Exit Theater Mode (⇧⌘T)" : "Enter Theater Mode (⇧⌘T)")
                     .toggleStyle(GardenPillToggleStyle())
                     .labelStyle(ToolbarLabelStyle(iconOnly: iconOnly))
+                    .environment(\.gardenLabelIconOnly, iconOnly)
             }
-            Spacer()
+        }
+    }
+
+    private var trailingControls: some View {
+        HStack(spacing: GardenSpacing.xs) {
             if let quickChecks, !isUnavailable {
                 Button(action: openQuickChecks) { Label(quickChecks.buttonTitle, systemImage: "checkmark.bubble") }
                     .buttonStyle(.garden(.bordered))
@@ -415,8 +466,8 @@ struct VideoLectureView: View {
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                // Space in the Q&A question field types a space (#128).
-                .keyboardShortcut(qaFieldFocused ? nil : KeyboardShortcut(.space, modifiers: []))
+                // Space in the Q&A question field or a notes field types a space (#128, #181).
+                .keyboardShortcut(textFieldFocused ? nil : KeyboardShortcut(.space, modifiers: []))
                 .accessibilityLabel("Play video")
             }
         }
@@ -456,7 +507,7 @@ struct VideoLectureView: View {
     /// Left Arrow and Right Arrow (#104). Returns false when the page does not take the key.
     /// A skip keeps the play state and cancels "Up next". Before the first play, the player opens paused at the resume position ±10 s.
     private func skip(by delta: Double) -> Bool {
-        guard let video, available == true, !(showsQuickChecks && quickCheckFocused), !qaFieldFocused else { return false }
+        guard let video, available == true, !(showsQuickChecks && quickCheckFocused), !textFieldFocused else { return false }
         upNext.cancel()
         if let playback {
             playback.skip(by: delta, duration: duration)
@@ -498,7 +549,8 @@ struct VideoLectureView: View {
 
     /// Opens the player paused at the cue of the search result and shows the transcript with the cue active.
     /// Before the load ends this does nothing. The load calls it again.
-    /// A Q&A source seek (#129) keeps the Q&A panel, stops "Up next" and scrolls the page to the player.
+    /// A Q&A source seek (#129) or a note seek (#181) keeps its panel, stops "Up next" and scrolls the page to the player.
+    /// A note seek plays, like a transcript line. The others stay paused.
     private func applySeekRequest() {
         guard let seekRequest, let video, available == true else { return }
         if seekRequest.showsTranscript, captions != nil { showsTranscript = true }
@@ -507,10 +559,11 @@ struct VideoLectureView: View {
             scrollToPlayer()
         }
         if let playback {
-            playback.seek(to: seekRequest.seconds, plays: false)
+            playback.seek(to: seekRequest.seconds, plays: seekRequest.plays)
         } else {
             playback = VideoPlayback(url: video.url, start: seekRequest.seconds, duration: duration, captions: captions,
-                                     transcript: transcript, plays: false, save: saveResumePosition, complete: completeAutomatically)
+                                     transcript: transcript, plays: seekRequest.plays && !opensVideoPlayer, save: saveResumePosition,
+                                     complete: completeAutomatically)
         }
     }
 }

@@ -13,6 +13,8 @@ struct ChoiceRow: View {
     var usesNumberKey = true
     let select: () -> Void
     @Environment(\.gardenPalette) private var palette
+    /// True while a notes field has focus (#181). The number keys then type text.
+    @Environment(\.textEntryFocused) private var textEntryFocused
 
     private static let radius = GardenRadius.button
 
@@ -71,7 +73,7 @@ struct ChoiceRow: View {
         .buttonStyle(.plain)
         .contentShape(.focusEffect, .garden(Self.radius))
         .opacity(state == .dimmed ? 0.6 : 1)
-        .keyboardShortcut(usesNumberKey && number <= 9 ? KeyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: []) : nil)
+        .keyboardShortcut(usesNumberKey && number <= 9 && !textEntryFocused ? KeyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: []) : nil)
         .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits(state == .selected ? .isSelected : [])
     }
@@ -132,6 +134,8 @@ struct QuizView: View {
     let attempt: QuizAttempt
     let perform: (QuizAction) -> Void
     @Environment(\.gardenPalette) private var palette
+    /// True while a notes field has focus (#181). Return then adds the note and does not check the answer.
+    @Environment(\.textEntryFocused) private var textEntryFocused
 
     private var count: Int { attempt.quiz.questions.count }
 
@@ -179,7 +183,7 @@ struct QuizView: View {
                     }
                 }
                 .buttonStyle(.garden())
-                .keyboardShortcut(.defaultAction)
+                .keyboardShortcut(textEntryFocused ? nil : .defaultAction)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
