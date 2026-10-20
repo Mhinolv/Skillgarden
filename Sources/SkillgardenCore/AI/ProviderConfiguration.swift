@@ -379,6 +379,10 @@ public final class ProviderSettings {
     public private(set) var consents: [RemoteConsent]
     /// The Keychain problem of each profile, by profile ID. The row shows it in red with "Try Again".
     public private(set) var problems: [String: Problem] = [:]
+    /// The signed-in account of each ChatGPT plan profile, by profile ID (#156). It comes from the Keychain session.
+    public private(set) var accounts: [String: ChatGPTAccount] = [:]
+    /// The ChatGPT plan profiles whose session can't refresh (#156). The row shows "Sign in again." and "Sign In…".
+    public private(set) var expiredSessions: Set<String> = []
 
     @ObservationIgnored private let store: ProviderSettingsStore?
     @ObservationIgnored private let credentials: any CredentialStore
@@ -389,23 +393,30 @@ public final class ProviderSettings {
     /// The kinds with a shipped adapter (#152). "Add Provider" and "Test Connection" show only for them.
     @ObservationIgnored public let adapterKinds: Set<AnswerProviderKind>
     @ObservationIgnored private var providers: [String: (profile: ProviderProfile, provider: any AnswerProvider)] = [:]
+    /// Sign in with ChatGPT (#156). Nil hides "ChatGPT Plan…" in "Add Provider".
+    @ObservationIgnored public let chatGPT: ChatGPTAuthorizer?
+    /// The running refresh of each ChatGPT plan profile, so two callers never use one refresh token twice.
+    @ObservationIgnored private var refreshes: [String: Task<Result<ChatGPTSession, ChatGPTAuthError>, Never>] = [:]
 
     /// `store` nil saves nothing: the snapshot harness and previews inject the profiles.
     public init(store: ProviderSettingsStore?, credentials: any CredentialStore = KeychainCredentialStore(),
                 profiles: [ProviderProfile] = [], selectedID: String = BundledAnswerProvider.providerID,
                 adapterKinds: Set<AnswerProviderKind> = [],
                 makeProvider: @escaping @MainActor (ProviderProfile, any CredentialStore) -> (any AnswerProvider)? = { _, _ in nil },
-                testConnection: (@MainActor (ProviderProfile, String?) async -> ConnectionTestResult)? = nil) {
+                testConnection: (@MainActor (ProviderProfile, String?) async -> ConnectionTestResult)? = nil,
+                chatGPT: ChatGPTAuthorizer? = nil) {
         let saved = store?.load() ?? SavedProviders(selectedID: selectedID, profiles: profiles)
         self.store = store
         self.credentials = credentials
         self.adapterKinds = adapterKinds
         self.makeProvider = makeProvider
         self.testConnection = testConnection
+        self.chatGPT = chatGPT
         self.profiles = saved.profiles
         consents = saved.consents
-        // A choice of a removed profile falls back to the bundled model.
-        self.selectedID = saved.profiles.contains { $0.id == saved.selectedID } ? saved.selectedID : BundledAnswerProvider.providerID
+        // A choice of a removed profile, or of a profile that can't answer yet, falls back to the bundled model.
+        let canAnswer = saved.profiles.first { $0.id == saved.selectedID }.map { Self.canAnswer($0.kind, adapterKinds: adapterKinds) }
+        self.selectedID = canAnswer == true ? saved.selectedID : BundledAnswerProvider.providerID
     }
 
     /// The profile of the "Answer with" choice. Nil for the bundled model.
@@ -413,6 +424,25 @@ public final class ProviderSettings {
 
     /// The profiles of one picker group, in saved order.
     public func profiles(of kind: AnswerProviderKind) -> [ProviderProfile] { profiles.filter { $0.kind == kind } }
+
+    /// False for a subscription until its Q&A adapter ships (#157). "Answer with" does not list such a profile.
+    public func canAnswer(_ kind: AnswerProviderKind) -> Bool { Self.canAnswer(kind, adapterKinds: adapterKinds) }
+
+    private static func canAnswer(_ kind: AnswerProviderKind, adapterKinds: Set<AnswerProviderKind>) -> Bool {
+        kind != .subscription || adapterKinds.contains(.subscription)
+    }
+
+    /// The row caption. A ChatGPT plan shows "<email> · Subscription", and "· Q&A not available yet" until #157 ships.
+    public func caption(for profile: ProviderProfile) -> String {
+        guard profile.isChatGPTPlan else { return profile.caption }
+        let account = accounts[profile.id]?.displayName ?? ChatGPTAccount(email: nil, planType: nil).displayName
+        let caption = "\(account) · \(profile.kind.title)"
+        return canAnswer(profile.kind) ? caption : caption + " · " + Self.qaNotAvailableText
+    }
+
+    public static let qaNotAvailableText = "Q&A not available yet"
+    /// The red caption of a ChatGPT plan session that can't refresh (#156).
+    public static let signInAgainText = "Sign in again."
 
     /// The provider that answers the next question: the bundled model, or the provider of the chosen profile.
     /// A profile with no shipped adapter gets a provider that can't answer.
@@ -432,8 +462,10 @@ public final class ProviderSettings {
     }
 
     /// The "Answer with" choice. Each change is saved at once.
+    /// A subscription profile is refused until its Q&A adapter ships (#157).
     public func select(_ id: String) {
-        guard id == BundledAnswerProvider.providerID || profiles.contains(where: { $0.id == id }), id != selectedID else { return }
+        guard id == BundledAnswerProvider.providerID || profiles.contains(where: { $0.id == id && canAnswer($0.kind) }),
+              id != selectedID else { return }
         let previous = selectedID
         selectedID = id
         if !persist() { selectedID = previous }
@@ -483,15 +515,99 @@ public final class ProviderSettings {
         }
         problems[id] = nil
         providers[id] = nil
+        accounts[id] = nil
+        expiredSessions.remove(id)
+        refreshes[id]?.cancel()
+        refreshes[id] = nil
+    }
+
+    /// Saves a ChatGPT plan sign-in (#156): the session into the Keychain, then the profile into `Providers.json`.
+    /// A sign-in again replaces the session of the same profile.
+    public func saveChatGPT(_ session: ChatGPTSession, profile: ProviderProfile) throws(ChatGPTAuthError) {
+        do { try save(profile, secret: session.keychainText) } catch {
+            switch error {
+            case .credential(let error): throw .credential(error)
+            case .saveFailed: throw .saveFailed
+            }
+        }
+        accounts[profile.id] = session.account
+        expiredSessions.remove(profile.id)
+    }
+
+    /// A valid session of a ChatGPT plan profile (#156). An access token near its end refreshes first, and the new tokens
+    /// go into the Keychain. A session that can't refresh marks the profile "Sign in again.".
+    /// The Q&A adapter (#157) uses it before each request.
+    public func chatGPTSession(for id: String, now: Date = Date()) async throws(ChatGPTAuthError) -> ChatGPTSession {
+        guard let profile = profiles.first(where: { $0.id == id && $0.isChatGPTPlan }), profile.credentialReference != nil else {
+            throw .refused("invalid_grant")
+        }
+        if let running = refreshes[id] { return try await running.value.get() }
+        let text: String?
+        do { text = try credentials.secret(account: profile.keychainAccount) } catch {
+            problems[id] = .credential(error)
+            throw .credential(error)
+        }
+        guard let session = text.flatMap(ChatGPTSession.init(keychainText:)) else {
+            expiredSessions.insert(id)
+            throw .refused("invalid_grant")
+        }
+        accounts[id] = session.account
+        guard session.needsRefresh(at: now) else { return session }
+        guard session.canRefresh(at: now) else {
+            expiredSessions.insert(id)
+            throw .refused("invalid_grant")
+        }
+        guard let chatGPT else { throw .network }
+        let task = Task { @MainActor () -> Result<ChatGPTSession, ChatGPTAuthError> in
+            do throws(ChatGPTAuthError) { return .success(try await chatGPT.refresh(session)) } catch { return .failure(error) }
+        }
+        refreshes[id] = task
+        let result = await task.value
+        refreshes[id] = nil
+        switch result {
+        case .success(let fresh):
+            // A Disconnect during the refresh wins. The new tokens are not saved.
+            guard profiles.contains(where: { $0.id == id }) else { throw .canceled }
+            do { try credentials.save(fresh.keychainText, account: profile.keychainAccount) } catch {
+                problems[id] = .credential(error)
+                throw .credential(error)
+            }
+            accounts[id] = fresh.account
+            expiredSessions.remove(id)
+            return fresh
+        case .failure(let error):
+            if error.needsSignIn, profiles.contains(where: { $0.id == id }) { expiredSessions.insert(id) }
+            throw error
+        }
+    }
+
+    /// Refreshes each ChatGPT plan session near its end, so an expired session shows "Sign in again." when Settings opens.
+    /// A network failure changes nothing: the next open tries again.
+    public func refreshChatGPTSessions(now: Date = Date()) async {
+        for profile in profiles where profile.isChatGPTPlan && profile.credentialReference != nil && problems[profile.id] == nil {
+            _ = try? await chatGPTSession(for: profile.id, now: now)
+        }
     }
 
     /// Reads the secret of each profile, so the rows show a Keychain problem. "Try Again" reads one profile again.
+    /// A ChatGPT plan profile also gets its account, or "Sign in again." when the Keychain has no session (#156).
     public func checkCredentials(_ id: String? = nil) {
         for profile in profiles where id == nil || profile.id == id {
-            guard profile.credentialReference != nil else { problems[profile.id] = nil; continue }
-            do {
-                _ = try credentials.secret(account: profile.keychainAccount)
+            guard profile.credentialReference != nil else {
                 problems[profile.id] = nil
+                if profile.isChatGPTPlan { expiredSessions.insert(profile.id) }
+                continue
+            }
+            do {
+                let secret = try credentials.secret(account: profile.keychainAccount)
+                problems[profile.id] = nil
+                guard profile.isChatGPTPlan else { continue }
+                if let session = secret.flatMap(ChatGPTSession.init(keychainText:)) {
+                    accounts[profile.id] = session.account
+                    if !session.canRefresh(at: Date()) { expiredSessions.insert(profile.id) }
+                } else {
+                    expiredSessions.insert(profile.id)
+                }
             } catch {
                 problems[profile.id] = .credential(error)
             }

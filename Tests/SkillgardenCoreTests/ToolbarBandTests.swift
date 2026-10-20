@@ -113,5 +113,7 @@ private func runSnapshots(_ screens: [SnapshotScreen], into out: URL) throws -> 
     #expect(SnapshotScreen.allCases.filter(\.isSettings) == [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
                                                                .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError,
                                                                .providerSheetOpenAI, .providerSheetOpenAIEdit, .providerSheetAnthropic,
-                                                               .providerSheetAnthropicEdit])
+                                                               .providerSheetAnthropicEdit, .chatGPTSheetSignedOut,
+                                                               .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
+                                                               .settingsChatGPTSignInAgain])
 }

@@ -1,4 +1,5 @@
 import AppKit
+import AuthenticationServices
 import SwiftUI
 import UniformTypeIdentifiers
 import SkillgardenCore
@@ -138,10 +139,12 @@ enum ModelChooser {
 
 /// The Settings "Q&A" section (#151): the app-wide "Answer with" choice, one row for each provider profile, and the footer.
 /// "Add Provider" lists only kinds with a shipped adapter: LM Studio and Ollama (#152), then the OpenAI API (#153).
+/// "ChatGPT Plan…" (#156) is last, after a divider. "Answer with" lists a subscription only after its Q&A adapter ships (#157).
 struct QAProvidersSection: View {
     let providers: ProviderSettings
     @State private var editing: ProviderProfile?
     @State private var disconnecting: ProviderProfile?
+    @State private var signsInToChatGPT = false
 
     var body: some View {
         Section {
@@ -149,7 +152,7 @@ struct QAProvidersSection: View {
                 Section(AnswerProviderKind.local.title) {
                     Text(ProviderSettings.bundledTitle).tag(BundledAnswerProvider.providerID)
                 }
-                ForEach([AnswerProviderKind.externalLocal, .api, .subscription], id: \.self) { kind in
+                ForEach([AnswerProviderKind.externalLocal, .api, .subscription].filter(providers.canAnswer), id: \.self) { kind in
                     let profiles = providers.profiles(of: kind)
                     if !profiles.isEmpty {
                         Section(kind.title) {
@@ -160,7 +163,7 @@ struct QAProvidersSection: View {
             }
             .pickerStyle(.menu)
             ForEach(providers.profiles) { row($0) }
-            if !providers.adapterKinds.isDisjoint(with: [.externalLocal, .api]) {
+            if !providers.adapterKinds.isDisjoint(with: [.externalLocal, .api]) || providers.chatGPT != nil {
                 addProviderMenu
             }
         } header: {
@@ -169,17 +172,22 @@ struct QAProvidersSection: View {
             Text(ProviderSettings.footerText).foregroundStyle(.secondary)
         }
         .sheet(item: $editing) { ProviderSheet(providers: providers, profile: $0) }
+        .sheet(isPresented: $signsInToChatGPT) {
+            ChatGPTPlanSheet(signIn: ChatGPTSignIn(providers: providers, browser: SystemChatGPTBrowser()))
+        }
         .confirmationDialog(disconnecting.map { "Disconnect \($0.name)?" } ?? "",
                             isPresented: Binding(get: { disconnecting != nil }, set: { if !$0 { disconnecting = nil } }),
                             presenting: disconnecting) { profile in
             // A refused Keychain keeps the profile. Its row then shows the problem.
             Button("Disconnect", role: .destructive) { try? providers.disconnect(profile.id) }
-        } message: { _ in
-            Text("Skillgarden deletes the key from the Keychain and removes the course permissions.")
+        } message: { profile in
+            Text(profile.isChatGPTPlan ? "Skillgarden signs out and deletes the tokens from the Keychain."
+                 : "Skillgarden deletes the key from the Keychain and removes the course permissions.")
         }
     }
 
-    /// "Add Provider": the external local servers (#152), then the API services after them (#153, #154).
+    /// "Add Provider": the external local servers (#152), then the API services after them (#153, #154),
+    /// then the ChatGPT plan after a divider (#156).
     private var addProviderMenu: some View {
         Menu("Add Provider") {
             if providers.adapterKinds.contains(.externalLocal) {
@@ -196,38 +204,219 @@ struct QAProvidersSection: View {
                     }
                 }
             }
+            if providers.chatGPT != nil {
+                Divider()
+                Section(AnswerProviderKind.subscription.title) {
+                    // One ChatGPT account: a second sign-in replaces the session of the profile.
+                    Button(ProviderProfile.chatGPTPlanName + "…") { signsInToChatGPT = true }
+                }
+            }
         }
         .fixedSize()
     }
 
     private func row(_ profile: ProviderProfile) -> some View {
         let problem = providers.problems[profile.id]
+        // A ChatGPT plan whose session can't refresh shows "Sign in again." (#156).
+        let signInAgain = problem == nil && profile.isChatGPTPlan && providers.expiredSessions.contains(profile.id)
+        let redText = problem?.message ?? (signInAgain ? ProviderSettings.signInAgainText : nil)
+        let caption = providers.caption(for: profile)
         return LabeledContent {
             HStack(spacing: 8) {
                 if problem != nil {
                     Button("Try Again") { providers.checkCredentials(profile.id) }
                 }
-                Button("Edit…") { editing = profile }
+                if signInAgain {
+                    Button("Sign In…") { signsInToChatGPT = true }
+                }
+                if !profile.isChatGPTPlan {
+                    Button("Edit…") { editing = profile }
+                }
                 Button("Disconnect") { disconnecting = profile }
             }
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(profile.name)
-                Text(profile.caption)
+                // The ChatGPT plan caption has the email and "Q&A not available yet", so it can use two lines.
+                Text(caption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(profile.isChatGPTPlan ? 2 : 1)
                     .truncationMode(.middle)
-                if let problem {
-                    Text(problem.message)
+                    .fixedSize(horizontal: false, vertical: profile.isChatGPTPlan)
+                if let redText {
+                    Text(redText)
                         .font(.caption)
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel([profile.accessibilityLabel, problem?.message].compactMap { $0 }.joined(separator: ", "))
+            .accessibilityLabel([profile.isChatGPTPlan ? "\(profile.name), \(caption)" : profile.accessibilityLabel, redText]
+                .compactMap { $0 }.joined(separator: ", "))
         }
+    }
+}
+
+/// The ChatGPT plan sheet (#156): Signed out, Waiting, Signed in and Failed. OpenAI shows its page in the system
+/// sign-in sheet, not in a web view of the app. The sheet never shows token text.
+struct ChatGPTPlanSheet: View {
+    @State private var signIn: ChatGPTSignIn
+    @Environment(\.dismiss) private var dismiss
+
+    init(signIn: ChatGPTSignIn) {
+        _signIn = State(initialValue: signIn)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Form {
+                Section {
+                    content.fixedSize(horizontal: false, vertical: true)
+                } header: {
+                    Text(ProviderProfile.chatGPTPlanName)
+                }
+            }
+            .formStyle(.grouped)
+            HStack {
+                Spacer()
+                buttons
+            }
+            .padding([.horizontal, .bottom], 20)
+        }
+        .frame(width: 420)
+        .fixedSize(horizontal: false, vertical: true)
+        // Waiting and Signed in post an announcement.
+        .onChange(of: signIn.state) { _, state in
+            guard let announcement = state.announcement else { return }
+            NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                                 userInfo: [.announcement: announcement, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        }
+        .onDisappear { signIn.cancel() }
+    }
+
+    @ViewBuilder private var content: some View {
+        switch signIn.state {
+        case .signedOut:
+            Text(ChatGPTSignIn.signedOutText)
+        case .waiting:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(ChatGPTSignIn.waitingText)
+            }
+            .accessibilityElement(children: .combine)
+        case .signedIn(let account):
+            VStack(alignment: .leading, spacing: 4) {
+                Label {
+                    Text("Signed in as \(account.displayName)")
+                } icon: {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                }
+                if let plan = account.planName {
+                    Text(plan).foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityElement(children: .combine)
+        case .failed(let reason):
+            Label {
+                Text(reason)
+            } icon: {
+                Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
+            }
+        }
+    }
+
+    @ViewBuilder private var buttons: some View {
+        switch signIn.state {
+        case .signedOut:
+            Button("Cancel", role: .cancel) { dismiss() }
+                .keyboardShortcut(.cancelAction)
+            Button("Sign In with ChatGPT…") { signIn.start() }
+                .keyboardShortcut(.defaultAction)
+        case .waiting:
+            Button("Cancel", role: .cancel) {
+                signIn.cancel()
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
+        case .signedIn:
+            Button("Done") { dismiss() }
+                .keyboardShortcut(.defaultAction)
+        case .failed:
+            Button("Cancel", role: .cancel) { dismiss() }
+                .keyboardShortcut(.cancelAction)
+            Button("Try Again") { signIn.start() }
+                .keyboardShortcut(.defaultAction)
+        }
+    }
+}
+
+/// The system sign-in sheet of Sign in with ChatGPT (#156): `ASWebAuthenticationSession` opens the OpenAI page, and a
+/// `LoopbackCallbackListener` on 127.0.0.1 gets the redirect. The first callback closes the system sheet.
+@MainActor
+final class SystemChatGPTBrowser: NSObject, ChatGPTBrowser, ASWebAuthenticationPresentationContextProviding {
+    /// Gives one result to the waiting `signIn(at:)`.
+    @MainActor
+    private final class Pending {
+        private var continuation: CheckedContinuation<Result<URL, ChatGPTAuthError>, Never>?
+
+        init(_ continuation: CheckedContinuation<Result<URL, ChatGPTAuthError>, Never>) { self.continuation = continuation }
+
+        func finish(_ result: Result<URL, ChatGPTAuthError>) {
+            continuation?.resume(returning: result)
+            continuation = nil
+        }
+    }
+
+    /// The callback scheme of the session. OpenAI never redirects to it: the loopback listener gets the redirect.
+    private static let callbackScheme = "skillgarden-signin"
+    private var listener: LoopbackCallbackListener?
+    private var session: ASWebAuthenticationSession?
+    private var pending: Pending?
+    private var watcher: Task<Void, Never>?
+
+    func listen() async throws(ChatGPTAuthError) -> URL {
+        stop()
+        let listener = LoopbackCallbackListener()
+        self.listener = listener
+        return try await listener.start()
+    }
+
+    func signIn(at url: URL) async throws(ChatGPTAuthError) -> URL {
+        guard let listener else { throw .listenerFailed }
+        let result = await withCheckedContinuation { (continuation: CheckedContinuation<Result<URL, ChatGPTAuthError>, Never>) in
+            let pending = Pending(continuation)
+            self.pending = pending
+            let session = ASWebAuthenticationSession(url: url, callback: .customScheme(Self.callbackScheme)) { _, _ in
+                // The learner closed the sheet, or `stop()` cancelled it after the callback.
+                Task { @MainActor in pending.finish(.failure(.canceled)) }
+            }
+            session.presentationContextProvider = self
+            self.session = session
+            watcher = Task { @MainActor in
+                for await callback in listener.callbacks {
+                    pending.finish(.success(callback))
+                    break
+                }
+            }
+            if !session.start() { pending.finish(.failure(.listenerFailed)) }
+        }
+        return try result.get()
+    }
+
+    func stop() {
+        pending?.finish(.failure(.canceled))
+        pending = nil
+        watcher?.cancel()
+        watcher = nil
+        session?.cancel()
+        session = nil
+        listener?.stop()
+        listener = nil
+    }
+
+    nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        MainActor.assumeIsolated { NSApp.keyWindow ?? NSApp.windows.first ?? ASPresentationAnchor() }
     }
 }
 

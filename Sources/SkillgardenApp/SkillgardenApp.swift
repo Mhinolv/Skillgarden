@@ -23,13 +23,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let answers = LlamaClient()
     /// The Settings "Q&A" profiles, the "Answer with" choice and the course consents (#151). Secrets are in the Keychain.
     /// LM Studio and Ollama answer through the OpenAI-compatible adapter (#152), OpenAI through the Responses API (#153)
-    /// and Anthropic through the Messages API (#154).
+    /// and Anthropic through the Messages API (#154). A ChatGPT plan signs in with Sign in with ChatGPT (#156).
     let providers = AppDelegate.makeProviders()
 
     private static func makeProviders() -> ProviderSettings {
         ProviderSettings(store: ProviderSettingsStore(), adapterKinds: ShippedAdapters.kinds,
                          makeProvider: { ShippedAdapters.provider(for: $0, credentials: $1) },
-                         testConnection: { await ShippedAdapters.testConnection($0, secret: $1) })
+                         testConnection: { await ShippedAdapters.testConnection($0, secret: $1) },
+                         chatGPT: ChatGPTAuthorizer())
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -492,6 +493,8 @@ struct SettingsView: View {
         .task {
             providers.checkCredentials()
             await modelSettings.load()
+            // A ChatGPT plan session near its end refreshes, so a session that can't refresh shows "Sign in again." (#156).
+            await providers.refreshChatGPTSessions()
         }
         // A new model restarts the server: Stopping, Starting, Ready.
         .onChange(of: modelSettings.model) { _, model in localAI.setModel(model) }
