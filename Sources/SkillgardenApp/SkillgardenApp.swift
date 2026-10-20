@@ -184,7 +184,6 @@ struct ContentView: View {
     @State private var notesFieldFocused = false
     @Environment(\.showsReviewInline) private var showsReviewInline
     @Environment(\.showsPDFPreviewInline) private var showsPDFPreviewInline
-    @Environment(\.snapshotIgnoresCourseTheme) private var ignoresCourseTheme
     @Environment(\.snapshotStartsTheater) private var snapshotStartsTheater
     @Environment(\.snapshotShowsQA) private var snapshotShowsQA
     @Environment(\.snapshotShowsNotes) private var snapshotShowsNotes
@@ -285,8 +284,8 @@ struct ContentView: View {
         .sheet(item: Binding(get: { library.importingTitle.map(ImportingCourse.init) }, set: { _ in })) {
             ImportProgressSheet(title: $0.title)
         }
-        // The course theme colors the whole window: sidebar, toolbar and content.
-        .gardenTheme(ignoresCourseTheme ? nil : library.selectedLanding?.theme, appearance: appearance)
+        // The course theme sets only the light or dark look of the window. The accent is the system accent (#182).
+        .gardenTheme(library.selectedLanding?.theme, appearance: appearance)
         .frame(minWidth: 900, minHeight: 600)
         .focusedSceneValue(\.library, library)
         .task { if reloadsOnAppear { await library.reload() } }
@@ -530,16 +529,6 @@ extension EnvironmentValues {
         set { self[ShowsReviewInlineKey.self] = newValue }
     }
 
-    /// The snapshot harness sets this for the `-unthemed-dark` captures (#82). The window then uses no course theme,
-    /// like the Library: the system accent and the system color scheme. The app sets none.
-    var snapshotIgnoresCourseTheme: Bool {
-        get { self[SnapshotIgnoresCourseThemeKey.self] }
-        set { self[SnapshotIgnoresCourseThemeKey.self] = newValue }
-    }
-}
-
-private struct SnapshotIgnoresCourseThemeKey: EnvironmentKey {
-    static let defaultValue = false
 }
 
 private struct SnapshotStartsTheaterKey: EnvironmentKey {

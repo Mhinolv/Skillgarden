@@ -95,6 +95,7 @@ PASS checksums
 - The helper stops the server when its stdin pipe from the app closes, when the app pid exits, or on SIGTERM.
   It sends SIGTERM, then SIGKILL after 3 seconds.
 - `llama-server` listens on `127.0.0.1` on a free port, with one slot (`--parallel 1`) and `--ctx-size 8192`.
+  `--cache-ram 0` turns off the prompt cache. By default, llama.cpp keeps earlier prompts in up to 8 GB more memory (#193).
   If another program takes the port first, the supervisor tries a new port, at most 3 times.
 - Each start makes a new session secret. The server gets it in `LLAMA_API_KEY`, so it is not in the process list.
 - The status is Ready when `GET /health` gives 200. Before callers send lecture text, they use `verifiedEndpoint()`.
@@ -153,7 +154,7 @@ The check takes some minutes. Stderr shows the progress, for example `Check 3 of
 ```
 PASS  cold-load       8.4 s     limit 30.0 s
 PASS  first-token     0.9 s     limit 3.0 s
-PASS  memory          4.6 GB    limit 5.3 GB
+PASS  memory          3.9 GB    limit 5.3 GB
 PASS  cancel          1.2 s     limit 5.0 s
 PASS  citation        24/25     need 20/25   (question c07)
 FAIL  tutor           31/40     need 32/40   (questions t07, t19 +7)
@@ -185,6 +186,9 @@ It asks the questions of `Tests/Fixtures/local-ai-questions.json` with the promp
 | `cold-load` | The time from the server start to the first `200` from `/health` | 30 s or less |
 | `first-token` | The median time from the request to the first answer text, for the 25 citation questions | 3 s or less |
 | `memory` | The peak memory of `llama-server` during all checks, read each 0.25 s. The value is the larger of the physical footprint and the resident size. | The model file size plus 3 GB, or less |
+
+The memory rule: the peak of `llama-server` must be the model file size plus 3 GB of headroom, or less.
+The headroom holds the context cache of `--ctx-size 8192` (about 1.1 GB for Qwen3 4B) and the work buffers.
 | `cancel` | The time from Cancel, after the first text of a long answer, to the first text of the next question | 5 s or less |
 | `citation` | 25 lookup questions (`c01`–`c25`). The answer cites the passage that holds `evidence`. | 80 % (20 of 25) |
 | `tutor` | 40 questions (`t01`–`t40`): explanations, examples, gaps and wrong assumptions. The answer follows the tutor rules (#175). | 80 % (32 of 40) |
@@ -235,6 +239,14 @@ Memory sizes use 1 GB = 1,073,741,824 bytes, as in Activity Monitor. The model f
 - The check writes `local-ai-<date>-<time>.txt` into the `--out` folder, for example `build/local-ai-check/local-ai-2026-10-19-153200.txt`.
 - The file has the date, the macOS version, the chip, the memory of the Mac, and the model file name, size and SHA-256.
 - It also has the runtime version, the 9 result lines and the `RESULT:` line.
+- Two `memory:` lines follow the `RESULT:` line (#193). They give the parts of the peak and of the limit:
+
+```
+memory: peak 3.9 GB (footprint 1.6 GB, resident 3.9 GB) at 12.3 s
+memory: limit 5.3 GB = model 2.3 GB + headroom 3.0 GB, ctx-size 8192
+```
+
+- The time counts from the server start. The model size in the limit uses 1 GB = 1,073,741,824 bytes.
 - If a question fails, a "Failed answers" section follows the `RESULT:` line (owner decision, 2026-10-19).
 - For each failed question, the section shows the ID, the kind, the cause, the reasons and the answer text.
 - The check replaces each secret of the fixture with `[SECRET]`. If a secret still shows, the check hides the full answer.
@@ -290,7 +302,7 @@ If you change the model or the runtime, run the check again and paste the new fi
 | `FAIL  cold-load       timeout` | The model did not load in 300 s. Quit other apps and move the file to the internal disk. |
 | `FAIL  cold-load` with a time | The load took more than 30 s. Quit other apps, then run the check again. Record both values. |
 | `FAIL  first-token` | Quit other apps. If the model thinks before it answers, the thinking time counts. Record the value. |
-| `FAIL  memory` | The server used too much memory. Use a smaller model or quantization. |
+| `FAIL  memory` | The server used too much memory. Read the two `memory:` lines in the results file. If the peak is late in the run, make sure that the server gets `--cache-ram 0`. Else use a smaller model or quantization. |
 | `FAIL  cancel` | The server did not stop the canceled answer in time. Record the value in the issue. |
 | `FAIL  citation … (question cNN)` | The model did not cite the passage with the answer. Read the reason and the answer in "Failed answers". Try another model. |
 | `FAIL  tutor … (question tNN)` | The model did not mark its general knowledge, or it invented a claim about the instructor. Read "Failed answers". Try another model. |

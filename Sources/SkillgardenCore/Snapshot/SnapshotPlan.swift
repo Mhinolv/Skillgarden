@@ -1,7 +1,6 @@
 import Foundation
 
 /// Screens that `scripts/snapshot.sh` renders for QA. Add new screens here with the same name rule.
-/// Course screens other than the dark-theme screen also get a dark capture with no course theme: `<screen>-unthemed-dark.png`.
 public enum SnapshotScreen: String, CaseIterable, Sendable {
     case libraryEmpty = "library-empty"
     /// The empty library in a data folder that is not the default. The "Library: <path>" line shows.
@@ -303,10 +302,6 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// True when the harness selects the seeded course. The Library screens show the Library home, so they select none.
     public var selectsCourse: Bool { !([.library, .libraryEmpty, .libraryEmptyCustomFolder] + Self.settingsScreens).contains(self) }
 
-    /// True when the harness also writes `<screen>-unthemed-dark.png`: the course screen with no course theme, in dark (#82).
-    /// The `-dark` capture uses the Dark setting, which wins over the light fixture theme (#93). The dark-theme screen gets no unthemed capture.
-    public var hasUnthemedCapture: Bool { selectsCourse && self != .courseLandingDarkTheme }
-
     /// True when the harness selects the first transcript search result (#90). The selection does not open the result.
     public var selectsFirstTranscriptHit: Bool { self == .transcriptSearchSelected }
 
@@ -339,22 +334,17 @@ public enum SnapshotPlan {
         public let screen: SnapshotScreen
         public let appearance: SnapshotAppearance
         public let url: URL
-        /// True when the window uses no course theme, so the system color scheme and the system accent show.
-        public let ignoresCourseTheme: Bool
     }
 
     /// One output per screen and appearance, in a fixed order: `<out-dir>/<screen>-<light|dark>.png`.
-    /// Then `<out-dir>/<screen>-unthemed-dark.png` for each screen with `hasUnthemedCapture`.
     /// `screens` limits the outputs to these screens. The order stays the same.
+    /// #182 retired the `-unthemed-dark` captures: every window uses the system accent, so they matched the `-dark` captures.
     public static func outputs(outDirectory: URL, screens: Set<SnapshotScreen>? = nil) -> [Output] {
         SnapshotScreen.allCases.filter { screens?.contains($0) ?? true }.flatMap { screen in
-            let themed = SnapshotAppearance.allCases.map { appearance in
+            SnapshotAppearance.allCases.map { appearance in
                 Output(screen: screen, appearance: appearance,
-                       url: outDirectory.appending(path: "\(screen.rawValue)-\(appearance.rawValue).png"), ignoresCourseTheme: false)
+                       url: outDirectory.appending(path: "\(screen.rawValue)-\(appearance.rawValue).png"))
             }
-            guard screen.hasUnthemedCapture else { return themed }
-            return themed + [Output(screen: screen, appearance: .dark,
-                                    url: outDirectory.appending(path: "\(screen.rawValue)-unthemed-dark.png"), ignoresCourseTheme: true)]
         }
     }
 

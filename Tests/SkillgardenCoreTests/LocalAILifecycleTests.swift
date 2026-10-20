@@ -432,8 +432,16 @@ private func supervisor(_ backend: FakeBackend, enabled: Bool = true, saved: ((B
 @Test func serverArgumentsUseOneSlotOnLoopback() {
     let arguments = BundledRuntime.serverArguments(model: URL(fileURLWithPath: "/Users/a b/m.gguf"), port: 8123)
     #expect(arguments == ["--model", "/Users/a b/m.gguf", "--host", "127.0.0.1", "--port", "8123", "--parallel", "1",
-                          "--ctx-size", "8192"])
+                          "--ctx-size", "8192", "--cache-ram", "0"])
     #expect(!arguments.contains("--api-key"))
+}
+
+/// #193: llama.cpp b11669 keeps the context of earlier prompts in a prompt cache of up to 8 GB (`--cache-ram`).
+/// Each new lecture prompt adds to it, so the peak memory of the #176 check grew to 7.4 GB. The cache must be off.
+@Test func serverArgumentsTurnOffThePromptCache() throws {
+    let arguments = BundledRuntime.serverArguments(model: URL(fileURLWithPath: "/m.gguf"), port: 8123)
+    let index = try #require(arguments.firstIndex(of: "--cache-ram"), "the prompt cache is on by default")
+    #expect(arguments.indices.contains(index + 1) && arguments[index + 1] == "0")
 }
 
 /// A Helpers folder with the built helper and `llama/llama-server` as a shell script.

@@ -128,7 +128,6 @@ private func done(_ ids: String...) -> [String: LectureProgress] {
     #expect(library.courses.map { library.summary(of: $0).status } == [.done, .noLectures, .inProgress, .new, .inProgress])
     // The summary does not need a selected course.
     #expect(library.selectedCourse == nil)
-    #expect(library.accent(ofCourse: "first") == nil)
 
     library.openNextLecture(ofCourse: "first")
     #expect(library.selectedCourseID == "first")
