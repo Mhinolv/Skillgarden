@@ -94,6 +94,7 @@ public struct AnswerSource: Equatable, Hashable, Sendable, Identifiable {
 
 /// The source markers of one answer (#129), checked against the passages of the lecture text that the learner asked about.
 /// `[t12]` becomes `[1]` in order of first use. The answer never shows a raw passage ID, a link or a time from the model.
+/// Video markers merge only for display (#171). The stored answer text keeps the raw IDs.
 public struct AnswerCitations: Equatable, Sendable {
     /// A part of the answer text.
     public enum Segment: Equatable, Sendable {
@@ -141,13 +142,62 @@ public struct AnswerCitations: Equatable, Sendable {
             sources.append(value)
             return value
         }
-        for match in answer.matches(of: Self.marker) {
-            let before = rest[..<match.range.lowerBound]
-            if !before.isEmpty { segments.append(.text(String(before))) }
-            for passageID in match.output.1.split(whereSeparator: { $0 == "," || $0 == ";" }) {
-                segments.append(.marker(source(for: passageID.trimmingCharacters(in: .whitespaces))))
+        // #171: the video sources cited in the current line. A later cue in the same line within the merge window
+        // shows the number of the earlier cue.
+        var anchors: [AnswerSource] = []
+        func seekTime(of passageID: String) -> Double? {
+            guard !isStale, let context, context.passage(id: passageID) != nil else { return nil }
+            return context.seekTimes[passageID]
+        }
+        func videoSource(for passageID: String, seconds: Double) -> AnswerSource {
+            if numbers[passageID] == nil, let anchor = anchors.first(where: {
+                guard case .video(let start, _) = $0.kind else { return false }
+                return seconds >= start && seconds - start <= Self.mergeSeconds
+            }) {
+                return anchor
             }
-            rest = answer[match.range.upperBound...]
+            let value = source(for: passageID)
+            if !anchors.contains(value) { anchors.append(value) }
+            return value
+        }
+        let matches = answer.matches(of: Self.marker)
+        var index = matches.startIndex
+        while index < matches.endIndex {
+            let before = rest[..<matches[index].range.lowerBound]
+            if !before.isEmpty { segments.append(.text(String(before))) }
+            if before.contains(where: \.isNewline) { anchors = [] }
+            // A group is a marker list or markers with only spaces between them, such as `[t5] [t6]`.
+            var group: [(leading: Substring, passageIDs: [String])] = []
+            var end = index
+            repeat {
+                let match = matches[end]
+                let leading = end == index ? answer[match.range.lowerBound..<match.range.lowerBound]
+                    : answer[matches[end - 1].range.upperBound..<match.range.lowerBound]
+                group.append((leading, Self.passageIDs(of: match)))
+                end += 1
+            } while end < matches.endIndex
+                && answer[matches[end - 1].range.upperBound..<matches[end].range.lowerBound].allSatisfy { $0 == " " || $0 == "\t" }
+            // A group keeps only its earliest video cue. Stale, unknown and article markers do not change.
+            let earliest = group.flatMap(\.passageIDs).compactMap { id in seekTime(of: id).map { (id, $0) } }
+                .min { $0.1 < $1.1 }
+            var hasVideo = false
+            for item in group {
+                var markers: [AnswerSource] = []
+                for passageID in item.passageIDs {
+                    guard seekTime(of: passageID) != nil else {
+                        markers.append(source(for: passageID))
+                        continue
+                    }
+                    guard !hasVideo, let earliest else { continue }
+                    hasVideo = true
+                    markers.append(videoSource(for: earliest.0, seconds: earliest.1))
+                }
+                guard !markers.isEmpty else { continue }
+                if !item.leading.isEmpty { segments.append(.text(String(item.leading))) }
+                segments += markers.map(Segment.marker)
+            }
+            rest = answer[matches[end - 1].range.upperBound...]
+            index = end
         }
         if !rest.isEmpty { segments.append(.text(String(rest))) }
         self.segments = segments
@@ -158,11 +208,16 @@ public struct AnswerCitations: Equatable, Sendable {
     /// `[t12]`, `[a3]` and lists such as `[t1, t2]`. A letter must come first, so `[1]` and `[x]` stay plain text.
     nonisolated(unsafe) static let marker = /\[\s*([A-Za-z]{1,3}\d{1,6}(?:\s*[,;]\s*[A-Za-z]{1,3}\d{1,6})*)\s*\]/
 
-    /// The passage IDs of the markers in `answer`, in order. The #130 check grades citations with them.
+    /// A video cue that starts this many seconds or less after a cue cited in the same line shows the number of that cue (#171).
+    static let mergeSeconds: Double = 30
+
+    /// The passage IDs of the markers in `answer`, in order, before the #171 merge. The #130 check grades citations with them.
     static func passageIDs(in answer: String) -> [String] {
-        answer.matches(of: marker).flatMap { match in
-            match.output.1.split(whereSeparator: { $0 == "," || $0 == ";" }).map { $0.trimmingCharacters(in: .whitespaces) }
-        }
+        answer.matches(of: marker).flatMap(passageIDs(of:))
+    }
+
+    private static func passageIDs(of match: Regex<(Substring, Substring)>.Match) -> [String] {
+        match.output.1.split(whereSeparator: { $0 == "," || $0 == ";" }).map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
     /// The marker text: `[1]`, or `[?]`.

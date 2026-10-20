@@ -87,7 +87,10 @@ private func ready(_ outcome: LectureContextOutcome) throws -> LectureContext {
         #expect(prompt.systemPrompt.contains("Answer only from the passages"))
         #expect(prompt.systemPrompt.contains("If the passages do not hold the answer"))
         #expect(!prompt.systemPrompt.contains("Do not summarize"))
-        #expect(prompt.systemPrompt.hasSuffix("[t0].\n\nPassages:\n[t0] Dig a bed in the sun.\n[t1] Mulch keeps the soil wet."))
+        // #171: one ID, of the first passage, for each fact.
+        #expect(prompt.systemPrompt.hasSuffix("After each fact, put the ID of the first passage that states it, for example [t0]. "
+            + "Give one ID for each fact. Do not add IDs of later passages that repeat it.\n\nPassages:\n"
+            + "[t0] Dig a bed in the sun.\n[t1] Mulch keeps the soil wet."))
         #expect(prompt.estimatedTokens == context.estimatedTokens)
         #expect(context.estimatedTokens <= LectureContextBudget.standard.promptTokens)
         #expect(context.passage(id: "t1")?.label == "0:05")
