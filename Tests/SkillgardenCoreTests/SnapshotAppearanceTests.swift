@@ -60,8 +60,6 @@ private func matches(_ color: [UInt8]?, _ expected: [UInt8]) -> Bool {
     // The light fixture theme is dark in the Dark setting (owner decision).
     expectPage("lecture-dark", darkPage)
     expectPage("lecture-light", lightPage)
-    // The fixture copy without a theme follows the dark appearance.
-    expectPage("lecture-unthemed-dark", darkPage)
-    #expect(!FileManager.default.fileExists(atPath: out.appending(path: "lecture-unthemed-light.png").path))
-    #expect(!FileManager.default.fileExists(atPath: out.appending(path: "course-landing-dark-theme-unthemed-dark.png").path))
+    // #182 retired the unthemed captures.
+    #expect(!FileManager.default.fileExists(atPath: out.appending(path: "lecture-unthemed-dark.png").path))
 }

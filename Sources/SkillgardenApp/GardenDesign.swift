@@ -70,9 +70,7 @@ extension CourseAppearance {
 /// The Quiet Garden colors for one accent and color scheme. `gardenTheme(_:)` puts it in the environment.
 struct GardenPalette: Equatable, Sendable {
     let colorScheme: ColorScheme
-    /// True while a course theme colors the window.
-    let isCourseThemed: Bool
-    /// The course color, lighter in dark mode. Only the primary action, progress, the current row and focus use it.
+    /// The accent color, lighter in dark mode. Only the primary action, progress, the current row and focus use it.
     let accent: Color
     /// The accent for small text and icons on a tint: a bit darker in light mode.
     let accentInk: Color
@@ -102,7 +100,7 @@ struct GardenPalette: Equatable, Sendable {
     let wrongFill: Color
 
     /// A nil accent uses the system accent.
-    init(accent theme: ThemeColor?, colorScheme: ColorScheme, isCourseThemed: Bool = false) {
+    init(accent theme: ThemeColor?, colorScheme: ColorScheme) {
         let shown = theme?.displayAccent(for: CourseAppearance(colorScheme))
         let accent = shown?.color ?? .accentColor
         let dark = colorScheme == .dark
@@ -110,7 +108,6 @@ struct GardenPalette: Equatable, Sendable {
             ThemeColor(hexValue: base).color.mix(with: accent, by: fraction, in: .device)
         }
         self.colorScheme = colorScheme
-        self.isCourseThemed = isCourseThemed
         self.accent = accent
         accentInk = dark ? accent : accent.mix(with: .black, by: 0.15, in: .device)
         onAccent = (shown ?? .systemAccent).onAccent.color
@@ -161,9 +158,9 @@ enum GardenColumnKind {
 }
 
 extension View {
-    /// Apply at the window root. A course theme sets the accent and the light or dark look of the whole window.
-    /// Without a theme (Library) the window uses the system accent. `appearance` is the app setting.
-    /// Dark and Light win over the theme appearance (#93). System uses the theme, then the system color scheme.
+    /// Apply at the window root. Every window uses the system accent (#182). The course theme sets only the light or dark look.
+    /// `appearance` is the app setting. Dark and Light win over the theme appearance (#93).
+    /// System uses the theme, then the system color scheme.
     func gardenTheme(_ theme: CourseTheme?, appearance: AppAppearance = .system) -> some View {
         modifier(GardenTheme(theme: theme, appearance: appearance))
     }
@@ -192,7 +189,8 @@ private struct GardenTheme: ViewModifier {
     func body(content: Content) -> some View {
         let resolved = appearance.resolved(course: theme?.appearance)
         let colorScheme = resolved?.colorScheme ?? systemColorScheme
-        let palette = GardenPalette(accent: theme?.accent, colorScheme: colorScheme, isCourseThemed: theme != nil)
+        // #182: the manifest accent stays valid but does not color the window. Cover image and title brand a course.
+        let palette = GardenPalette(accent: nil, colorScheme: colorScheme)
         content
             .tint(palette.accent)
             .environment(\.gardenPalette, palette)
@@ -609,9 +607,9 @@ struct GardenDesign_Previews: PreviewProvider {
 
     static var previews: some View {
         Group {
-            sample(CourseTheme(accentColor: "#286644", appearance: .light)).previewDisplayName("Course light")
-            sample(CourseTheme(accentColor: "#7FD3A0", appearance: .dark)).previewDisplayName("Course dark")
-            sample(CourseTheme(accentColor: "#FFD60A", appearance: .light)).previewDisplayName("Low-contrast accent")
+            // #182: a course window uses the system accent. The manifest accent has no effect.
+            sample(CourseTheme(accentColor: "", appearance: .light)).previewDisplayName("Course light")
+            sample(CourseTheme(accentColor: "", appearance: .dark)).previewDisplayName("Course dark")
             sample(nil).preferredColorScheme(.light).previewDisplayName("Library light")
             sample(nil).preferredColorScheme(.dark).previewDisplayName("Library dark")
         }

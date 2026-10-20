@@ -223,11 +223,6 @@ public final class LibraryModel {
         LibraryGrid.meta(courses: courses.count, inProgress: courses.filter { summary(of: $0).status == .inProgress }.count)
     }
 
-    /// The accent of a course theme, or nil for the system accent.
-    public func accent(ofCourse courseID: String) -> ThemeColor? {
-        landings[courseID]?.theme.accent
-    }
-
     /// Opens a course at its first incomplete lecture, or at the course landing if every lecture is done.
     public func openNextLecture(ofCourse courseID: String) {
         selectCourse(courseID)

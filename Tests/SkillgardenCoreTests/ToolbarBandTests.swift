@@ -57,21 +57,20 @@ private func runSnapshots(_ screens: [SnapshotScreen], into out: URL) throws -> 
         }
     }
 
-    let lightAccent = ThemeColor(hex: "#286644")!
-    let darkAccent = ThemeColor(hex: SnapshotPlan.darkThemeAccent)!
-    // The sidebar is the accent at 4% (6% in dark mode) on the sidebar gray. The page is white or #1E1E20.
-    func sidebar(_ accent: ThemeColor, _ appearance: CourseAppearance) -> [UInt8] {
-        bytes(appearance.sidebarBase.mixed(with: accent.displayAccent(for: appearance), by: appearance == .dark ? 0.06 : 0.04))
+    // The sidebar is the system accent at 4% (6% in dark mode) on the sidebar gray. The page is white or #1E1E20.
+    // #182: every course uses the system accent. The fixture accents #286644 and #7FD3A0 do not show.
+    func sidebar(_ appearance: CourseAppearance) -> [UInt8] {
+        bytes(appearance.sidebarBase.mixed(with: systemAccent(for: appearance), by: appearance == .dark ? 0.06 : 0.04))
     }
     let page: [CourseAppearance: [UInt8]] = [.light: [0xFF, 0xFF, 0xFF], .dark: [0x1E, 0x1E, 0x20]]
-    // #93: the app setting (the capture appearance) wins over the theme appearance. The theme keeps its accent.
-    let cases: [(name: String, accent: ThemeColor?, appearance: CourseAppearance)] = [
-        ("lecture-light", lightAccent, .light), ("lecture-dark", lightAccent, .dark),
-        ("course-landing-dark-theme-light", darkAccent, .light), ("course-landing-dark-theme-dark", darkAccent, .dark),
-        ("quiz-question-light", lightAccent, .light), ("quiz-question-dark", lightAccent, .dark),
-        ("library-light", nil, .light), ("library-dark", nil, .dark),
+    // #93: the app setting (the capture appearance) wins over the theme appearance.
+    let cases: [(name: String, hasSidebar: Bool, appearance: CourseAppearance)] = [
+        ("lecture-light", true, .light), ("lecture-dark", true, .dark),
+        ("course-landing-dark-theme-light", true, .light), ("course-landing-dark-theme-dark", true, .dark),
+        ("quiz-question-light", true, .light), ("quiz-question-dark", true, .dark),
+        ("library-light", false, .light), ("library-dark", false, .dark),
         // Theater hides the sidebar, so the whole toolbar row is the page band.
-        ("video-theater-light", nil, .light), ("video-theater-dark", nil, .dark),
+        ("video-theater-light", false, .light), ("video-theater-dark", false, .dark),
     ]
     for item in cases {
         let png = try #require(try? Data(contentsOf: out.appending(path: "\(item.name).png")), "\(item.name)")
@@ -79,11 +78,18 @@ private func runSnapshots(_ screens: [SnapshotScreen], into out: URL) throws -> 
         let pageOff = offPixels(png, x: SnapshotPlan.width / 2, page[item.appearance]!)
         #expect(pageOff.isEmpty, "\(item.name): the page band has \(pageOff.count) pixels not \(page[item.appearance]!), first \(pageOff.first ?? [])")
         // The sidebar band: right of the sidebar button, left of the sidebar edge. The Library home and theater have no sidebar.
-        if let accent = item.accent {
-            let expected = sidebar(accent, item.appearance)
+        if item.hasSidebar {
+            let expected = sidebar(item.appearance)
             let sidebarOff = offPixels(png, x: 200, expected)
             #expect(sidebarOff.isEmpty, "\(item.name): the sidebar band has \(sidebarOff.count) pixels not \(expected), first \(sidebarOff.first ?? [])")
         }
+    }
+    // #182: two courses with different manifest accents draw the same sidebar band.
+    for appearance in ["light", "dark"] {
+        let lecture = try #require(try? Data(contentsOf: out.appending(path: "lecture-\(appearance).png")))
+        let darkTheme = try #require(try? Data(contentsOf: out.appending(path: "course-landing-dark-theme-\(appearance).png")))
+        let x = 200 * SnapshotPlan.scale, y = 20 * SnapshotPlan.scale
+        #expect(SnapshotCheck.color(png: lecture, x: x, y: y) == SnapshotCheck.color(png: darkTheme, x: x, y: y), "\(appearance)")
     }
 }
 
