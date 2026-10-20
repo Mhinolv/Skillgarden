@@ -15,6 +15,9 @@ final class VideoPlayback {
     private(set) var endCount = 0
     /// Goes up by one each time the player starts to play. A play stops the "Up next" countdown (#99).
     private(set) var playCount = 0
+    /// True while the player is in AVKit full screen. The `AVPlayerViewDelegate` callbacks of `PlayerView` set it (#186).
+    /// Only the arrow key monitor reads it, so a change publishes no state.
+    @ObservationIgnored var isFullScreen = false
     @ObservationIgnored private let captions: WebVTT?
     @ObservationIgnored private let transcript: Transcript?
     @ObservationIgnored private var observer: Any?
@@ -237,7 +240,7 @@ struct VideoLectureView: View {
                 }
             }
         }
-        .background(VideoSkipKeys(skip: skip(by:), player: playback?.player))
+        .background(VideoSkipKeys(skip: skip(by:), isFullScreen: { playback?.isFullScreen ?? false }))
         .focusedSceneValue(\.showsTranscript, hasCaptions ? MenuToggle($showsTranscript) : nil)
         .focusedSceneValue(\.theaterMode, isUnavailable ? nil : MenuToggle($theater))
         .focusedSceneValue(\.showsQA, qaPanel.map { MenuToggle($0.isOn) })
@@ -421,7 +424,7 @@ struct VideoLectureView: View {
             .aspectRatio(16 / 9, contentMode: .fit)
             .overlay {
                 if let playback {
-                    PlayerView(player: playback.player)
+                    PlayerView(player: playback.player, fullScreenChanged: { playback.isFullScreen = $0 })
                         .overlay {
                             if showsCaptions, let text = playback.captionText { CaptionOverlay(text: text) }
                         }
@@ -681,8 +684,13 @@ private struct PageTopClip: View {
 /// The AVKit player view with inline controls and the full-screen button (#85).
 /// AVKit has no public API to start full screen from code, so only this button starts it.
 /// SwiftUI `VideoPlayer` crashes on macOS 15 when the app is built with the macOS 26 SDK (#42), so do not use it.
+/// The delegate callbacks tell the page when full screen starts and ends, so the arrows skip there (#186).
 struct PlayerView: NSViewRepresentable {
     let player: AVPlayer
+    /// Gets true before AVKit full screen starts and false after it ends.
+    var fullScreenChanged: @MainActor (Bool) -> Void = { _ in }
+
+    func makeCoordinator() -> Coordinator { Coordinator(fullScreenChanged: fullScreenChanged) }
 
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
@@ -690,39 +698,63 @@ struct PlayerView: NSViewRepresentable {
         view.showsFullScreenToggleButton = true
         view.videoGravity = .resizeAspect
         view.player = player
+        view.delegate = context.coordinator
         return view
     }
 
     func updateNSView(_ view: AVPlayerView, context: Context) {
         if view.player !== player { view.player = player }
+        context.coordinator.fullScreenChanged = fullScreenChanged
     }
 
-    static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
+    /// A removed player view is not in full screen.
+    static func dismantleNSView(_ view: AVPlayerView, coordinator: Coordinator) {
+        view.delegate = nil
         view.player = nil
+        coordinator.fullScreenChanged(false)
+    }
+
+    /// AVKit calls the delegate on the main thread.
+    @MainActor final class Coordinator: NSObject, @preconcurrency AVPlayerViewDelegate {
+        var fullScreenChanged: @MainActor (Bool) -> Void
+
+        init(fullScreenChanged: @escaping @MainActor (Bool) -> Void) {
+            self.fullScreenChanged = fullScreenChanged
+        }
+
+        /// Set before the transition, so an arrow during the transition skips and AVKit does not frame step.
+        func playerViewWillEnterFullScreen(_ playerView: AVPlayerView) {
+            fullScreenChanged(true)
+        }
+
+        /// Clear after the transition. The page window then skips as before (#104).
+        func playerViewDidExitFullScreen(_ playerView: AVPlayerView) {
+            fullScreenChanged(false)
+        }
     }
 }
 
 /// The Left Arrow and Right Arrow skip of a video lecture page (#104).
 /// A local key monitor runs before the first responder, so the AVKit frame step does not run on the page.
 /// The monitor is on while the view is in a window. It returns the event for a text field, the sidebar (any `NSTableView`),
-/// a modifier, a sheet or another key window. The AVKit full-screen window of the page player also skips (#177).
+/// a modifier, a sheet or another key window. While the page player is in AVKit full screen, its key window also skips (#177, #186).
 private struct VideoSkipKeys: NSViewRepresentable {
     /// Gets −10 or +10. Returns false when the page does not take the key.
     let skip: @MainActor (Double) -> Bool
-    /// The player of the page. Nil before the first play. The AVKit full-screen window shows it (#177).
-    let player: AVPlayer?
+    /// True while the page player is in AVKit full screen. The `PlayerView` delegate callbacks set the state (#186).
+    let isFullScreen: @MainActor () -> Bool
 
     func makeNSView(context: Context) -> MonitorView {
         let view = MonitorView()
         view.skip = skip
-        view.player = player
+        view.isFullScreen = isFullScreen
         return view
     }
 
-    /// The closure reads the current page state, so each update replaces it.
+    /// The closures read the current page state, so each update replaces them.
     func updateNSView(_ view: MonitorView, context: Context) {
         view.skip = skip
-        view.player = player
+        view.isFullScreen = isFullScreen
     }
 
     static func dismantleNSView(_ view: MonitorView, coordinator: ()) {
@@ -731,7 +763,7 @@ private struct VideoSkipKeys: NSViewRepresentable {
 
     final class MonitorView: NSView {
         var skip: @MainActor (Double) -> Bool = { _ in false }
-        weak var player: AVPlayer?
+        var isFullScreen: @MainActor () -> Bool = { false }
         private var monitor: Any?
 
         override func viewDidMoveToWindow() {
@@ -750,41 +782,17 @@ private struct VideoSkipKeys: NSViewRepresentable {
         }
 
         /// A held key repeats the skip at the system repeat rate.
-        /// AVKit full screen moves the player to its own key window, so that window also skips (#177).
+        /// AVKit full screen moves the player to its own key window. The delegate state, not a view search, lets that window skip (#186).
         private func handle(_ event: NSEvent) -> Bool {
             guard let window, let eventWindow = event.window else { return false }
             let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
-            // The view search runs only for an arrow from another window.
-            guard VideoSkip.delta(keyCode: event.keyCode, hasModifiers: !modifiers.isEmpty) != nil else { return false }
-            let isPage = eventWindow === window
-            let context = VideoSkip.EventWindow(isPage: isPage, hostsPlayer: !isPage && hostsPlayer(eventWindow),
+            let context = VideoSkip.EventWindow(isPage: eventWindow === window, playerIsFullScreen: isFullScreen(),
                                                 isKey: eventWindow.isKeyWindow, hasSheet: eventWindow.attachedSheet != nil,
                                                 keepsArrows: Self.keepsArrows(eventWindow.firstResponder))
             guard let delta = VideoSkip.delta(keyCode: event.keyCode, hasModifiers: !modifiers.isEmpty, in: context) else {
                 return false
             }
             return skip(delta)
-        }
-
-        /// True if `eventWindow` has an `AVPlayerView` or an `AVPlayerLayer` that shows the player of this page.
-        private func hostsPlayer(_ eventWindow: NSWindow) -> Bool {
-            guard let player, let root = eventWindow.contentView?.superview ?? eventWindow.contentView else { return false }
-            var views = [root]
-            while let view = views.popLast() {
-                if let playerView = view as? AVPlayerView, playerView.player === player { return true }
-                if let layer = view.layer, Self.hasPlayerLayer(layer, of: player) { return true }
-                views.append(contentsOf: view.subviews)
-            }
-            return false
-        }
-
-        private static func hasPlayerLayer(_ root: CALayer, of player: AVPlayer) -> Bool {
-            var layers = [root]
-            while let layer = layers.popLast() {
-                if let playerLayer = layer as? AVPlayerLayer, playerLayer.player === player { return true }
-                layers.append(contentsOf: layer.sublayers ?? [])
-            }
-            return false
         }
 
         /// A text field (its field editor is an `NSText`) and the sidebar outline keep the arrows.

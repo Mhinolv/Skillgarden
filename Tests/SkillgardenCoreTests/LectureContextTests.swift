@@ -98,9 +98,10 @@ private func ready(_ outcome: LectureContextOutcome) throws -> LectureContext {
             After each fact,
             """))
         #expect(!prompt.systemPrompt.contains("Do not summarize"))
-        // #171: one ID, of the first passage, for each fact.
+        // #171: one ID, of the first passage, for each fact. #185: square brackets and no ranges.
         #expect(prompt.systemPrompt.hasSuffix("After each fact, put the ID of the first passage that states it, for example [t0]. "
-            + "Give one ID for each fact. Do not add IDs of later passages that repeat it.\n\nPassages:\n"
+            + "Give one ID for each fact. Do not add IDs of later passages that repeat it. "
+            + "Use square brackets. Do not write ranges such as [t3-5].\n\nPassages:\n"
             + "[t0] Dig a bed in the sun.\n[t1] Mulch keeps the soil wet."))
         #expect(prompt.estimatedTokens == context.estimatedTokens)
         #expect(context.estimatedTokens <= LectureContextBudget.standard.promptTokens)

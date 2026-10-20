@@ -146,6 +146,9 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case notesPage = "notes-page"
     /// The course Notes page with no notes (#181).
     case notesPageEmpty = "notes-page-empty"
+    /// The Q&A panel with the Anthropic API profile (#185): an answer with a range marker, a `(t1)` marker and a range
+    /// with no valid ID. It shows three markers and three chips.
+    case qaCitationRanges = "qa-citation-ranges"
 
     static let settingsScreens: [SnapshotScreen] = [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
                                                     .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError,
@@ -210,14 +213,15 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// True when the harness gives the fixture provider profiles to Settings and the Q&A panel (#151).
     public var usesProviderProfiles: Bool {
-        [.settingsProviders, .qaConsent, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic].contains(self)
+        [.settingsProviders, .qaConsent, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic,
+         .qaCitationRanges].contains(self)
     }
 
     /// The "Answer with" profile of `usesProviderProfiles`: LM Studio on `qa-external-local` (#152),
-    /// the Anthropic API on `qa-anthropic` (#154), else the OpenAI API.
+    /// the Anthropic API on `qa-anthropic` (#154) and `qa-citation-ranges` (#185), else the OpenAI API.
     public var selectedProviderID: String? {
         guard usesProviderProfiles else { return nil }
-        return SnapshotPlan.providerProfiles[self == .qaExternalLocal ? 1 : self == .qaAnthropic ? 2 : 0].id
+        return SnapshotPlan.providerProfiles[self == .qaExternalLocal ? 1 : [.qaAnthropic, .qaCitationRanges].contains(self) ? 2 : 0].id
     }
 
     /// The provider sheet that the harness draws in place of the window (#152), with its injected test result and the
@@ -366,7 +370,7 @@ public enum SnapshotPlan {
              .videoQuickCheck, .videoTheater, .lectureSources, .videoUpNext, .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft,
              .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaArticle, .qaTheater, .qaCitations, .qaCitationExcerpt,
              .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote, .qaExternalLocal,
-             .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .notesArticleEmpty:
+             .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .notesArticleEmpty, .qaCitationRanges:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -565,6 +569,10 @@ public enum SnapshotPlan {
             [("How long is the course?", "The course has two sections. The first section shows the plan [t1], and the", .incomplete)]
         case .qaAuthError:
             [("Which tools do I need?", "", .refused(reason: OpenAIErrors.rejectedKeyText))]
+        case .qaCitationRanges:
+            // #185: a remote model writes a range and parentheses. "(v2)" is prose and stays text.
+            [("How does the course start?", "It starts with a welcome [t0-1].\nThen you plan the course (t1) with outline (v2).\n"
+                + "The guide has more help [t5-9].", .finished)]
         default: []
         }
     }
@@ -582,7 +590,7 @@ public enum SnapshotPlan {
         switch screen {
         case .qaRemote, .qaIncomplete, .qaAuthError: AnswerOrigin(providerID: providerProfiles[0].id, modelID: providerProfiles[0].modelID)
         case .qaExternalLocal: AnswerOrigin(providerID: providerProfiles[1].id, modelID: providerProfiles[1].modelID)
-        case .qaAnthropic: AnswerOrigin(providerID: providerProfiles[2].id, modelID: providerProfiles[2].modelID)
+        case .qaAnthropic, .qaCitationRanges: AnswerOrigin(providerID: providerProfiles[2].id, modelID: providerProfiles[2].modelID)
         default: snapshotOrigin
         }
     }
@@ -693,7 +701,7 @@ public enum SnapshotPlan {
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
              .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions,
              .qaTheater, .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
-             .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo:
+             .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .qaCitationRanges:
             .lecture(sectionID: "plan", lectureID: "welcome")
         case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle, .qaCitationExcerpt, .notesArticleEmpty:
             .lecture(sectionID: "plan", lectureID: "read")

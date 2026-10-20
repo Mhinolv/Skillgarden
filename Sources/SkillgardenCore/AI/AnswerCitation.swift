@@ -160,7 +160,15 @@ public struct AnswerCitations: Equatable, Sendable {
             if !anchors.contains(value) { anchors.append(value) }
             return value
         }
-        let matches = answer.matches(of: Self.marker)
+        // #185: a range shows its valid IDs, so the group rules below keep its earliest video cue. A range of another kind
+        // shows its first valid ID. A range with no valid ID is one unknown marker.
+        func displayIDs(_ part: Part) -> [String] {
+            guard part.isRange else { return part.ids }
+            let valid = part.ids.filter { context?.passage(id: $0) != nil }
+            guard let first = valid.first ?? part.ids.first else { return [] }
+            return seekTime(of: first) != nil ? valid : [first]
+        }
+        let matches = Self.markers(in: answer, context: context)
         var index = matches.startIndex
         while index < matches.endIndex {
             let before = rest[..<matches[index].range.lowerBound]
@@ -173,7 +181,7 @@ public struct AnswerCitations: Equatable, Sendable {
                 let match = matches[end]
                 let leading = end == index ? answer[match.range.lowerBound..<match.range.lowerBound]
                     : answer[matches[end - 1].range.upperBound..<match.range.lowerBound]
-                group.append((leading, Self.passageIDs(of: match)))
+                group.append((leading, match.parts.flatMap(displayIDs)))
                 end += 1
             } while end < matches.endIndex
                 && answer[matches[end - 1].range.upperBound..<matches[end].range.lowerBound].allSatisfy { $0 == " " || $0 == "\t" }
@@ -205,19 +213,56 @@ public struct AnswerCitations: Equatable, Sendable {
         styled = Self.styled(segments)
     }
 
-    /// `[t12]`, `[a3]` and lists such as `[t1, t2]`. A letter must come first, so `[1]` and `[x]` stay plain text.
-    nonisolated(unsafe) static let marker = /\[\s*([A-Za-z]{1,3}\d{1,6}(?:\s*[,;]\s*[A-Za-z]{1,3}\d{1,6})*)\s*\]/
+    /// `[t12]`, `[a3]`, lists such as `[t1, t2]` and ranges such as `[t32-36]` or `[t32-t36]` (#185). A letter must come
+    /// first, so `[1]` and `[x]` stay plain text. The second capture is the same list in parentheses, such as `(t5)`.
+    nonisolated(unsafe) static let marker =
+        /\[\s*([A-Za-z]{1,3}\d{1,6}(?:\s*[-–]\s*[A-Za-z]{0,3}\d{1,6})?(?:\s*[,;]\s*[A-Za-z]{1,3}\d{1,6}(?:\s*[-–]\s*[A-Za-z]{0,3}\d{1,6})?)*)\s*\]|\(\s*([A-Za-z]{1,3}\d{1,6}(?:\s*[-–]\s*[A-Za-z]{0,3}\d{1,6})?(?:\s*[,;]\s*[A-Za-z]{1,3}\d{1,6}(?:\s*[-–]\s*[A-Za-z]{0,3}\d{1,6})?)*)\s*\)/
 
     /// A video cue that starts this many seconds or less after a cue cited in the same line shows the number of that cue (#171).
     static let mergeSeconds: Double = 30
 
+    /// A range with more IDs is one unknown marker (#185).
+    static let maximumRangeIDs = 50
+
+    /// One item of a marker list: one ID, or the IDs of a range. An invalid range is one ID that is never a passage,
+    /// such as `t3-a5`, so it shows as unknown.
+    private typealias Part = (ids: [String], isRange: Bool)
+
     /// The passage IDs of the markers in `answer`, in order, before the #171 merge. The #130 check grades citations with them.
-    static func passageIDs(in answer: String) -> [String] {
-        answer.matches(of: marker).flatMap(passageIDs(of:))
+    /// A valid range gives each of its IDs. A parenthesis marker counts only with `context`, as in the panel.
+    static func passageIDs(in answer: String, context: LectureContext? = nil) -> [String] {
+        markers(in: answer, context: context).flatMap { $0.parts.flatMap(\.ids) }
     }
 
-    private static func passageIDs(of match: Regex<(Substring, Substring)>.Match) -> [String] {
-        match.output.1.split(whereSeparator: { $0 == "," || $0 == ";" }).map { $0.trimmingCharacters(in: .whitespaces) }
+    /// The markers of `answer` in order. A parenthesis marker counts only when each of its IDs is a passage of `context`,
+    /// so prose such as "(v2)" stays text (#185).
+    private static func markers(in answer: String, context: LectureContext?) -> [(range: Range<String.Index>, parts: [Part])] {
+        answer.matches(of: marker).compactMap { match in
+            if let list = match.output.1 { return (match.range, parts(of: list)) }
+            guard let list = match.output.2, let context else { return nil }
+            let parts = parts(of: list)
+            guard parts.allSatisfy({ $0.ids.allSatisfy { context.passage(id: $0) != nil } }) else { return nil }
+            return (match.range, parts)
+        }
+    }
+
+    private static func parts(of list: Substring) -> [Part] {
+        list.split(whereSeparator: { $0 == "," || $0 == ";" }).map { item in
+            let bounds = item.split(whereSeparator: { $0 == "-" || $0 == "–" }).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard bounds.count == 2 else { return ([item.trimmingCharacters(in: .whitespaces)], false) }
+            return (range(from: bounds[0], to: bounds[1]) ?? [item.filter { !$0.isWhitespace }], true)
+        }
+    }
+
+    /// The IDs from `first` to `last`, such as `t32` to `36` or `t36`. Nil for other letters, a reversed range or more
+    /// than `maximumRangeIDs` IDs.
+    private static func range(from first: String, to last: String) -> [String]? {
+        let letters = first.prefix(while: \.isLetter)
+        let lastLetters = last.prefix(while: \.isLetter)
+        guard lastLetters.isEmpty || lastLetters == letters,
+              let start = Int(first.dropFirst(letters.count)), let end = Int(last.dropFirst(lastLetters.count)),
+              start <= end, end - start < maximumRangeIDs else { return nil }
+        return (start...end).map { "\(letters)\($0)" }
     }
 
     /// The marker text: `[1]`, or `[?]`.

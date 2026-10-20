@@ -115,7 +115,7 @@ public struct LectureContext: Equatable, Sendable {
         If general knowledge differs from the lecture, say what the lecture says, then explain the difference.
         Never say that the instructor said something that is not in the passages.
         After each fact, put the ID of the first passage that states it, for example [\(exampleID)]. Give one ID for each fact. \
-        Do not add IDs of later passages that repeat it.
+        Do not add IDs of later passages that repeat it. Use square brackets. Do not write ranges such as [t3-5].
         \(isPartial ? "The passages are only the parts of the lecture that match the question. Do not summarize the whole lecture.\n" : "")
         Passages:
         """
