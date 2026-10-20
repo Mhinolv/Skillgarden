@@ -132,7 +132,7 @@ func themeColorRejectsAnyFormOtherThanSixHexDigits(_ value: String) {
     let course = try #require(library.selectedCourse)
     #expect(course.title == "Local Course Basics")
     #expect(course.subtitle == "A course for the Skillgarden sample")
-    #expect(course.image?.alt == "A green garden with two plants")
+    #expect(course.image?.alt == "Local Course Basics, with a notebook and leafy branch on pale green.")
     let landing = try #require(library.selectedLanding)
     #expect(landing.description == "Learn how to plan and complete a local course.")
     #expect(landing.learningOutcomes == ["Plan a course", "Check your work"])
