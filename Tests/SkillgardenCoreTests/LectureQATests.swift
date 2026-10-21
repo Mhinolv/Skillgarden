@@ -553,6 +553,13 @@ private func lockStore(_ library: LibraryModel) throws -> () -> Void {
     }
 }
 
+// #209: store calls run on the store queue, not on the cooperative pool. A busy store waits there for up to 5 seconds,
+// so the other tasks keep their threads.
+@Test func storeCallsRunOffTheCooperativePool() async throws {
+    let label = try await onStoreQueue { String(cString: __dispatch_queue_get_label(nil)) }
+    #expect(label == "Skillgarden.store")
+}
+
 @MainActor @Test func draftChangesAreThrottled() async throws {
     try await withLibrary { library throws in
         open(library, "read")
