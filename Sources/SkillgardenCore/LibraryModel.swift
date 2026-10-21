@@ -541,7 +541,9 @@ public final class LibraryModel {
     }
 
     /// Saves the end of a request: the last `AnswerUpdate.ended` outcome and text (#127).
-    public func finishQATurn(_ turn: QATurn, outcome: AnswerOutcome, text: String) {
+    /// The task gives false when the store refuses the save (#209). A turn that is not pending any more is not a failure.
+    @discardableResult
+    public func finishQATurn(_ turn: QATurn, outcome: AnswerOutcome, text: String) -> Task<Bool, Never> {
         enqueueWrite { try $0.finishQATurn(id: turn.id, status: QATurnStatus(outcome: outcome), answer: text) }
     }
 
@@ -552,7 +554,9 @@ public final class LibraryModel {
     }
 
     /// Removes one Q&A turn (#170). The course id comes from the caller, so a late request removes the turn of its own course.
-    public func removeQATurn(_ turn: QATurn, courseID: String, lectureID: String) {
+    /// The task gives false when the store refuses the delete (#209).
+    @discardableResult
+    public func removeQATurn(_ turn: QATurn, courseID: String, lectureID: String) -> Task<Bool, Never> {
         enqueueWrite { try $0.removeQATurn(id: turn.id, courseID: courseID, lectureID: lectureID) }
     }
 

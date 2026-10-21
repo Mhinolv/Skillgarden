@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SQLite3
 import Testing
 @testable import SkillgardenCore
 
@@ -367,11 +368,11 @@ private func ask(_ qa: LectureQA, _ question: String, answer: String, transport:
         let parses = qa.citationParseCount
         announcements.texts = []
 
-        qa.remove(removed)
+        #expect(await qa.remove(removed))
         #expect(qa.conversation.turns.map(\.question) == ["What is step two?"])
         #expect(announcements.texts == ["Question removed"])
         // The second remove of the same turn does nothing.
-        qa.remove(removed)
+        #expect(await !qa.remove(removed))
         #expect(announcements.texts == ["Question removed"])
         await library.waitForWrites()
         #expect(try await library.lectureConversation(forLecture: "read")?.turns.map(\.question) == ["What is step two?"])
@@ -397,7 +398,7 @@ private func ask(_ qa: LectureQA, _ question: String, answer: String, transport:
         #expect(!consent.exactText.contains("What is step one?"))
 
         // The last turn empties the thread.
-        qa.remove(qa.conversation.turns[0])
+        #expect(await qa.remove(qa.conversation.turns[0]))
         #expect(qa.conversation.turns.isEmpty && !qa.hasHistory)
         #expect(try await library.lectureConversation(forLecture: "read")?.turns == [])
     }
@@ -442,6 +443,113 @@ private func ask(_ qa: LectureQA, _ question: String, answer: String, transport:
         // No draft: nothing happens.
         qa.removeDraft()
         #expect(qa.conversation.turns.count == 2)
+    }
+}
+
+/// Another connection holds a write lock on the library database, so each store write fails after the busy timeout.
+/// The returned closure releases the lock.
+@MainActor
+private func lockStore(_ library: LibraryModel) throws -> () -> Void {
+    var handle: OpaquePointer?
+    let path = library.root.appending(path: "library.sqlite").path
+    #expect(sqlite3_open_v2(path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK)
+    #expect(sqlite3_exec(handle, "BEGIN EXCLUSIVE", nil, nil, nil) == SQLITE_OK)
+    return {
+        sqlite3_exec(handle, "ROLLBACK", nil, nil, nil)
+        sqlite3_close(handle)
+    }
+}
+
+// #209: a locked store refuses the final save. The draft keeps the full answer until the save succeeds.
+@MainActor @Test func failedFinalSaveKeepsTheAnswerText() async throws {
+    try await withLibrary { library throws in
+        open(library, "read")
+        let transport = ScriptedTransport()
+        let announcements = Announcements()
+        let qa = model(library, transport: transport, announcements: announcements)
+        qa.show(LectureQA.key(library: library))
+        await qa.load()
+        #expect(qa.send("What is step one?"))
+        let stream = try await transport.stream(0)
+        stream.yield(.response(status: 200))
+        stream.yield(.data(chunk("Write")))
+        try await until { qa.draft?.text == "Write" }
+
+        let unlock = try lockStore(library)
+        stream.yield(.data(chunk(" the goal.", finish: "stop")))
+        stream.finish()
+        await qa.waitForRequest()
+        #expect(qa.draft?.text == "Write the goal.")
+        #expect(qa.draft?.saveFailed == true && qa.isAnswering)
+        #expect(qa.conversation.turns.isEmpty)
+        #expect(announcements.texts == ["Couldn't save this answer."])
+        // The draft has no request, so Cancel does nothing.
+        qa.cancel()
+        #expect(qa.draft?.saveFailed == true)
+
+        // Another failure: the label stays and the text stays.
+        qa.retrySave()
+        await qa.waitForRequest()
+        #expect(qa.draft?.text == "Write the goal." && qa.draft?.saveFailed == true)
+        #expect(announcements.texts == ["Couldn't save this answer.", "Couldn't save this answer."])
+
+        // Retry saves the same text. It does not ask the model again.
+        unlock()
+        qa.retrySave()
+        await qa.waitForRequest()
+        #expect(qa.draft == nil && !qa.isAnswering)
+        #expect(qa.conversation.turns.map(\.answer) == ["Write the goal."])
+        #expect(qa.conversation.turns.map(\.status) == [.complete])
+        #expect(announcements.texts.last == "Answer ready")
+        #expect(transport.requestCount == 1)
+        #expect(try await library.lectureConversation(forLecture: "read")?.turns.map(\.status) == [.complete])
+        // No failed draft: Retry does nothing.
+        qa.retrySave()
+        #expect(qa.draft == nil)
+
+        // "Remove" of a draft whose save failed saves no turn.
+        #expect(qa.send("What is step two?"))
+        let second = try await transport.stream(1)
+        second.yield(.response(status: 200))
+        let relock = try lockStore(library)
+        second.yield(.data(chunk("List the tasks.", finish: "stop")))
+        second.finish()
+        await qa.waitForRequest()
+        relock()
+        #expect(qa.draft?.saveFailed == true)
+        qa.removeDraft()
+        #expect(qa.draft == nil)
+        await library.waitForWrites()
+        #expect(try await library.lectureConversation(forLecture: "read")?.turns.map(\.question) == ["What is step one?"])
+    }
+}
+
+// #209: a locked store refuses the delete. The turn stays in the thread, because it stays on disk.
+@MainActor @Test func failedDeleteKeepsTheTurn() async throws {
+    try await withLibrary { library throws in
+        open(library, "read")
+        let transport = ScriptedTransport()
+        let announcements = Announcements()
+        let qa = model(library, transport: transport, announcements: announcements)
+        qa.show(LectureQA.key(library: library))
+        await qa.load()
+        try await ask(qa, "What is step one?", answer: "Write the goal.", transport: transport, index: 0)
+        let turn = try #require(qa.conversation.turns.first)
+        announcements.texts = []
+
+        let unlock = try lockStore(library)
+        #expect(await !qa.remove(turn))
+        unlock()
+        #expect(qa.conversation.turns.map(\.id) == [turn.id])
+        #expect(qa.removeFailedTurnIDs == [turn.id])
+        #expect(try await library.lectureConversation(forLecture: "read")?.turns.map(\.id) == [turn.id])
+        #expect(announcements.texts == ["Couldn't remove this question. Try again."])
+
+        // The second try removes the turn and the label.
+        #expect(await qa.remove(turn))
+        #expect(qa.conversation.turns.isEmpty && qa.removeFailedTurnIDs.isEmpty)
+        #expect(announcements.texts.last == "Question removed")
+        #expect(try await library.lectureConversation(forLecture: "read")?.turns == [])
     }
 }
 
