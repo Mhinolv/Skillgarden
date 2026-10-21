@@ -142,7 +142,8 @@ private func model(_ library: LibraryModel, transport: ScriptedTransport, interv
     #expect(qa.hasHistory)
     #expect(state.showsTurns(hasHistory: qa.hasHistory))
     let turn = try #require(qa.conversation.turns.first)
-    #expect(qa.citations(for: turn).sources.count == 3)
+    // #203: one video source and one unknown source.
+    #expect(qa.citations(for: turn).sources.count == 2)
     #expect(!qa.send("Another question?"))
 
     qa.clearHistory()

@@ -469,15 +469,15 @@ private func temporaryFolder() throws -> URL {
                 #expect(turns.map(\.status.opensSettings) == [false, false, true, false])
                 #expect(turns.allSatisfy { conversation.canRetry($0) && $0.origin.providerID == "snapshot-anthropic" })
             case .qaCitationRanges:
-                // #185: three markers and three chips. The stored answer keeps the raw range text.
+                // #185: the stored answer keeps the raw range text. #203: `(t1)` merges with the cue at 0:00 in the line before.
                 guard case .ready(let lecture) = context else { break }
                 let turn = try #require(turns.first)
                 #expect(turns.map(\.status) == [.complete] && turn.origin.providerID == "snapshot-anthropic")
                 #expect(turn.answer.contains("[t0-1]"))
                 let citations = AnswerCitations(answer: turn.answer, context: lecture, isStale: false)
-                #expect(citations.text == "It starts with a welcome [1].\nThen you plan the course [2] with outline (v2).\n"
+                #expect(citations.text == "It starts with a welcome [1].\nThen you plan the course [1] with outline (v2).\n"
                     + "The guide has more help [?].")
-                #expect(citations.sources.map(\.title) == ["1 · 0:00", "2 · 0:02", "? · Unknown source"])
+                #expect(citations.sources.map(\.title) == ["1 · 0:00", "? · Unknown source"])
             case .qaGuardEmpty:
                 // #192: the echo turn saved no text. It shows the fixed failure text with Retry.
                 #expect(turns.map(\.answer) == ["You plan a course step by step [t1].", ""])
