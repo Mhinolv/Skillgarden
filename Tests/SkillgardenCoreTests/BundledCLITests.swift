@@ -66,37 +66,129 @@ private func expectedVersion() throws -> String {
     return version.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "skillgarden ", with: "")
 }
 
-/// #107: the app bundle holds the CLI in Contents/Helpers, not next to the app binary in Contents/MacOS.
-@Test func bundleScriptPutsTheCLIInHelpers() throws {
-    let root = try temporaryFolder()
-    defer { try? FileManager.default.removeItem(at: root) }
+/// A repository copy with bundle_app.sh, a stub build.sh that logs its calls, the icon and a prepared llama.cpp runtime.
+/// `products` lists the configurations that get stub build products. The stub CLI prints its configuration for `--version`.
+private func bundleRepository(in root: URL, products: [String] = ["debug", "release"]) throws -> (script: URL, llama: URL) {
     let scripts = root.appending(path: "scripts")
-    let debug = root.appending(path: ".build/debug")
     let icon = root.appending(path: "assets/AppIcon")
-    for folder in [scripts, debug, icon] {
+    for folder in [scripts, icon] {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     }
     try FileManager.default.copyItem(at: repo.appending(path: "scripts/bundle_app.sh"), to: scripts.appending(path: "bundle_app.sh"))
     let stub = scripts.appending(path: "build.sh")
     try "#!/bin/sh\necho \"build $*\" >> build.log\n".write(to: stub, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
-    try Data("app".utf8).write(to: debug.appending(path: "SkillgardenApp"))
-    try FileManager.default.copyItem(at: try builtCLI(), to: debug.appending(path: "skillgarden"))
-    try Data("host".utf8).write(to: debug.appending(path: "SkillgardenAIHost"))
+    for configuration in products {
+        let folder = root.appending(path: ".build/\(configuration)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("app \(configuration)".utf8).write(to: folder.appending(path: "SkillgardenApp"))
+        let cli = folder.appending(path: "skillgarden")
+        try "#!/bin/sh\necho \"skillgarden \(configuration)\"\n".write(to: cli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+        try Data("host \(configuration)".utf8).write(to: folder.appending(path: "SkillgardenAIHost"))
+    }
     try Data("icon".utf8).write(to: icon.appending(path: "AppIcon.icns"))
     let llama = root.appending(path: "llama")
     try makeLlamaRuntime(at: llama, manifest: root.appending(path: "assets/llama.cpp/runtime.json"), server: try builtCLI())
+    return (scripts.appending(path: "bundle_app.sh"), llama)
+}
 
-    let bundle = try run(URL(fileURLWithPath: "/bin/zsh"), [scripts.appending(path: "bundle_app.sh").path], in: root,
-                         environment: ["SKILLGARDEN_LLAMA_DIR": llama.path])
+private func runBundle(_ arguments: [String], in root: URL, llama: URL) throws -> Run {
+    let script = root.appending(path: "scripts/bundle_app.sh")
+    return try run(URL(fileURLWithPath: "/bin/zsh"), [script.path] + arguments, in: root, environment: ["SKILLGARDEN_LLAMA_DIR": llama.path])
+}
+
+private func buildLog(in root: URL) -> String? {
+    try? String(contentsOf: root.appending(path: "build.log"), encoding: .utf8)
+}
+
+/// #107: the app bundle holds the CLI in Contents/Helpers, not next to the app binary in Contents/MacOS.
+@Test func bundleScriptPutsTheCLIInHelpers() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (_, llama) = try bundleRepository(in: root)
+    try FileManager.default.removeItem(at: root.appending(path: ".build/debug/skillgarden"))
+    try FileManager.default.copyItem(at: try builtCLI(), to: root.appending(path: ".build/debug/skillgarden"))
+
+    let bundle = try runBundle([], in: root, llama: llama)
     #expect(bundle.status == 0, "\(bundle.errorText)")
-    let log = try String(contentsOf: root.appending(path: "build.log"), encoding: .utf8)
-    #expect(log == "build --product SkillgardenApp\nbuild --product skillgarden\nbuild --product SkillgardenAIHost\n")
     let contents = root.appending(path: "build/Skillgarden.app/Contents")
     let cli = contents.appending(path: "Helpers/skillgarden")
     #expect(FileManager.default.isExecutableFile(atPath: cli.path))
     #expect(try FileManager.default.contentsOfDirectory(atPath: contents.appending(path: "MacOS").path) == ["Skillgarden"])
     #expect(try run(cli, ["--version"], in: root, path: "/var/empty").status == 0)
+}
+
+/// #211: all three executables come from the chosen configuration. No argument means debug.
+@Test(arguments: [([String](), "debug"), (["debug"], "debug"), (["release"], "release")])
+func bundleScriptUsesTheChosenConfiguration(arguments: [String], configuration: String) throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (_, llama) = try bundleRepository(in: root)
+
+    let bundle = try runBundle(arguments, in: root, llama: llama)
+    #expect(bundle.status == 0, "\(bundle.errorText)")
+    #expect(bundle.errorText.isEmpty)
+    #expect(bundle.output.hasSuffix("\nBundled Skillgarden (\(configuration)) into build/Skillgarden.app\n"))
+    #expect(buildLog(in: root) == ["SkillgardenApp", "skillgarden", "SkillgardenAIHost"]
+        .map { "build --configuration \(configuration) --product \($0)\n" }.joined())
+    let contents = root.appending(path: "build/Skillgarden.app/Contents")
+    #expect(try String(contentsOf: contents.appending(path: "MacOS/Skillgarden"), encoding: .utf8) == "app \(configuration)")
+    #expect(try String(contentsOf: contents.appending(path: "Helpers/SkillgardenAIHost"), encoding: .utf8) == "host \(configuration)")
+    let cli = try run(contents.appending(path: "Helpers/skillgarden"), ["--version"], in: root)
+    #expect(cli.output == "skillgarden \(configuration)\n")
+}
+
+/// #211: a later bundle in the other configuration replaces every executable of the earlier one.
+@Test func bundleScriptDoesNotKeepExecutablesFromAnEarlierConfiguration() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (_, llama) = try bundleRepository(in: root)
+    #expect(try runBundle(["release"], in: root, llama: llama).status == 0)
+    #expect(try runBundle(["debug"], in: root, llama: llama).status == 0)
+
+    let contents = root.appending(path: "build/Skillgarden.app/Contents")
+    for file in ["MacOS/Skillgarden", "Helpers/skillgarden", "Helpers/SkillgardenAIHost"] {
+        let text = try String(contentsOf: contents.appending(path: file), encoding: .utf8)
+        #expect(text.contains("debug") && !text.contains("release"), "\(file)")
+    }
+}
+
+/// #211: help goes to stdout. An unknown value prints the usage to stderr, exits 2 and builds nothing.
+@Test func bundleScriptPrintsUsageForHelpAndUnknownValues() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (_, llama) = try bundleRepository(in: root)
+    let usage = "usage: scripts/bundle_app.sh [debug|release]\n"
+
+    for flag in ["-h", "--help"] {
+        let help = try runBundle([flag], in: root, llama: llama)
+        #expect(help.status == 0)
+        #expect(help.output == usage)
+        #expect(help.errorText.isEmpty)
+    }
+    for arguments in [["Release"], ["profile"], [""], ["release", "debug"]] {
+        let unknown = try runBundle(arguments, in: root, llama: llama)
+        #expect(unknown.status == 2, "\(arguments)")
+        #expect(unknown.output.isEmpty)
+        #expect(unknown.errorText == usage)
+    }
+    #expect(buildLog(in: root) == nil)
+    #expect(!FileManager.default.fileExists(atPath: root.appending(path: "build/Skillgarden.app").path))
+}
+
+/// #211: a missing release product stops the script. It does not copy the debug product in its place.
+@Test func bundleScriptStopsWhenAProductOfTheConfigurationIsMissing() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (_, llama) = try bundleRepository(in: root)
+    try FileManager.default.removeItem(at: root.appending(path: ".build/release/SkillgardenAIHost"))
+
+    let bundle = try runBundle(["release"], in: root, llama: llama)
+    #expect(bundle.status == 1)
+    #expect(bundle.output.isEmpty)
+    #expect(bundle.errorText == "error: .build/release/SkillgardenAIHost not found\n")
+    #expect(!FileManager.default.fileExists(atPath: root.appending(path: "build/Skillgarden.app").path))
 }
 
 /// #107: help and validate run from the bundled binary with no `swift` on PATH and no resource bundle beside it.
