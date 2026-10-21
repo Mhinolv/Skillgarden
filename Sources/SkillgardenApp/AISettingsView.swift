@@ -138,7 +138,8 @@ enum ModelChooser {
 }
 
 /// The Settings "Q&A" section (#151): the app-wide "Answer with" choice, one row for each provider profile, and the footer.
-/// "Add Provider" lists only kinds with a shipped adapter: LM Studio and Ollama (#152), then the OpenAI API (#153).
+/// "Add Provider" lists only kinds with a shipped adapter: LM Studio and Ollama (#152), then the OpenAI API (#153),
+/// then OpenRouter and a custom HTTPS endpoint after a divider (#155).
 /// "ChatGPT Plan…" (#156) is last, after a divider. "Answer with" lists a ChatGPT plan after the learner chose its model (#157).
 struct QAProvidersSection: View {
     let providers: ProviderSettings
@@ -207,6 +208,11 @@ struct QAProvidersSection: View {
                 Section(AnswerProviderKind.api.title) {
                     ForEach(APIService.allCases) { service in
                         Button(service.menuTitle) { editing = .preset(service) }
+                    }
+                    // OpenRouter and a custom HTTPS endpoint (#155) come after the fixed services.
+                    Divider()
+                    ForEach(CompatibleEndpoint.allCases) { endpoint in
+                        Button(endpoint.menuTitle) { editing = .preset(endpoint) }
                     }
                 }
             }
@@ -504,6 +510,9 @@ final class SystemChatGPTBrowser: NSObject, ChatGPTBrowser, ASWebAuthenticationP
 /// An external local server (#152) has the fields Name, Base URL, Model ID and an optional token, with a red caption
 /// under an invalid field and the footer of its preset. An API service, OpenAI (#153) or Anthropic (#154), has a fixed host,
 /// the API key, Model ID and Output limit. A saved key is never shown.
+/// OpenRouter (#155) has the fixed host, the key, Model ID, the upstreams, the fallback and the data policy. A custom HTTPS
+/// endpoint has Name, Base URL with the request URL caption, an optional key and Model ID. A new host or upstream list
+/// asks "Change the destination?" before "Save".
 struct ProviderSheet: View {
     let providers: ProviderSettings
     @State private var profile: ProviderProfile
@@ -513,6 +522,9 @@ struct ProviderSheet: View {
     @State private var replacesKey = false
     @State private var isTesting = false
     @State private var saveProblem: String?
+    /// The text of the OpenRouter "Upstream providers" field (#155). The profile gets the parsed list.
+    @State private var upstreamText: String
+    @State private var confirmsDestination = false
     @Environment(\.dismiss) private var dismiss
 
     /// The snapshot harness injects a test result and a key. The app starts with none.
@@ -521,6 +533,7 @@ struct ProviderSheet: View {
         _profile = State(initialValue: profile)
         _testResult = State(initialValue: testResult)
         _secret = State(initialValue: secret)
+        _upstreamText = State(initialValue: profile.routing?.upstreams.joined(separator: ", ") ?? "")
     }
 
     private var hasTypedKey: Bool { !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -539,6 +552,10 @@ struct ProviderSheet: View {
                         externalLocalFields
                     } else if let service = profile.apiService {
                         apiServiceFields(service)
+                    } else if profile.endpoint == .openRouter {
+                        openRouterFields
+                    } else if profile.endpoint == .custom {
+                        customEndpointFields
                     } else {
                         TextField("Name", text: $profile.name)
                         TextField("Company", text: $profile.vendor)
@@ -575,14 +592,85 @@ struct ProviderSheet: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Save", action: save)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!isValid)
+                Button("Save") {
+                    if providers.changesDestination(profile) { confirmsDestination = true } else { save() }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!isValid)
             }
             .padding([.horizontal, .bottom], 20)
         }
         .frame(width: 420)
         .fixedSize(horizontal: false, vertical: true)
+        .alert("Change the destination?", isPresented: $confirmsDestination) {
+            Button("Save", action: save)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Courses must allow the new destination again.")
+        }
+    }
+
+    /// The fields of OpenRouter (#155): the fixed host, the key, the model, the upstreams, the fallback and the data policy.
+    @ViewBuilder private var openRouterFields: some View {
+        LabeledContent("Host") { Text(profile.host) }
+        keyField(prompt: "sk-or-…", required: true)
+        validated(TextField("Model ID", text: $profile.modelID, prompt: Text("for example openai/gpt-5")), problem: profile.modelProblem)
+        validated(TextField("Upstream providers", text: upstreamBinding, prompt: Text("Comma-separated, for example openai")),
+                  problem: profile.upstreamProblem)
+        Toggle("Allow fallback to other upstream providers", isOn: routingBinding(\.allowsFallback))
+        Picker("Data policy", selection: routingBinding(\.allowsDataCollection)) {
+            Text(OpenRouterRouting.denyDataCollectionText).tag(false)
+            Text(OpenRouterRouting.allowDataCollectionText).tag(true)
+        }
+    }
+
+    /// The fields of a custom HTTPS endpoint (#155). The caption under Base URL shows the request URL as the learner types.
+    @ViewBuilder private var customEndpointFields: some View {
+        // The name is also the vendor of the consent sheet and the Q&A footer.
+        TextField("Name", text: Binding(get: { profile.name }, set: { profile.name = $0; profile.vendor = $0 }))
+        VStack(alignment: .leading, spacing: 2) {
+            validated(TextField("Base URL", text: $profile.origin, prompt: Text("https://example.com/v1")), problem: profile.originProblem)
+            if let caption = profile.requestURLCaption {
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        keyField(prompt: "Optional", required: false)
+        validated(TextField("Model ID", text: $profile.modelID, prompt: Text("Model ID from the server")), problem: profile.modelProblem)
+    }
+
+    /// The API key of a compatible endpoint (#155). A key saved for this host shows "Saved in the Keychain", never the key.
+    @ViewBuilder private func keyField(prompt: String, required: Bool) -> some View {
+        if providers.hasSecret(profile) && !replacesKey {
+            LabeledContent("API Key") {
+                HStack(spacing: 8) {
+                    Text("Saved in the Keychain")
+                    Button("Replace Key…") { replacesKey = true }
+                }
+            }
+        } else {
+            validated(SecureField("API Key", text: $secret, prompt: Text(prompt)),
+                      problem: required && !hasTypedKey ? APIService.noKeyText : nil)
+        }
+    }
+
+    private var upstreamBinding: Binding<String> {
+        Binding(get: { upstreamText }, set: { text in
+            upstreamText = text
+            var routing = profile.routing ?? OpenRouterRouting()
+            routing.upstreams = OpenRouterRouting.upstreams(from: text)
+            profile.routing = routing
+        })
+    }
+
+    private func routingBinding(_ keyPath: WritableKeyPath<OpenRouterRouting, Bool>) -> Binding<Bool> {
+        Binding(get: { (profile.routing ?? OpenRouterRouting())[keyPath: keyPath] }, set: { value in
+            var routing = profile.routing ?? OpenRouterRouting()
+            routing[keyPath: keyPath] = value
+            profile.routing = routing
+        })
     }
 
     /// The fields of an external local server (#152). The red caption is also the accessibility hint of its field.

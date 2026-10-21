@@ -10,6 +10,8 @@ public enum ShippedAdapters {
     public static func provider(for profile: ProviderProfile, credentials: any CredentialStore) -> (any AnswerProvider)? {
         switch profile.kind {
         case .externalLocal: CompatibleAnswerProvider(profile: profile, credentials: credentials)
+        // OpenRouter and a custom HTTPS endpoint share the compatible adapter (#155).
+        case .api where profile.endpoint != nil: CompatibleAnswerProvider(profile: profile, credentials: credentials)
         case .api where profile.apiService == .openAI: OpenAIAnswerProvider(profile: profile, credentials: credentials)
         case .api where profile.apiService == .anthropic: AnthropicAnswerProvider(profile: profile, credentials: credentials)
         default: nil
@@ -20,6 +22,7 @@ public enum ShippedAdapters {
     public static func testConnection(_ profile: ProviderProfile, secret: String?) async -> ConnectionTestResult {
         switch profile.kind {
         case .externalLocal: await CompatibleAnswerProvider.testConnection(profile, token: secret)
+        case .api where profile.endpoint != nil: await CompatibleAnswerProvider.testConnection(profile, token: secret)
         case .api where profile.apiService == .openAI: await OpenAIAnswerProvider.testConnection(profile, key: secret)
         case .api where profile.apiService == .anthropic: await AnthropicAnswerProvider.testConnection(profile, key: secret)
         default: .failed(reason: noTestText)

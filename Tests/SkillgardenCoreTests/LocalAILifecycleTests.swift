@@ -425,7 +425,7 @@ private func supervisor(_ backend: FakeBackend, enabled: Bool = true, saved: ((B
             .ready(version: "b11669"), .ready(version: "b11669"), .ready(version: "b11669"), .ready(version: "b11669"),
             .ready(version: "b11669"), .ready(version: "b11669"), .ready(version: "b11669"), .ready(version: "b11669"),
             .ready(version: "b11669"), .ready(version: "b11669"), .ready(version: "b11669"), .ready(version: "b11669"),
-            .ready(version: "b11669"), .ready(version: "b11669")])
+            .ready(version: "b11669"), .ready(version: "b11669"), .ready(version: "b11669"), .ready(version: "b11669")])
     #expect(SnapshotScreen.allCases.filter { $0.localAIStatus != nil } == SnapshotScreen.allCases.filter(\.isSettings))
 }
 
