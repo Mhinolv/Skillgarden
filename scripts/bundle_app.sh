@@ -40,7 +40,9 @@ for line in ${(f)LLAMA_FILES}; do
 done
 
 # The notices of the components that the executables hold. A missing notice stops the script before the build.
-typeset -A NOTICES=(Skillgarden LICENSE Yams Vendor/Yams/LICENSE)
+# COMPONENTS keeps the order of the output.
+typeset -A NOTICES=(Skillgarden LICENSE Yams Vendor/Yams/LICENSE libyaml Vendor/Yams/Sources/CYaml/LICENSE)
+COMPONENTS=(Skillgarden Yams libyaml)
 for notice in ${(v)NOTICES}; do
   [[ -f $notice ]] || fail "missing license notice: $notice"
 done
@@ -88,9 +90,9 @@ for line in ${(f)LLAMA_FILES}; do
 done
 cp "$MANIFEST" "$LLAMA/runtime.json"
 echo "Bundled llama.cpp $LLAMA_VERSION ($LLAMA_ARCH) into $APP"
-for component in ${(ko)NOTICES}; do
+for component in $COMPONENTS; do
   mkdir -p "$APP/Contents/Resources/Licenses/$component"
   cp "${NOTICES[$component]}" "$APP/Contents/Resources/Licenses/$component/"
 done
-echo "Copied license notices: ${(koj:, :)NOTICES}, llama.cpp"
+echo "Copied license notices: ${(j:, :)COMPONENTS}, llama.cpp"
 echo "Bundled Skillgarden ($CONFIG) into $APP"

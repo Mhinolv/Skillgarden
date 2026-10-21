@@ -97,7 +97,7 @@ private func bundleRepository(in root: URL) throws -> URL {
     try Data("host".utf8).write(to: debug.appending(path: "SkillgardenAIHost"))
     try Data("icon".utf8).write(to: icon.appending(path: "AppIcon.icns"))
     // #213: the bundle script stops if a repository license notice is missing.
-    for notice in ["LICENSE", "Vendor/Yams/LICENSE"] {
+    for notice in ["LICENSE", "Vendor/Yams/LICENSE", "Vendor/Yams/Sources/CYaml/LICENSE"] {
         let file = root.appending(path: notice)
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("license".utf8).write(to: file)
@@ -117,7 +117,7 @@ private func bundleRepository(in root: URL) throws -> URL {
     let bundle = try run(URL(fileURLWithPath: "/bin/zsh"), [script.path], in: root, environment: ["HOME": home.path])
     #expect(bundle.status == 0, "\(bundle.errorText)")
     #expect(bundle.output == "Bundled llama.cpp b1 (arm64) into build/Skillgarden.app\n"
-        + "Copied license notices: Skillgarden, Yams, llama.cpp\nBundled Skillgarden (debug) into build/Skillgarden.app\n")
+        + "Copied license notices: Skillgarden, Yams, libyaml, llama.cpp\nBundled Skillgarden (debug) into build/Skillgarden.app\n")
     #expect(bundle.errorText.isEmpty)
 
     let contents = root.appending(path: "build/Skillgarden.app/Contents")

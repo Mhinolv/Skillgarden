@@ -7,7 +7,8 @@ let package = Package(
     name: "Yams",
     products: [.library(name: "Yams", targets: ["Yams"])],
     targets: [
-        .target(name: "CYaml", cSettings: [.define("YAML_DECLARE_STATIC")]),
+        // CYaml is libyaml (MIT). Its LICENSE is the libyaml notice that the app bundle ships (#213).
+        .target(name: "CYaml", exclude: ["LICENSE"], cSettings: [.define("YAML_DECLARE_STATIC")]),
         .target(name: "Yams", dependencies: ["CYaml"], cSettings: [.define("YAML_DECLARE_STATIC")]),
     ]
 )
