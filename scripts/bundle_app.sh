@@ -6,8 +6,18 @@
 # The pinned llama.cpp runtime (assets/llama.cpp/runtime.json) goes in Contents/Helpers/llama.
 # The script copies it from SKILLGARDEN_LLAMA_DIR, or ~/.local/share/skillgarden/llama.cpp/<version>.
 # It never downloads anything. See docs/local-ai.md.
+# Usage: scripts/bundle_app.sh [debug|release]
+#   The configuration (default: debug) applies to all three executables. Both write build/Skillgarden.app.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+USAGE="usage: scripts/bundle_app.sh [debug|release]"
+case ${1-debug} in
+  -h|--help) print -r -- "$USAGE"; exit 0 ;;
+  debug|release) CONFIG=${1-debug} ;;
+  *) print -r -- "$USAGE" >&2; exit 2 ;;
+esac
+(( $# <= 1 )) || { print -r -- "$USAGE" >&2; exit 2 }
 
 fail() { print -r -- "error: $1" >&2; exit 1 }
 
@@ -28,14 +38,19 @@ for line in ${(f)LLAMA_FILES}; do
   [[ $(shasum -a 256 < "$LLAMA_DIR/$file") == ${line#*$'\t'}\ * ]] || fail "$file: checksum does not match runtime.json"
 done
 
-./scripts/build.sh --product SkillgardenApp
-./scripts/build.sh --product skillgarden
-./scripts/build.sh --product SkillgardenAIHost
+PRODUCTS=(SkillgardenApp skillgarden SkillgardenAIHost)
+for product in $PRODUCTS; do
+  ./scripts/build.sh --configuration "$CONFIG" --product "$product"
+done
+# Copy only from the chosen configuration. A missing product stops the script: never fall back to the other one.
+for product in $PRODUCTS; do
+  [[ -f .build/$CONFIG/$product ]] || fail ".build/$CONFIG/$product not found"
+done
 APP=build/Skillgarden.app
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
-cp ".build/debug/SkillgardenApp" "$APP/Contents/MacOS/Skillgarden"
-cp ".build/debug/skillgarden" "$APP/Contents/Helpers/skillgarden"
-cp ".build/debug/SkillgardenAIHost" "$APP/Contents/Helpers/SkillgardenAIHost"
+cp ".build/$CONFIG/SkillgardenApp" "$APP/Contents/MacOS/Skillgarden"
+cp ".build/$CONFIG/skillgarden" "$APP/Contents/Helpers/skillgarden"
+cp ".build/$CONFIG/SkillgardenAIHost" "$APP/Contents/Helpers/SkillgardenAIHost"
 cp assets/AppIcon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -66,3 +81,4 @@ for line in ${(f)LLAMA_FILES}; do
 done
 cp "$MANIFEST" "$LLAMA/runtime.json"
 echo "Bundled llama.cpp $LLAMA_VERSION ($LLAMA_ARCH) into $APP"
+echo "Bundled Skillgarden ($CONFIG) into $APP"
