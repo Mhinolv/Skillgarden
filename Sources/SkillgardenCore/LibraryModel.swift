@@ -11,6 +11,28 @@ public enum CourseDestination: Hashable, Sendable {
     case notes
 }
 
+/// The once-per-app-session recovery of pending Q&A turns (#208). Each window has its own `LibraryModel`, and all of them
+/// use `shared`. So a new window does not interrupt the active request of another window. A new instance is a new app run.
+public final class PendingTurnRecovery: @unchecked Sendable {
+    public static let shared = PendingTurnRecovery()
+    private let lock = NSLock()
+    /// The data folders that this session recovered.
+    private var recovered: Set<String> = []
+
+    public init() {}
+
+    /// Runs `recover` the first time a data folder loads in this session. A recover that throws runs again at the next call.
+    /// The lock holds during `recover`, so a second window waits for the first recovery and then skips it.
+    func recoverOnce(root: URL, _ recover: () throws -> Void) throws {
+        let key = root.standardizedFileURL.resolvingSymlinksInPath().path
+        try lock.withLock {
+            guard !recovered.contains(key) else { return }
+            try recover()
+            recovered.insert(key)
+        }
+    }
+}
+
 /// Owns the learner's library and selection. Store reads run outside the main actor.
 @MainActor @Observable
 public final class LibraryModel {
@@ -72,8 +94,8 @@ public final class LibraryModel {
     @ObservationIgnored private var reviewRandom: any RandomNumberGenerator
     /// Lecture contexts for local AI by course, lecture and source revision (#125).
     @ObservationIgnored private let lectureContexts = LectureContextCache()
-    /// True after the first reload marked the pending Q&A turns of the last app run as interrupted (#127).
-    @ObservationIgnored private var interruptedPendingTurns = false
+    /// Marks the pending Q&A turns of the last app run as interrupted, once per data folder for all windows (#127, #208).
+    @ObservationIgnored private let recovery: PendingTurnRecovery
     public let root: URL
     /// The store of the last reload. Progress writes use it off the main actor, one at a time.
     private var store: CourseStore?
@@ -82,10 +104,12 @@ public final class LibraryModel {
     private let rootError: String?
 
     public init(root: URL = Skillgarden.defaultDataDirectory, rootError: String? = nil,
-                reviewRandom: any RandomNumberGenerator = SystemRandomNumberGenerator()) {
+                reviewRandom: any RandomNumberGenerator = SystemRandomNumberGenerator(),
+                recovery: PendingTurnRecovery = .shared) {
         self.root = root
         self.rootError = rootError
         self.reviewRandom = reviewRandom
+        self.recovery = recovery
     }
 
     public var selectedCourse: Course? {
@@ -692,19 +716,19 @@ public final class LibraryModel {
         let root = root
         // Queued writes finish first, so the reload reads them.
         await waitForWrites()
-        let interruptsPendingTurns = !interruptedPendingTurns
+        let recovery = recovery
         do {
             let (store, loaded, installed, progress, lastOpened, quizResults, interactiveResults, reviewed, cues, notes) = try await Task.detached {
                 let store = try CourseStore(root: root)
-                // A turn that was pending when the app stopped can never finish (#127). Later reloads keep active requests.
-                if interruptsPendingTurns { try store.interruptPendingQATurns() }
+                // A turn that was pending when the app stopped can never finish (#127).
+                // Later reloads and other windows keep active requests (#208).
+                try recovery.recoverOnce(root: root) { try store.interruptPendingQATurns() }
                 return (store, try store.listCourses(), try Self.installedData(store: store, root: root),
                         try store.allProgress(), try store.lastOpenedLectures(), try store.allQuizResults(),
                         try store.allInteractiveResults(), try store.allReviewedSections(), try store.allTranscriptCues(),
                         try store.allNotes())
             }.value
             self.store = store
-            interruptedPendingTurns = true
             courses = loaded
             headerImages = installed.headerImages
             landings = installed.landings
