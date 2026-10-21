@@ -57,6 +57,11 @@ private func temporaryFolder() throws -> URL {
         "provider-sheet-openai-edit-light.png", "provider-sheet-openai-edit-dark.png",
         "provider-sheet-anthropic-light.png", "provider-sheet-anthropic-dark.png",
         "provider-sheet-anthropic-edit-light.png", "provider-sheet-anthropic-edit-dark.png",
+        "chatgpt-sheet-signed-out-light.png", "chatgpt-sheet-signed-out-dark.png",
+        "chatgpt-sheet-waiting-light.png", "chatgpt-sheet-waiting-dark.png",
+        "chatgpt-sheet-signed-in-light.png", "chatgpt-sheet-signed-in-dark.png",
+        "chatgpt-sheet-failed-light.png", "chatgpt-sheet-failed-dark.png",
+        "settings-chatgpt-sign-in-again-light.png", "settings-chatgpt-sign-in-again-dark.png",
         "qa-thread-light.png", "qa-thread-dark.png",
         "qa-empty-light.png", "qa-empty-dark.png",
         "qa-draft-light.png", "qa-draft-dark.png",
@@ -183,7 +188,14 @@ private func temporaryFolder() throws -> URL {
                                                                     .settingsProviders, .providerSheetLMStudio,
                                                                     .providerSheetOllamaError, .providerSheetOpenAI,
                                                                     .providerSheetOpenAIEdit, .providerSheetAnthropic,
-                                                                    .providerSheetAnthropicEdit])
+                                                                    .providerSheetAnthropicEdit, .chatGPTSheetSignedOut,
+                                                                    .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
+                                                                    .settingsChatGPTSignInAgain])
+    // #156: four ChatGPT plan sheet states, and one Settings screen with a session that can't refresh.
+    #expect(SnapshotScreen.allCases.compactMap(\.chatGPTSheetState)
+        == [.signedOut, .waiting, .signedIn(SnapshotPlan.chatGPTAccount), .failed(ChatGPTAuthError.unverifiedText)])
+    #expect(SnapshotScreen.allCases.filter(\.usesChatGPTPlanProfile) == [.settingsChatGPTSignInAgain])
+    #expect(SnapshotScreen.settingsChatGPTSignInAgain.isSettings && SnapshotScreen.chatGPTSheetFailed.isSettings)
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
@@ -202,7 +214,8 @@ private func temporaryFolder() throws -> URL {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
              .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit,
-             .providerSheetAnthropic, .providerSheetAnthropicEdit:
+             .providerSheetAnthropic, .providerSheetAnthropicEdit, .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn,
+             .chatGPTSheetFailed, .settingsChatGPTSignInAgain:
             #expect(courseID == nil)
             #expect(!screen.selectsCourse)
             #expect(SnapshotPlan.imageLoads(for: screen) == 0)

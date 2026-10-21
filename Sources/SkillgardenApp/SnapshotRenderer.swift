@@ -93,16 +93,25 @@ enum SnapshotRenderer {
         let status = output.screen.localAIStatus ?? output.screen.qaStatus ?? .off
         let localAI = RuntimeSupervisor(isEnabled: status != .off, backend: nil, status: status)
         // The provider screens get the fixture profiles, a refused Keychain item and a provider that never sends (#151).
+        // The ChatGPT plan screen gets a session that can't refresh, so its row shows "Sign in again." (#156).
         let usesProfiles = output.screen.usesProviderProfiles
+        let usesChatGPT = output.screen.usesChatGPTPlanProfile
         let providers = ProviderSettings(store: nil,
-                                         credentials: MemoryCredentialStore(deniedAccounts: [SnapshotPlan.deniedCredentialAccount]),
-                                         profiles: usesProfiles ? SnapshotPlan.providerProfiles : [],
+                                         credentials: MemoryCredentialStore(secrets: usesChatGPT ? SnapshotPlan.chatGPTSecrets : [:],
+                                                                            deniedAccounts: [SnapshotPlan.deniedCredentialAccount]),
+                                         profiles: usesProfiles ? SnapshotPlan.providerProfiles
+                                             : usesChatGPT ? [SnapshotPlan.chatGPTPlanProfile] : [],
                                          selectedID: output.screen.selectedProviderID ?? BundledAnswerProvider.providerID,
                                          adapterKinds: [.externalLocal, .api],
                                          makeProvider: { profile, _ in SnapshotAnswerProvider(profile: profile) },
                                          // The sheet screens inject the test result. The harness never runs a test.
                                          testConnection: { _, _ in .connected })
-        let screenView = if let sheet = output.screen.providerSheet {
+        let screenView = if let state = output.screen.chatGPTSheetState {
+            // The ChatGPT plan sheet gets its state and no browser (#156). The harness never signs in.
+            AnyView(ChatGPTPlanSheet(signIn: ChatGPTSignIn(providers: providers, browser: nil, state: state))
+                .background(Color(nsColor: .windowBackgroundColor))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top))
+        } else if let sheet = output.screen.providerSheet {
             // The provider sheet is a separate window in the app, so the harness draws it in place of the window (#152).
             AnyView(ProviderSheet(providers: providers, profile: sheet.profile, testResult: sheet.testResult, secret: sheet.secret)
                 .background(Color(nsColor: .windowBackgroundColor))

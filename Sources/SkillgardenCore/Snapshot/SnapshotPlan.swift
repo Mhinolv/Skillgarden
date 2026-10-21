@@ -88,6 +88,16 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case providerSheetAnthropic = "provider-sheet-anthropic"
     /// The Anthropic API sheet in edit mode (#154): "Saved in the Keychain" with "Replace Key…".
     case providerSheetAnthropicEdit = "provider-sheet-anthropic-edit"
+    /// The ChatGPT plan sheet (#156) Signed out: the text and "Continue with ChatGPT". The harness draws it in place of the window.
+    case chatGPTSheetSignedOut = "chatgpt-sheet-signed-out"
+    /// The ChatGPT plan sheet while it waits for the system sign-in sheet (#156).
+    case chatGPTSheetWaiting = "chatgpt-sheet-waiting"
+    /// The ChatGPT plan sheet after a sign-in (#156): the account email and the plan name.
+    case chatGPTSheetSignedIn = "chatgpt-sheet-signed-in"
+    /// The ChatGPT plan sheet after a callback that failed the checks (#156).
+    case chatGPTSheetFailed = "chatgpt-sheet-failed"
+    /// The Settings window with a ChatGPT plan session that can't refresh (#156): "Sign in again." and "Sign In…".
+    case settingsChatGPTSignInAgain = "settings-chatgpt-sign-in-again"
     /// The Q&A panel of the video lecture (#128), scrolled to the end: Ready with three saved turns,
     /// one complete, one cancelled and one failed.
     case qaThread = "qa-thread"
@@ -155,7 +165,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     static let settingsScreens: [SnapshotScreen] = [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
                                                     .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError,
                                                     .providerSheetOpenAI, .providerSheetOpenAIEdit, .providerSheetAnthropic,
-                                                    .providerSheetAnthropicEdit]
+                                                    .providerSheetAnthropicEdit, .chatGPTSheetSignedOut, .chatGPTSheetWaiting,
+                                                    .chatGPTSheetSignedIn, .chatGPTSheetFailed, .settingsChatGPTSignInAgain]
 
     /// True for the Settings screens. The harness draws the Settings form in place of the main window.
     public var isSettings: Bool { Self.settingsScreens.contains(self) }
@@ -164,7 +175,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     public var localAIStatus: LocalAIStatus? {
         switch self {
         case .settings, .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI,
-             .providerSheetOpenAIEdit, .providerSheetAnthropic, .providerSheetAnthropicEdit: .ready(version: "b11669")
+             .providerSheetOpenAIEdit, .providerSheetAnthropic, .providerSheetAnthropicEdit, .chatGPTSheetSignedOut,
+             .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed, .settingsChatGPTSignInAgain: .ready(version: "b11669")
         case .settingsModelMissing: .noModel
         case .settingsAIOff: .off
         case .settingsAIError: .failed(.noFreePort)
@@ -252,6 +264,20 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
         default: nil
         }
     }
+
+    /// The state of the ChatGPT plan sheet that the harness draws in place of the window (#156). Nil for the other screens.
+    public var chatGPTSheetState: ChatGPTSignIn.State? {
+        switch self {
+        case .chatGPTSheetSignedOut: .signedOut
+        case .chatGPTSheetWaiting: .waiting
+        case .chatGPTSheetSignedIn: .signedIn(SnapshotPlan.chatGPTAccount)
+        case .chatGPTSheetFailed: .failed(ChatGPTAuthError.unverifiedText)
+        default: nil
+        }
+    }
+
+    /// True when the harness gives Settings the ChatGPT plan profile with a session that can't refresh (#156).
+    public var usesChatGPTPlanProfile: Bool { self == .settingsChatGPTSignInAgain }
 
     /// The question that the harness sends, so the consent sheet opens (#151). Nil for the other screens.
     public var qaConsentQuestion: String? { self == .qaConsent ? "Which tools do I need?" : nil }
@@ -356,7 +382,8 @@ public enum SnapshotPlan {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
              .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit,
-             .providerSheetAnthropic, .providerSheetAnthropicEdit:
+             .providerSheetAnthropic, .providerSheetAnthropicEdit, .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn,
+             .chatGPTSheetFailed, .settingsChatGPTSignInAgain:
             _ = try CourseStore(root: root)
             return nil
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
@@ -602,6 +629,24 @@ public enum SnapshotPlan {
                         origin: "https://api.anthropic.com", modelID: "claude-sonnet-5-5", credentialReference: "snapshot-anthropic"),
     ]
 
+    /// The fixture account of the ChatGPT plan screens (#156).
+    public static let chatGPTAccount = ChatGPTAccount(email: "learner@example.com", planType: "plus")
+
+    /// The ChatGPT plan profile of `usesChatGPTPlanProfile` (#156).
+    public static let chatGPTPlanProfile = ProviderProfile(id: "snapshot-chatgpt", kind: .subscription,
+                                                           name: ProviderProfile.chatGPTPlanName, vendor: "OpenAI",
+                                                           origin: "https://api.openai.com", modelID: "",
+                                                           credentialReference: "snapshot-chatgpt")
+
+    /// The Keychain items of `usesChatGPTPlanProfile` (#156): an expired session with no refresh token, so the row shows
+    /// "Sign in again." and the harness sends no request. The tokens are fixture text.
+    public static var chatGPTSecrets: [String: String] {
+        let session = ChatGPTSession(clientID: "snapshot-client", accessToken: "snapshot-access", refreshToken: nil,
+                                     idToken: "snapshot-id-token", expiresAt: Date(timeIntervalSince1970: 0), scopes: [],
+                                     subject: "snapshot-user", email: chatGPTAccount.email, planType: chatGPTAccount.planType)
+        return [chatGPTPlanProfile.keychainAccount: session.keychainText]
+    }
+
     /// The Keychain item that the fixture refuses, so its Settings row shows the Keychain problem.
     public static let deniedCredentialAccount = "snapshot-anthropic"
 
@@ -680,7 +725,8 @@ public enum SnapshotPlan {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
              .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit,
-             .providerSheetAnthropic, .providerSheetAnthropicEdit: 0
+             .providerSheetAnthropic, .providerSheetAnthropicEdit, .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn,
+             .chatGPTSheetFailed, .settingsChatGPTSignInAgain: 0
         case .library: 3
         case .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads, .pdfPreview: 2
         default: 1
@@ -692,7 +738,8 @@ public enum SnapshotPlan {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library, .settings, .settingsModelMissing, .settingsAIOff,
              .settingsAIError, .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI,
-             .providerSheetOpenAIEdit, .providerSheetAnthropic, .providerSheetAnthropicEdit: nil
+             .providerSheetOpenAIEdit, .providerSheetAnthropic, .providerSheetAnthropicEdit, .chatGPTSheetSignedOut,
+             .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed, .settingsChatGPTSignInAgain: nil
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
              .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions,
