@@ -11,8 +11,8 @@ enum ResponsesStreamEvent: Equatable {
     case completed
     /// `response.incomplete`, with the reason of `incomplete_details`, for example `max_output_tokens` or `content_filter`.
     case incomplete(reason: String?)
-    /// `response.failed`, or an `error` event. The error message is not kept.
-    case failed
+    /// `response.failed`, or an `error` event, with the error code (#157). The error message is not kept.
+    case failed(code: String?)
     /// `response.cancelled`.
     case cancelled
     /// An event that does not change the answer, for example `response.created` or `response.output_text.done`.
@@ -29,7 +29,8 @@ enum ResponsesStreamEvent: Equatable {
         case "response.refusal.delta", "response.refusal.done": self = .refusal
         case "response.completed": self = .completed
         case "response.incomplete": self = .incomplete(reason: event.response?.incompleteDetails?.reason)
-        case "response.failed", "error": self = .failed
+        case "response.failed": self = .failed(code: event.response?.error?.code)
+        case "error": self = .failed(code: event.code)
         case "response.cancelled": self = .cancelled
         default: self = .other
         }
@@ -39,20 +40,31 @@ enum ResponsesStreamEvent: Equatable {
     private struct Event: Decodable {
         struct Response: Decodable {
             struct Details: Decodable { let reason: String? }
+            struct Failure: Decodable { let code: String? }
             let incompleteDetails: Details?
-            enum CodingKeys: String, CodingKey { case incompleteDetails = "incomplete_details" }
+            let error: Failure?
+            enum CodingKeys: String, CodingKey { case incompleteDetails = "incomplete_details", error }
+
+            init(from decoder: any Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                incompleteDetails = try? container.decode(Details.self, forKey: .incompleteDetails)
+                error = try? container.decode(Failure.self, forKey: .error)
+            }
         }
         let type: String
         let delta: String?
         let response: Response?
+        /// The code of an `error` event.
+        let code: String?
 
-        enum CodingKeys: String, CodingKey { case type, delta, response }
+        enum CodingKeys: String, CodingKey { case type, delta, response, code }
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             type = try container.decode(String.self, forKey: .type)
             delta = try? container.decode(String.self, forKey: .delta)
             response = try? container.decode(Response.self, forKey: .response)
+            code = try? container.decode(String.self, forKey: .code)
         }
     }
 }
@@ -64,6 +76,8 @@ struct ResponsesStreamReader {
     private(set) var text = ""
     /// True after a refusal event. The end of the response is then `.declined`.
     private var refused = false
+    /// The error code of a failed response, for example `subscription_sharing_usage_limit_exceeded` (#157).
+    private(set) var failureCode: String?
     /// The turn reason of a failed response. It never holds the error message of the service.
     let failedReason: String
 
@@ -87,7 +101,8 @@ struct ResponsesStreamReader {
                 return text.isEmpty ? .empty : .finished
             case .incomplete(let reason):
                 return refused || reason == "content_filter" ? .declined : .incomplete
-            case .failed:
+            case .failed(let code):
+                failureCode = code
                 return .refused(reason: failedReason)
             case .cancelled:
                 return .canceled

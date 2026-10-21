@@ -131,8 +131,10 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
     public var keychainAccount: String { credentialReference ?? id }
 
     /// The Q&A footer: "Answers come from LM Studio on this Mac and can be wrong." (#152)
+    /// A ChatGPT plan: "Answers come from ChatGPT and can be wrong." (#157)
     public var answerFooter: String {
-        kind == .externalLocal ? "Answers come from \(vendor) on this Mac and can be wrong."
+        if isChatGPTPlan { return "Answers come from ChatGPT and can be wrong." }
+        return kind == .externalLocal ? "Answers come from \(vendor) on this Mac and can be wrong."
             : "Answers come from \(vendor) and can be wrong."
     }
 
@@ -395,6 +397,8 @@ public final class ProviderSettings {
     @ObservationIgnored private var providers: [String: (profile: ProviderProfile, provider: any AnswerProvider)] = [:]
     /// Sign in with ChatGPT (#156). Nil hides "ChatGPT Plan…" in "Add Provider".
     @ObservationIgnored public let chatGPT: ChatGPTAuthorizer?
+    /// The transport of the ChatGPT plan answers and model list (#157). Nil makes the real one on first use.
+    @ObservationIgnored private var chatGPTTransport: (any LlamaTransport)?
     /// The running refresh of each ChatGPT plan profile, so two callers never use one refresh token twice.
     @ObservationIgnored private var refreshes: [String: Task<Result<ChatGPTSession, ChatGPTAuthError>, Never>] = [:]
 
@@ -404,7 +408,7 @@ public final class ProviderSettings {
                 adapterKinds: Set<AnswerProviderKind> = [],
                 makeProvider: @escaping @MainActor (ProviderProfile, any CredentialStore) -> (any AnswerProvider)? = { _, _ in nil },
                 testConnection: (@MainActor (ProviderProfile, String?) async -> ConnectionTestResult)? = nil,
-                chatGPT: ChatGPTAuthorizer? = nil) {
+                chatGPT: ChatGPTAuthorizer? = nil, chatGPTTransport: (any LlamaTransport)? = nil) {
         let saved = store?.load() ?? SavedProviders(selectedID: selectedID, profiles: profiles)
         self.store = store
         self.credentials = credentials
@@ -412,6 +416,7 @@ public final class ProviderSettings {
         self.makeProvider = makeProvider
         self.testConnection = testConnection
         self.chatGPT = chatGPT
+        self.chatGPTTransport = chatGPTTransport
         self.profiles = saved.profiles
         consents = saved.consents
         // A choice of a removed profile, or of a profile that can't answer yet, falls back to the bundled model.
@@ -424,6 +429,11 @@ public final class ProviderSettings {
 
     /// The profiles of one picker group, in saved order.
     public func profiles(of kind: AnswerProviderKind) -> [ProviderProfile] { profiles.filter { $0.kind == kind } }
+
+    /// The "Answer with" items of one group. A ChatGPT plan shows only after the learner chose a model (#157).
+    public func answerProfiles(of kind: AnswerProviderKind) -> [ProviderProfile] {
+        profiles(of: kind).filter { !$0.isChatGPTPlan || $0.modelProblem == nil || $0.id == selectedID }
+    }
 
     /// False for a subscription until its Q&A adapter ships (#157). "Answer with" does not list such a profile.
     public func canAnswer(_ kind: AnswerProviderKind) -> Bool { Self.canAnswer(kind, adapterKinds: adapterKinds) }
@@ -449,9 +459,61 @@ public final class ProviderSettings {
     public func activeProvider(bundled: any AnswerProvider) -> any AnswerProvider {
         guard let profile = selected else { return bundled }
         if let cached = providers[profile.id], cached.profile == profile { return cached.provider }
-        let provider = makeProvider(profile, credentials) ?? UnavailableAnswerProvider(profile: profile)
+        let provider = (profile.isChatGPTPlan && canAnswer(profile.kind) ? chatGPTProvider(profile) : makeProvider(profile, credentials))
+            ?? UnavailableAnswerProvider(profile: profile)
         providers[profile.id] = (profile, provider)
         return provider
+    }
+
+    /// The ChatGPT plan adapter (#157). It gets the session from `chatGPTSession(for:)` before each request.
+    private func chatGPTProvider(_ profile: ProviderProfile) -> any AnswerProvider {
+        let id = profile.id
+        return ChatGPTAnswerProvider(profile: profile, transport: answerTransport(),
+                                     session: { [weak self] () async throws(ChatGPTAuthError) -> ChatGPTSession in
+                                         guard let self else { throw .canceled }
+                                         return try await self.chatGPTSession(for: id)
+                                     },
+                                     revoke: { [weak self] in self?.endChatGPTSession(id) })
+    }
+
+    private func answerTransport() -> any LlamaTransport {
+        if let chatGPTTransport { return chatGPTTransport }
+        let transport = LoopbackTransport(usesSystemProxy: true)
+        chatGPTTransport = transport
+        return transport
+    }
+
+    /// The models of the account of a ChatGPT plan profile (#157), in server order. The failure is the design-note text.
+    /// A revoked grant ends the session, so the row shows "Sign in again.".
+    public func chatGPTModels(for id: String) async -> Result<[ChatGPTModel], ChatGPTModelsFailure> {
+        let session: ChatGPTSession
+        do { session = try await chatGPTSession(for: id) } catch {
+            return .failure(ChatGPTModelsFailure(reason: ChatGPTErrors.reason(error)))
+        }
+        switch await ChatGPTAnswerProvider.fetchModels(accessToken: session.accessToken, transport: answerTransport()) {
+        case .models(let models):
+            return .success(models)
+        case .failed(let reason, let revoked):
+            if revoked { endChatGPTSession(id) }
+            return .failure(ChatGPTModelsFailure(reason: reason))
+        }
+    }
+
+    /// Saves the model of a ChatGPT plan profile (#157). A new model needs a new course consent.
+    public func saveChatGPTModel(_ modelID: String, for id: String) throws(Problem) {
+        guard var profile = profiles.first(where: { $0.id == id && $0.isChatGPTPlan }) else { return }
+        profile.modelID = modelID
+        try save(profile, secret: nil)
+    }
+
+    /// OpenAI says that the grant of a ChatGPT plan ended (#157). The tokens go, the issued client ID stays, and the row
+    /// shows "Sign in again.".
+    func endChatGPTSession(_ id: String) {
+        guard let profile = profiles.first(where: { $0.id == id && $0.isChatGPTPlan }) else { return }
+        if let session = savedChatGPTSession(for: id) {
+            try? credentials.save(session.discardingTokens().keychainText, account: profile.keychainAccount)
+        }
+        expiredSessions.insert(id)
     }
 
     /// The source text of a saved turn: "via OpenAI API · gpt-5". Nil for the bundled model and for removed profiles.
@@ -579,7 +641,7 @@ public final class ProviderSettings {
             guard error.needsSignIn, profiles.contains(where: { $0.id == id }) else { throw error }
             expiredSessions.insert(id)
             // A refused refresh token is dead. The tokens go, and the issued client ID stays for the next sign-in.
-            if error == .refused("invalid_grant") {
+            if case .refused(let code) = error, ChatGPTAuthError.revokedRefreshCodes.contains(code) {
                 try? credentials.save(session.discardingTokens().keychainText, account: profile.keychainAccount)
             }
             throw error
@@ -672,6 +734,11 @@ public final class ProviderSettings {
             return false
         }
     }
+}
+
+/// Why the account model list of a ChatGPT plan did not load (#157). `reason` is the design-note text.
+public struct ChatGPTModelsFailure: Error, Equatable, Sendable {
+    public let reason: String
 }
 
 /// The provider of a profile whose adapter has not shipped (#151). It never answers and never sends.

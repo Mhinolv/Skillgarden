@@ -29,8 +29,20 @@ public enum ChatGPTSheetCompletion {
 
 /// The ChatGPT plan sheet (#156): Signed out, Waiting, Signed in and Failed. A sign-in saves the session in the Keychain
 /// and the profile in `Providers.json` only after every callback and token check passes.
+/// Signed in shows the model picker of the account model list (#157). "Save" saves the model.
 @MainActor @Observable
 public final class ChatGPTSignIn {
+    /// The model picker of the Signed in sheet (#157).
+    public enum Models: Equatable, Sendable {
+        /// The sheet did not ask for the list yet.
+        case notLoaded
+        case loading
+        /// The account models in server order. An empty list is the Empty state.
+        case loaded([ChatGPTModel])
+        /// The design-note reason of the failure.
+        case failed(String)
+    }
+
     public enum State: Equatable, Sendable {
         case signedOut
         case waiting
@@ -52,20 +64,72 @@ public final class ChatGPTSignIn {
 
     public static let signedOutText = "Sign in with your ChatGPT account. OpenAI shows its sign-in page."
     public static let waitingText = "Waiting for sign-in…"
+    public static let loadingModelsText = "Loading models…"
+    public static let noModelsText = "This plan has no models for Skillgarden."
+
+    /// The red caption of a saved model that left the account list: "gpt-5 is no longer available. Choose a model."
+    public static func modelGoneText(_ modelID: String) -> String { "\(modelID) is no longer available. Choose a model." }
 
     public private(set) var state: State
+    public private(set) var models: Models
+    /// The model of the picker. It starts with the saved model of the profile. An empty saved model gets the first model.
+    public var modelID: String
     /// The profile that the sign-in saves: the existing ChatGPT plan profile, else a new one.
     public let profile: ProviderProfile
     @ObservationIgnored private let providers: ProviderSettings
     @ObservationIgnored private let browser: (any ChatGPTBrowser)?
     @ObservationIgnored private var task: Task<Void, Never>?
 
-    /// The snapshot harness injects `state` and no browser. The app starts Signed out.
-    public init(providers: ProviderSettings, browser: (any ChatGPTBrowser)?, state: State = .signedOut) {
+    /// The snapshot harness injects `state`, `models` and no browser. The app starts Signed out, or Signed in for "Edit…".
+    public init(providers: ProviderSettings, browser: (any ChatGPTBrowser)?, state: State = .signedOut, models: Models = .notLoaded,
+                modelID: String? = nil) {
         self.providers = providers
         self.browser = browser
         self.state = state
-        profile = providers.profiles.first(where: \.isChatGPTPlan) ?? .chatGPTPlan()
+        self.models = models
+        let profile = providers.profiles.first(where: \.isChatGPTPlan) ?? .chatGPTPlan()
+        self.profile = profile
+        self.modelID = modelID ?? profile.modelID
+    }
+
+    /// Loads the model list once after the sheet shows Signed in.
+    public func loadModelsIfNeeded() async {
+        guard models == .notLoaded else { return }
+        await loadModels()
+    }
+
+    /// "Refresh" and "Try Again": loads the account model list again.
+    public func loadModels() async {
+        guard case .signedIn = state, models != .loading else { return }
+        models = .loading
+        let result = await providers.chatGPTModels(for: profile.id)
+        guard case .signedIn = state else { return }
+        switch result {
+        case .success(let list):
+            models = .loaded(list)
+            if modelID.isEmpty, let first = list.first { modelID = first.slug }
+        case .failure(let failure):
+            models = .failed(failure.reason)
+        }
+    }
+
+    /// The red caption of a chosen model that is not in the loaded list. Nil in the other cases.
+    public var missingModelText: String? {
+        guard case .loaded(let list) = models, !modelID.isEmpty, !list.contains(where: { $0.slug == modelID }) else { return nil }
+        return Self.modelGoneText(modelID)
+    }
+
+    /// True when the picker has a model of the loaded list, so "Save" works.
+    public var canSave: Bool {
+        guard case .loaded(let list) = models else { return false }
+        return list.contains { $0.slug == modelID }
+    }
+
+    /// "Save": saves the chosen model in the profile. Nil on success, else the problem text.
+    public func save() -> String? {
+        guard canSave else { return nil }
+        do { try providers.saveChatGPTModel(modelID, for: profile.id) } catch { return error.message }
+        return nil
     }
 
     /// "Continue with ChatGPT", "Try Again" and "Sign In…". A profile with a saved session signs in again with its issued
@@ -84,6 +148,7 @@ public final class ChatGPTSignIn {
                 let session = try await authorizer.complete(callback: callback)
                 guard let self, !Task.isCancelled else { return }
                 try self.providers.saveChatGPT(session, profile: self.profile)
+                self.models = .notLoaded
                 self.state = .signedIn(session.account)
             } catch {
                 Self.log.error("ChatGPT sign-in failed: \(error.logName, privacy: .public)")

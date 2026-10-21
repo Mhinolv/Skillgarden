@@ -139,12 +139,18 @@ enum ModelChooser {
 
 /// The Settings "Q&A" section (#151): the app-wide "Answer with" choice, one row for each provider profile, and the footer.
 /// "Add Provider" lists only kinds with a shipped adapter: LM Studio and Ollama (#152), then the OpenAI API (#153).
-/// "ChatGPT Plan…" (#156) is last, after a divider. "Answer with" lists a subscription only after its Q&A adapter ships (#157).
+/// "ChatGPT Plan…" (#156) is last, after a divider. "Answer with" lists a ChatGPT plan after the learner chose its model (#157).
 struct QAProvidersSection: View {
     let providers: ProviderSettings
     @State private var editing: ProviderProfile?
     @State private var disconnecting: ProviderProfile?
-    @State private var signsInToChatGPT = false
+    @State private var chatGPTSheet: ChatGPTSheetRequest?
+
+    /// One open ChatGPT plan sheet: Signed out for a sign-in, Signed in for "Edit…" (#157).
+    private struct ChatGPTSheetRequest: Identifiable {
+        let id = UUID()
+        let state: ChatGPTSignIn.State
+    }
 
     var body: some View {
         Section {
@@ -153,7 +159,7 @@ struct QAProvidersSection: View {
                     Text(ProviderSettings.bundledTitle).tag(BundledAnswerProvider.providerID)
                 }
                 ForEach([AnswerProviderKind.externalLocal, .api, .subscription].filter(providers.canAnswer), id: \.self) { kind in
-                    let profiles = providers.profiles(of: kind)
+                    let profiles = providers.answerProfiles(of: kind)
                     if !profiles.isEmpty {
                         Section(kind.title) {
                             ForEach(profiles) { Text($0.title).tag($0.id) }
@@ -172,8 +178,8 @@ struct QAProvidersSection: View {
             Text(ProviderSettings.footerText).foregroundStyle(.secondary)
         }
         .sheet(item: $editing) { ProviderSheet(providers: providers, profile: $0) }
-        .sheet(isPresented: $signsInToChatGPT) {
-            ChatGPTPlanSheet(signIn: ChatGPTSignIn(providers: providers, browser: SystemChatGPTBrowser()))
+        .sheet(item: $chatGPTSheet) { request in
+            ChatGPTPlanSheet(signIn: ChatGPTSignIn(providers: providers, browser: SystemChatGPTBrowser(), state: request.state))
         }
         .confirmationDialog(disconnecting.map { "Disconnect \($0.name)?" } ?? "",
                             isPresented: Binding(get: { disconnecting != nil }, set: { if !$0 { disconnecting = nil } }),
@@ -208,7 +214,7 @@ struct QAProvidersSection: View {
                 Divider()
                 Section(AnswerProviderKind.subscription.title) {
                     // One ChatGPT account: a second sign-in replaces the session of the profile.
-                    Button(ProviderProfile.chatGPTPlanName + "…") { signsInToChatGPT = true }
+                    Button(ProviderProfile.chatGPTPlanName + "…") { chatGPTSheet = ChatGPTSheetRequest(state: .signedOut) }
                 }
             }
         }
@@ -227,17 +233,23 @@ struct QAProvidersSection: View {
                     Button("Try Again") { providers.checkCredentials(profile.id) }
                 }
                 if signInAgain {
-                    Button("Sign In…") { signsInToChatGPT = true }
+                    Button("Sign In…") { chatGPTSheet = ChatGPTSheetRequest(state: .signedOut) }
                 }
                 if !profile.isChatGPTPlan {
                     Button("Edit…") { editing = profile }
+                } else if problem == nil && !signInAgain {
+                    // The Signed in sheet with the model picker (#157).
+                    Button("Edit…") {
+                        let account = providers.accounts[profile.id] ?? ChatGPTAccount(email: nil, planType: nil)
+                        chatGPTSheet = ChatGPTSheetRequest(state: .signedIn(account))
+                    }
                 }
                 Button("Disconnect") { disconnecting = profile }
             }
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(profile.name)
-                // The ChatGPT plan caption has the email and "Q&A not available yet", so it can use two lines.
+                // The ChatGPT plan caption has the email, so it can use two lines.
                 Text(caption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -260,8 +272,10 @@ struct QAProvidersSection: View {
 
 /// The ChatGPT plan sheet (#156): Signed out, Waiting, Signed in and Failed. OpenAI shows its page in the system
 /// sign-in sheet, not in a web view of the app. The sheet never shows token text.
+/// Signed in has the model picker of the account (#157): Loading, Loaded, Empty and Error, and "Refresh". No output limit.
 struct ChatGPTPlanSheet: View {
     @State private var signIn: ChatGPTSignIn
+    @State private var saveProblem: String?
     @Environment(\.dismiss) private var dismiss
 
     init(signIn: ChatGPTSignIn) {
@@ -293,6 +307,8 @@ struct ChatGPTPlanSheet: View {
                                  userInfo: [.announcement: announcement, .priority: NSAccessibilityPriorityLevel.high.rawValue])
         }
         .onDisappear { signIn.cancel() }
+        // Signed in loads the account models once. The snapshot harness injects them.
+        .task(id: signIn.state) { await signIn.loadModelsIfNeeded() }
     }
 
     @ViewBuilder private var content: some View {
@@ -317,6 +333,7 @@ struct ChatGPTPlanSheet: View {
                 }
             }
             .accessibilityElement(children: .combine)
+            modelPicker
         case .failed(let reason):
             Label {
                 Text(reason)
@@ -324,6 +341,53 @@ struct ChatGPTPlanSheet: View {
                 Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
             }
         }
+    }
+
+    /// `Picker("Model")` and "Refresh" under the account text (#157).
+    @ViewBuilder private var modelPicker: some View {
+        switch signIn.models {
+        case .notLoaded, .loading:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(ChatGPTSignIn.loadingModelsText)
+            }
+            .accessibilityElement(children: .combine)
+        case .loaded(let models) where models.isEmpty:
+            HStack {
+                Text(ChatGPTSignIn.noModelsText)
+                Spacer()
+                refreshButton
+            }
+        case .loaded(let models):
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Picker("Model", selection: $signIn.modelID) {
+                        // A saved model that left the list keeps an item, so the picker has a selection.
+                        if signIn.missingModelText != nil { Text(signIn.modelID).tag(signIn.modelID) }
+                        ForEach(models) { Text($0.displayName).tag($0.slug) }
+                    }
+                    .pickerStyle(.menu)
+                    refreshButton
+                }
+                if let missing = signIn.missingModelText {
+                    Text(missing).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                }
+                if let saveProblem {
+                    Text(saveProblem).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        case .failed(let reason):
+            HStack {
+                Text(reason).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("Try Again") { Task { await signIn.loadModels() } }
+            }
+        }
+    }
+
+    private var refreshButton: some View {
+        Button("Refresh", systemImage: "arrow.clockwise") { Task { await signIn.loadModels() } }
+            .buttonStyle(.garden(.plain, .small))
     }
 
     @ViewBuilder private var buttons: some View {
@@ -340,8 +404,14 @@ struct ChatGPTPlanSheet: View {
             }
             .keyboardShortcut(.cancelAction)
         case .signedIn:
-            Button("Done") { dismiss() }
-                .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) { dismiss() }
+                .keyboardShortcut(.cancelAction)
+            Button("Save") {
+                saveProblem = signIn.save()
+                if saveProblem == nil { dismiss() }
+            }
+            .keyboardShortcut(.defaultAction)
+            .disabled(!signIn.canSave)
         case .failed:
             Button("Cancel", role: .cancel) { dismiss() }
                 .keyboardShortcut(.cancelAction)

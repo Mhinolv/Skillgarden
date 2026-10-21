@@ -96,6 +96,14 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case chatGPTSheetSignedIn = "chatgpt-sheet-signed-in"
     /// The ChatGPT plan sheet after a callback that failed the checks (#156).
     case chatGPTSheetFailed = "chatgpt-sheet-failed"
+    /// The Signed in sheet while the account model list loads (#157).
+    case chatGPTSheetModelsLoading = "chatgpt-sheet-models-loading"
+    /// The Signed in sheet with an empty account model list (#157): the Empty text, and "Save" is off.
+    case chatGPTSheetModelsEmpty = "chatgpt-sheet-models-empty"
+    /// The Signed in sheet after the model list failed (#157): the red reason and "Try Again".
+    case chatGPTSheetModelsFailed = "chatgpt-sheet-models-failed"
+    /// The Signed in sheet with a saved model that left the account list (#157): the red caption.
+    case chatGPTSheetModelGone = "chatgpt-sheet-model-gone"
     /// The Settings window with a ChatGPT plan session that can't refresh (#156): "Sign in again." and "Sign In…".
     case settingsChatGPTSignInAgain = "settings-chatgpt-sign-in-again"
     /// The Q&A panel of the video lecture (#128), scrolled to the end: Ready with three saved turns,
@@ -166,7 +174,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
                                                     .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError,
                                                     .providerSheetOpenAI, .providerSheetOpenAIEdit, .providerSheetAnthropic,
                                                     .providerSheetAnthropicEdit, .chatGPTSheetSignedOut, .chatGPTSheetWaiting,
-                                                    .chatGPTSheetSignedIn, .chatGPTSheetFailed, .settingsChatGPTSignInAgain]
+                                                    .chatGPTSheetSignedIn, .chatGPTSheetFailed,
+                                                    .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain]
 
     /// True for the Settings screens. The harness draws the Settings form in place of the main window.
     public var isSettings: Bool { Self.settingsScreens.contains(self) }
@@ -176,7 +185,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
         switch self {
         case .settings, .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI,
              .providerSheetOpenAIEdit, .providerSheetAnthropic, .providerSheetAnthropicEdit, .chatGPTSheetSignedOut,
-             .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed, .settingsChatGPTSignInAgain: .ready(version: "b11669")
+             .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
+             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain: .ready(version: "b11669")
         case .settingsModelMissing: .noModel
         case .settingsAIOff: .off
         case .settingsAIError: .failed(.noFreePort)
@@ -270,9 +280,23 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
         switch self {
         case .chatGPTSheetSignedOut: .signedOut
         case .chatGPTSheetWaiting: .waiting
-        case .chatGPTSheetSignedIn: .signedIn(SnapshotPlan.chatGPTAccount)
+        case .chatGPTSheetSignedIn, .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed,
+             .chatGPTSheetModelGone: .signedIn(SnapshotPlan.chatGPTAccount)
         case .chatGPTSheetFailed: .failed(ChatGPTAuthError.unverifiedText)
         default: nil
+        }
+    }
+
+    /// The model picker of the Signed in sheet and the chosen model (#157). The harness injects it and fetches nothing.
+    public var chatGPTSheetModels: (models: ChatGPTSignIn.Models, modelID: String)? {
+        let models = SnapshotPlan.chatGPTModels
+        switch self {
+        case .chatGPTSheetSignedIn: return (.loaded(models), models[0].slug)
+        case .chatGPTSheetModelsLoading: return (.loading, "")
+        case .chatGPTSheetModelsEmpty: return (.loaded([]), "")
+        case .chatGPTSheetModelsFailed: return (.failed(ChatGPTErrors.statusText(503)), "")
+        case .chatGPTSheetModelGone: return (.loaded(models), "gpt-4.1")
+        default: return nil
         }
     }
 
@@ -383,7 +407,8 @@ public enum SnapshotPlan {
         case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
              .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit,
              .providerSheetAnthropic, .providerSheetAnthropicEdit, .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn,
-             .chatGPTSheetFailed, .settingsChatGPTSignInAgain:
+             .chatGPTSheetFailed,
+             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain:
             _ = try CourseStore(root: root)
             return nil
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
@@ -632,6 +657,10 @@ public enum SnapshotPlan {
     /// The fixture account of the ChatGPT plan screens (#156).
     public static let chatGPTAccount = ChatGPTAccount(email: "learner@example.com", planType: "plus")
 
+    /// The fixture account models of the Signed in sheet (#157), in server order.
+    public static let chatGPTModels = [ChatGPTModel(slug: "gpt-5", displayName: "GPT-5"),
+                                       ChatGPTModel(slug: "gpt-5-mini", displayName: "GPT-5 mini")]
+
     /// The ChatGPT plan profile of `usesChatGPTPlanProfile` (#156).
     public static let chatGPTPlanProfile = ProviderProfile(id: "snapshot-chatgpt", kind: .subscription,
                                                            name: ProviderProfile.chatGPTPlanName, vendor: "OpenAI",
@@ -726,7 +755,8 @@ public enum SnapshotPlan {
         case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
              .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit,
              .providerSheetAnthropic, .providerSheetAnthropicEdit, .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn,
-             .chatGPTSheetFailed, .settingsChatGPTSignInAgain: 0
+             .chatGPTSheetFailed,
+             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain: 0
         case .library: 3
         case .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads, .pdfPreview: 2
         default: 1
@@ -739,7 +769,8 @@ public enum SnapshotPlan {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library, .settings, .settingsModelMissing, .settingsAIOff,
              .settingsAIError, .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI,
              .providerSheetOpenAIEdit, .providerSheetAnthropic, .providerSheetAnthropicEdit, .chatGPTSheetSignedOut,
-             .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed, .settingsChatGPTSignInAgain: nil
+             .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
+             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain: nil
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
              .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions,

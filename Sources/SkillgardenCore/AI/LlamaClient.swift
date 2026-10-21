@@ -73,6 +73,20 @@ public final class LlamaClient: @unchecked Sendable {
             continuation.finish()
             return AnswerRequest(id: id, updates: updates)
         }
+        return start(id: id, updates: updates, continuation: continuation) { transport, send in
+            await pump(transport.send(request), send)
+        }
+    }
+
+    /// Starts a request whose `answer` first does async work, for example a token refresh (#157), then sends on the
+    /// transport. Cancel ends the request at once, also during that work.
+    func start(answer: @escaping @Sendable (any LlamaTransport, (String) -> Bool) async -> AnswerOutcome) -> AnswerRequest {
+        let (updates, continuation) = AsyncStream<AnswerUpdate>.makeStream()
+        return start(id: UUID(), updates: updates, continuation: continuation, answer: answer)
+    }
+
+    private func start(id: UUID, updates: AsyncStream<AnswerUpdate>, continuation: AsyncStream<AnswerUpdate>.Continuation,
+                       answer: @escaping @Sendable (any LlamaTransport, (String) -> Bool) async -> AnswerOutcome) -> AnswerRequest {
         let started: Bool = lock.withLock {
             guard active == nil else { return false }
             active = Active(id: id, continuation: continuation)
@@ -86,7 +100,7 @@ public final class LlamaClient: @unchecked Sendable {
         // A consumer that stops reading cancels the request.
         continuation.onTermination = { [weak self] _ in self?.cancel(id) }
         let task = Task { [weak self, transport] in
-            let outcome = await pump(transport.send(request)) { text in self?.deliver(id, .delta(text: text)) ?? false }
+            let outcome = await answer(transport) { text in self?.deliver(id, .delta(text: text)) ?? false }
             self?.end(id, outcome)
         }
         lock.withLock {
