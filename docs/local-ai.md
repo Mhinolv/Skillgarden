@@ -427,6 +427,28 @@ Claude Pro and Max plans do not work here. Skillgarden never uses a Claude.ai si
 | "The output limit is too large for <model>. Lower it in Settings." | 400 with a `max_tokens` error. |
 | "Anthropic sent an error (<status code>)." | Any other error. Skillgarden never shows the response body. |
 
+## ChatGPT plan (#157)
+
+Use Settings > Q&A > "Add Provider" > "ChatGPT Plan…". Sign in, then choose a model in the sheet and click "Save".
+"Edit…" on the row opens the same sheet. "Answer with" lists the plan after it has a model.
+
+| Item | Rule |
+|---|---|
+| Tokens | The #156 session in the Keychain. Skillgarden refreshes the access token before a request when it is near its end. |
+| Models | `GET https://api.openai.com/v1/models`. Only `visibility: "list"` models show, in server order. "Refresh" loads them again. |
+| Request | `POST https://api.openai.com/v1/responses` with `model`, `instructions`, `input` (all history), `stream: true` and `store: false`. |
+| Not sent | No output limit, no tools and no other field that the plan profile refuses. |
+| Scope | Skillgarden sends no question when the grant has no `chatgpt.tokens.use.direct` scope. |
+| Consent | Each course asks first. The sheet says "Use of your plan counts toward its limits." |
+| Fallback | None. Skillgarden never uses an API key after a plan error. |
+
+| Turn text | Cause |
+|---|---|
+| "You reached the ChatGPT plan limit. Try again later." | 429, or `subscription_sharing_usage_limit_exceeded` in the stream. |
+| "ChatGPT access ended. Sign in again in Settings." | 401, `subscription_sharing_invalid_user`, or a refused refresh. The tokens go. The client ID stays. The turn shows "Open Settings…". |
+| "ChatGPT sent an error (<status code>)." | Any other status. Skillgarden never shows the response body or its `detail` text. |
+| "Skillgarden can't connect to ChatGPT. Check the network." | No response. The tokens stay. |
+
 ## Framework exception
 
 The engineering rules allow only Apple frameworks and the vendored Yams package.

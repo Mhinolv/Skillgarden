@@ -66,9 +66,13 @@ public struct RemoteConsentRequest: Identifiable, Equatable, Sendable {
     public var title: String { "Send this question to \(vendor)?" }
 
     /// The extra line of an external local server (#152). A loopback address does not prove that the server keeps the text
-    /// on this Mac. Nil for the other kinds.
+    /// on this Mac. A subscription (#157) says that the answer uses the plan. Nil for the other kinds.
     public var cloudNote: String? {
-        destination.kind == .externalLocal ? "Skillgarden can't check if this server uses the cloud." : nil
+        switch destination.kind {
+        case .externalLocal: "Skillgarden can't check if this server uses the cloud."
+        case .subscription: "Use of your plan counts toward its limits."
+        case .local, .api: nil
+        }
     }
 
     /// The list of the sheet: what leaves the Mac.

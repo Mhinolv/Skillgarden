@@ -564,7 +564,7 @@ private func signedInSession(expires: Date = now.addingTimeInterval(3600)) -> Ch
     #expect(providers.savedChatGPTSession(for: profile.id)?.clientID == clientID)
     let file = try String(contentsOf: store.fileURL, encoding: .utf8)
     for secret in ["access-secret-1", "refresh-secret-1", "learner@example.com", "eyJ", clientID] { #expect(!file.contains(secret)) }
-    #expect(providers.caption(for: saved) == "learner@example.com · Subscription · Q&A not available yet")
+    #expect(providers.caption(for: saved) == "learner@example.com · Subscription")
     // A reload reads the account from the Keychain.
     let reloaded = ProviderSettings(store: store, credentials: credentials, adapterKinds: ShippedAdapters.kinds)
     reloaded.checkCredentials()
@@ -597,22 +597,22 @@ private func signedInSession(expires: Date = now.addingTimeInterval(3600)) -> Ch
     #expect(denied.profiles.count == 1)
 }
 
-@MainActor @Test func qaStaysOffForASubscriptionUntilItsAdapterShips() throws {
+@MainActor @Test func qaStaysOffForASubscriptionWithNoAdapter() throws {
     let root = try temporaryFolder()
     defer { try? FileManager.default.removeItem(at: root) }
     let store = ProviderSettingsStore(directory: root)
     let profile = ProviderProfile(id: "chatgpt", kind: .subscription, name: "ChatGPT Plan", vendor: "OpenAI",
                                   origin: "https://api.openai.com", modelID: "", credentialReference: "chatgpt")
     try store.save(SavedProviders(selectedID: "chatgpt", profiles: [profile]))
-    let providers = ProviderSettings(store: store, credentials: MemoryCredentialStore(), adapterKinds: ShippedAdapters.kinds)
-    #expect(!ShippedAdapters.kinds.contains(.subscription))
+    let providers = ProviderSettings(store: store, credentials: MemoryCredentialStore(), adapterKinds: [.externalLocal, .api])
     #expect(providers.selectedID == BundledAnswerProvider.providerID)
     #expect(!providers.canAnswer(.subscription) && providers.canAnswer(.api))
     providers.select("chatgpt")
     #expect(providers.selectedID == BundledAnswerProvider.providerID && providers.selected == nil)
-    #expect(ShippedAdapters.provider(for: profile, credentials: MemoryCredentialStore()) == nil)
-    // The paired inference issue (#157) adds the kind. Then the choice works.
-    let later = ProviderSettings(store: store, credentials: MemoryCredentialStore(), adapterKinds: [.subscription])
+    #expect(providers.caption(for: profile) == "ChatGPT account · Subscription · Q&A not available yet")
+    // #157 ships the kind. Then the choice works.
+    #expect(ShippedAdapters.kinds.contains(.subscription))
+    let later = ProviderSettings(store: store, credentials: MemoryCredentialStore(), adapterKinds: ShippedAdapters.kinds)
     #expect(later.selectedID == "chatgpt")
     #expect(later.caption(for: profile) == "ChatGPT account · Subscription")
 }

@@ -355,7 +355,7 @@ private func json(_ request: URLRequest) throws -> [String: Any] {
     #expect(!profile.isValid(hasSecret: true))
     // Another host is not the Anthropic service, so no adapter sends for it.
     #expect(anthropic(origin: "https://api.example.com").apiService == nil)
-    #expect(ShippedAdapters.kinds == [.externalLocal, .api])
+    #expect(ShippedAdapters.kinds == [.externalLocal, .api, .subscription])
     let credentials = MemoryCredentialStore()
     #expect(ShippedAdapters.provider(for: anthropic(), credentials: credentials) is AnthropicAnswerProvider)
     #expect(ShippedAdapters.provider(for: anthropic(origin: "https://api.example.com"), credentials: credentials) == nil)

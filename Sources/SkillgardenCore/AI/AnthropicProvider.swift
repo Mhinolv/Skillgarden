@@ -1,8 +1,9 @@
 import Foundation
 
-/// The adapters that ship (#152, #153, #154). The app gives them to `ProviderSettings`.
+/// The adapters that ship (#152, #153, #154, #157). The app gives them to `ProviderSettings`.
+/// `ProviderSettings` makes the ChatGPT plan adapter itself, because it needs the session of the profile (#157).
 public enum ShippedAdapters {
-    public static let kinds: Set<AnswerProviderKind> = [.externalLocal, .api]
+    public static let kinds: Set<AnswerProviderKind> = [.externalLocal, .api, .subscription]
 
     /// The provider of a profile. Nil for a profile with no adapter, for example an API profile of another host.
     @MainActor

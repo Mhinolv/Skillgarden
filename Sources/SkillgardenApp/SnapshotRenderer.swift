@@ -107,8 +107,10 @@ enum SnapshotRenderer {
                                          // The sheet screens inject the test result. The harness never runs a test.
                                          testConnection: { _, _ in .connected })
         let screenView = if let state = output.screen.chatGPTSheetState {
-            // The ChatGPT plan sheet gets its state and no browser (#156). The harness never signs in.
-            AnyView(ChatGPTPlanSheet(signIn: ChatGPTSignIn(providers: providers, browser: nil, state: state))
+            // The ChatGPT plan sheet gets its state, its model list and no browser (#156, #157). The harness never signs in.
+            AnyView(ChatGPTPlanSheet(signIn: ChatGPTSignIn(providers: providers, browser: nil, state: state,
+                                                           models: output.screen.chatGPTSheetModels?.models ?? .notLoaded,
+                                                           modelID: output.screen.chatGPTSheetModels?.modelID))
                 .background(Color(nsColor: .windowBackgroundColor))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top))
         } else if let sheet = output.screen.providerSheet {

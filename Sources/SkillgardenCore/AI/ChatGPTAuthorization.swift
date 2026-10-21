@@ -123,6 +123,9 @@ public enum ChatGPTAuthError: Error, Equatable, Sendable {
     }
 
     public static let notFinishedText = "Sign-in did not finish. Try again."
+    /// The OAuth codes of a refresh that mean a revoked grant (#157). The tokens then go, and the client ID stays.
+    static let revokedRefreshCodes: Set<String> = ["invalid_grant", "invalid_refresh_token", "token_expired",
+                                                   "refresh_token_expired", "refresh_token_invalidated", "refresh_token_reused"]
     public static let unverifiedText = "OpenAI sent a response that Skillgarden can't verify."
 }
 
