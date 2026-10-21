@@ -138,7 +138,7 @@ func derivativeMatchesTargetSizeWithLetterbox(source: (Int, Int), target: (Int, 
         let course = try #require(try CourseStore(root: root).loadCourse(id: "sample-course", includeDrafts: true))
         let image = try #require(course.image)
         #expect(image.mimeType == "image/svg+xml")
-        #expect(image.alt == "A green garden with two plants")
+        #expect(image.alt == "Local Course Basics, with a notebook and leafy branch on pale green.")
         #expect(image.derivatives.isEmpty)
         #expect(image.path.hasPrefix("courses/") && image.path.hasSuffix("/media/course.svg"))
         #expect(course.sections.map { $0.headerImage?.mimeType } == ["image/svg+xml", "image/svg+xml"])
@@ -182,7 +182,7 @@ func derivativeMatchesTargetSizeWithLetterbox(source: (Int, Int), target: (Int, 
 @Test func publishFailsWhenAnyImageOmitsAlt() throws {
     try withCourse { folder, root in
         let manifest = folder.appending(path: "skillgarden.yaml").path
-        try edit(folder, "  alt: A green garden with two plants\n", "")
+        try edit(folder, "  alt: Local Course Basics, with a notebook and leafy branch on pale green.\n", "")
         #expect(SkillgardenCommand.run(arguments: ["publish", folder.path], root: root) == CommandResult(
             exitCode: 1, stdout: "", stderr: "error: \(manifest): course_image.alt: alt text is required\n"))
         try edit(folder, "  path: media/course.svg\n", "  path: media/course.svg\n  alt: \"  \"\n")

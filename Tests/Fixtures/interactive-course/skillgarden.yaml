@@ -14,7 +14,7 @@ theme:
   appearance: light
 course_image:
   path: media/course.svg
-  alt: A green garden with two plants
+  alt: Interactive Course Basics, with three colorful numbered tiles and a pointer.
 credits:
   - name: Skillgarden Team
     role: Author
