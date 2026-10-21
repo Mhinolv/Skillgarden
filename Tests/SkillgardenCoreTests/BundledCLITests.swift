@@ -66,7 +66,11 @@ private func expectedVersion() throws -> String {
     return version.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "skillgarden ", with: "")
 }
 
-/// A repository copy with bundle_app.sh, a stub build.sh that logs its calls, the icon and a prepared llama.cpp runtime.
+/// The license notices that bundle_app.sh copies from the repository (#213), by component.
+private let repositoryNotices = ["Skillgarden": "LICENSE", "Yams": "Vendor/Yams/LICENSE"]
+
+/// A repository copy with bundle_app.sh, a stub build.sh that logs its calls, the icon, the license notices
+/// and a prepared llama.cpp runtime.
 /// `products` lists the configurations that get stub build products. The stub CLI prints its configuration for `--version`.
 private func bundleRepository(in root: URL, products: [String] = ["debug", "release"]) throws -> (script: URL, llama: URL) {
     let scripts = root.appending(path: "scripts")
@@ -88,6 +92,11 @@ private func bundleRepository(in root: URL, products: [String] = ["debug", "rele
         try Data("host \(configuration)".utf8).write(to: folder.appending(path: "SkillgardenAIHost"))
     }
     try Data("icon".utf8).write(to: icon.appending(path: "AppIcon.icns"))
+    for (component, path) in repositoryNotices {
+        let notice = root.appending(path: path)
+        try FileManager.default.createDirectory(at: notice.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("\(component) license".utf8).write(to: notice)
+    }
     let llama = root.appending(path: "llama")
     try makeLlamaRuntime(at: llama, manifest: root.appending(path: "assets/llama.cpp/runtime.json"), server: try builtCLI())
     return (scripts.appending(path: "bundle_app.sh"), llama)
@@ -189,6 +198,55 @@ func bundleScriptUsesTheChosenConfiguration(arguments: [String], configuration: 
     #expect(bundle.output.isEmpty)
     #expect(bundle.errorText == "error: .build/release/SkillgardenAIHost not found\n")
     #expect(!FileManager.default.fileExists(atPath: root.appending(path: "build/Skillgarden.app").path))
+}
+
+/// #213: the bundle holds one folder of license notices for each component, under the original file names.
+@Test func bundleScriptCopiesEveryLicenseNotice() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (_, llama) = try bundleRepository(in: root)
+
+    let bundle = try runBundle([], in: root, llama: llama)
+    #expect(bundle.status == 0, "\(bundle.errorText)")
+    #expect(bundle.output.contains("\nCopied license notices: Skillgarden, Yams, llama.cpp\n"))
+    let licenses = root.appending(path: "build/Skillgarden.app/Contents/Resources/Licenses")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: licenses.path).sorted() == ["Skillgarden", "Yams", "llama.cpp"])
+    for component in repositoryNotices.keys {
+        #expect(try FileManager.default.contentsOfDirectory(atPath: licenses.appending(path: component).path) == ["LICENSE"])
+        #expect(try String(contentsOf: licenses.appending(path: "\(component)/LICENSE"), encoding: .utf8) == "\(component) license")
+    }
+    #expect(try String(contentsOf: licenses.appending(path: "llama.cpp/LICENSE"), encoding: .utf8) == "MIT License")
+}
+
+/// #213: a missing notice stops the script before the build. It does not make an app without the notice.
+@Test(arguments: ["LICENSE", "Vendor/Yams/LICENSE"])
+func bundleScriptStopsWhenALicenseNoticeIsMissing(path: String) throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (_, llama) = try bundleRepository(in: root)
+    try FileManager.default.removeItem(at: root.appending(path: path))
+
+    let bundle = try runBundle([], in: root, llama: llama)
+    #expect(bundle.status == 1)
+    #expect(bundle.output.isEmpty)
+    #expect(bundle.errorText == "error: missing license notice: \(path)\n")
+    #expect(buildLog(in: root) == nil)
+    #expect(!FileManager.default.fileExists(atPath: root.appending(path: "build/Skillgarden.app").path))
+}
+
+/// #213: the real notices exist in the repository, and the docs list each notice that ships in the app.
+@Test func repositoryHasEveryDocumentedLicenseNotice() throws {
+    for path in repositoryNotices.values {
+        let text = try String(contentsOf: repo.appending(path: path), encoding: .utf8)
+        #expect(text.contains("MIT License") && text.contains("Copyright"), "\(path)")
+    }
+    let doc = try String(contentsOf: repo.appending(path: "docs/local-ai.md"), encoding: .utf8)
+    for row in ["| Skillgarden | `Licenses/Skillgarden/LICENSE` | `LICENSE` |",
+                "| Yams | `Licenses/Yams/LICENSE` | `Vendor/Yams/LICENSE` |",
+                "| llama.cpp | `Licenses/llama.cpp/LICENSE` |"] {
+        let listed = doc.contains(row)
+        #expect(listed, "\(row)")
+    }
 }
 
 /// #107: help and validate run from the bundled binary with no `swift` on PATH and no resource bundle beside it.

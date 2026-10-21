@@ -59,7 +59,7 @@ SKILLGARDEN_LLAMA_DIR=/path/to/llama-b11669 ./scripts/build.sh app
 | Server binary | `Contents/Helpers/llama/llama-server` |
 | Libraries that `llama-server` loads | `Contents/Helpers/llama/*.dylib` |
 | Runtime manifest | `Contents/Helpers/llama/runtime.json` |
-| License notices | `Contents/Resources/Licenses/llama.cpp/LICENSE` |
+| License notices | `Contents/Resources/Licenses/<Component>/` (see "Licenses") |
 
 - The libraries are in the same folder as `llama-server`. The release rpath `@loader_path` finds them without edits.
 - The script copies each library under its install name (for example `libllama.0.dylib`). It copies the file, not the release symlink.
@@ -461,5 +461,14 @@ The llama.cpp runtime is an exception to this rule, with these limits:
 
 ## Licenses
 
-llama.cpp uses the MIT License. The release `LICENSE` file is in `Contents/Resources/Licenses/llama.cpp/LICENSE`.
+The app bundle holds these license notices in `Contents/Resources/Licenses`. All three components use the MIT License.
+
+| Component | File in the app | Source |
+|---|---|---|
+| Skillgarden | `Licenses/Skillgarden/LICENSE` | `LICENSE` |
+| Yams | `Licenses/Yams/LICENSE` | `Vendor/Yams/LICENSE` |
+| llama.cpp | `Licenses/llama.cpp/LICENSE` | runtime download (pinned in `runtime.json`) |
+
+- `scripts/bundle_app.sh` prints `Copied license notices: Skillgarden, Yams, llama.cpp`.
+- If `LICENSE` or `Vendor/Yams/LICENSE` is missing, the script prints `error: missing license notice: <path>` and exits 1. It does not build.
 If a future release adds notice files, add them to `sha256` in `runtime.json`. The bundle script copies each `LICENSE*` and `NOTICE*` file to the same folder.

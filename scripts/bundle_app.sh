@@ -6,6 +6,7 @@
 # The pinned llama.cpp runtime (assets/llama.cpp/runtime.json) goes in Contents/Helpers/llama.
 # The script copies it from SKILLGARDEN_LLAMA_DIR, or ~/.local/share/skillgarden/llama.cpp/<version>.
 # It never downloads anything. See docs/local-ai.md.
+# Contents/Resources/Licenses holds one folder of license notices for each component (#213).
 # Usage: scripts/bundle_app.sh [debug|release]
 #   The configuration (default: debug) applies to all three executables. Both write build/Skillgarden.app.
 set -euo pipefail
@@ -36,6 +37,12 @@ for line in ${(f)LLAMA_FILES}; do
   file=${line%%$'\t'*}
   [[ -f $LLAMA_DIR/$file ]] || fail "$file: not found in $LLAMA_DIR"
   [[ $(shasum -a 256 < "$LLAMA_DIR/$file") == ${line#*$'\t'}\ * ]] || fail "$file: checksum does not match runtime.json"
+done
+
+# The notices of the components that the executables hold. A missing notice stops the script before the build.
+typeset -A NOTICES=(Skillgarden LICENSE Yams Vendor/Yams/LICENSE)
+for notice in ${(v)NOTICES}; do
+  [[ -f $notice ]] || fail "missing license notice: $notice"
 done
 
 PRODUCTS=(SkillgardenApp skillgarden SkillgardenAIHost)
@@ -81,4 +88,9 @@ for line in ${(f)LLAMA_FILES}; do
 done
 cp "$MANIFEST" "$LLAMA/runtime.json"
 echo "Bundled llama.cpp $LLAMA_VERSION ($LLAMA_ARCH) into $APP"
+for component in ${(ko)NOTICES}; do
+  mkdir -p "$APP/Contents/Resources/Licenses/$component"
+  cp "${NOTICES[$component]}" "$APP/Contents/Resources/Licenses/$component/"
+done
+echo "Copied license notices: ${(koj:, :)NOTICES}, llama.cpp"
 echo "Bundled Skillgarden ($CONFIG) into $APP"
