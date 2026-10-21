@@ -367,8 +367,8 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
     await library.reload()
     #expect(try await library.lectureConversation(forLecture: "read")?.turns.last?.status == .pending)
 
-    // After a restart the thread is the same, and the pending turn is interrupted.
-    let restarted = LibraryModel(root: root)
+    // After a restart the thread is the same, and the pending turn is interrupted. A new recovery is a new app run (#208).
+    let restarted = LibraryModel(root: root, recovery: PendingTurnRecovery())
     await restarted.reload()
     restarted.selectCourse("sample-course")
     let afterRestart = try #require(try await restarted.lectureConversation(forLecture: "read"))
@@ -417,4 +417,88 @@ private func passages(_ texts: [String]) -> [LecturePassage] {
     // Clear History empties this lecture only.
     restarted.clearQAHistory(forLecture: "read")
     #expect(try await restarted.lectureConversation(forLecture: "read")?.turns == [])
+}
+
+/// A library with the sample course published, in a temporary folder.
+@MainActor private func withPublishedLibrary(_ name: String, _ body: @MainActor (URL) async throws -> Void) async throws {
+    let base = FileManager.default.temporaryDirectory.appending(path: "\(name)-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: base) }
+    try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+    let folder = base.appending(path: "course"), root = base.appending(path: "library")
+    try FileManager.default.copyItem(at: fixture, to: folder)
+    try FileManager.default.removeItem(at: folder.appending(path: "equivalent.json"))
+    try CoursePublisher.publish(courseFolder: folder, root: root)
+    try await body(root)
+}
+
+// #208: A second window opens its own model on the same database. Its first reload must not interrupt the active turn.
+@MainActor @Test func secondWindowKeepsThePendingTurnOfTheFirstWindow() async throws {
+    try await withPublishedLibrary("LectureConversationWindows") { root in
+        let windowA = LibraryModel(root: root)
+        await windowA.reload()
+        windowA.selectCourse("sample-course")
+        guard case .ready(let context) = await windowA.lectureContext(forLecture: "read") else {
+            Issue.record("The article has no context")
+            return
+        }
+        let turn = try await windowA.startQATurn(question: "What is step one?", context: context, origin: .legacy, lectureID: "read")
+
+        // Window B opens while the answer of window A runs.
+        let windowB = LibraryModel(root: root)
+        await windowB.reload()
+        windowB.selectCourse("sample-course")
+        #expect(try await windowB.lectureConversation(forLecture: "read")?.turns.map(\.status) == [.pending])
+
+        windowA.finishQATurn(turn, outcome: .finished, text: "Write the goal [a3].")
+        let finished = try #require(try await windowA.lectureConversation(forLecture: "read"))
+        #expect(finished.turns.map(\.status) == [.complete])
+        #expect(finished.turns.map(\.answer) == ["Write the goal [a3]."])
+    }
+}
+
+// #208: A restart recovers the pending turn one time. A window that opens after the restart changes no turn.
+@MainActor @Test func restartRecoversPendingTurnsOnceForAllWindows() async throws {
+    try await withPublishedLibrary("LectureConversationRestart") { root in
+        let firstRun = PendingTurnRecovery()
+        let window = LibraryModel(root: root, recovery: firstRun)
+        await window.reload()
+        window.selectCourse("sample-course")
+        guard case .ready(let context) = await window.lectureContext(forLecture: "read") else {
+            Issue.record("The article has no context")
+            return
+        }
+        // The app quits while this answer runs.
+        _ = try await window.startQATurn(question: "What is step one?", context: context, origin: .legacy, lectureID: "read")
+
+        let secondRun = PendingTurnRecovery()
+        let restarted = LibraryModel(root: root, recovery: secondRun)
+        await restarted.reload()
+        restarted.selectCourse("sample-course")
+        #expect(try await restarted.lectureConversation(forLecture: "read")?.turns.map(\.status) == [.interrupted])
+        let active = try await restarted.startQATurn(question: "And then?", context: context, origin: .legacy, lectureID: "read")
+
+        // A third window and a second reload of the same run keep the new request pending.
+        let third = LibraryModel(root: root, recovery: secondRun)
+        await third.reload()
+        await restarted.reload()
+        third.selectCourse("sample-course")
+        #expect(try await third.lectureConversation(forLecture: "read")?.turns.map(\.status) == [.interrupted, .pending])
+        restarted.finishQATurn(active, outcome: .finished, text: "Write the steps.")
+        #expect(try await restarted.lectureConversation(forLecture: "read")?.turns.map(\.status) == [.interrupted, .complete])
+    }
+}
+
+@Test func recoveryRunsOncePerDataFolderAndAgainAfterAFailure() throws {
+    let recovery = PendingTurnRecovery()
+    let base = FileManager.default.temporaryDirectory.appending(path: "Recovery-\(UUID())")
+    var runs: [String] = []
+    #expect(throws: CourseStoreError.databaseFailure) {
+        try recovery.recoverOnce(root: base.appending(path: "a")) { runs.append("fail"); throw CourseStoreError.databaseFailure }
+    }
+    try recovery.recoverOnce(root: base.appending(path: "a")) { runs.append("a") }
+    // The same folder with another spelling is the same data folder.
+    try recovery.recoverOnce(root: base.appending(path: "x/../a")) { runs.append("a again") }
+    try recovery.recoverOnce(root: base.appending(path: "b")) { runs.append("b") }
+    try recovery.recoverOnce(root: base.appending(path: "b")) { runs.append("b again") }
+    #expect(runs == ["fail", "a", "b"])
 }
