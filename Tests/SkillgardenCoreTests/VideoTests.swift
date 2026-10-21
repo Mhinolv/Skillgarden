@@ -157,6 +157,14 @@ func manifestRejectsInvalidVideoPayloads(old: String, new: String, expected: [St
         ])
     }
     try withCourse { folder, root in
+        try Data("WEBVTT\n\n9223372036854775807:00:00.000 --> 9223372036854775807:00:01.000\nHuge\n".utf8)
+            .write(to: folder.appending(path: "content/welcome.vtt"))
+        #expect(try publishErrors(folder, root) == [
+            "\(video).captions.path: invalid WebVTT file: cue time \"9223372036854775807:00:00.000\" is out of range",
+        ])
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "courses").path))
+    }
+    try withCourse { folder, root in
         try Data([0x57, 0x45, 0x42, 0xFF, 0xFE]).write(to: folder.appending(path: "content/welcome.vtt"))
         #expect(try publishErrors(folder, root) == ["\(video).captions.path: cannot read the captions file as UTF-8 text"])
     }
@@ -361,9 +369,27 @@ func outlineDurationShowsOnVideoRows(seconds: Int, label: String) {
                    "00:00.000 --> 00:01.000 --> 00:02.000"] {
         #expect(throws: WebVTTError.self, "\(timing)") { try WebVTT(text: "WEBVTT\n\n\(timing)\nText") }
     }
-    #expect(WebVTT.seconds("00:00.000") == 0)
-    #expect(WebVTT.seconds("59:59.999") == 3599.999)
-    #expect(WebVTT.seconds("100:00:00.000") == 360_000)
+    #expect(try WebVTT.seconds("00:00.000") == 0)
+    #expect(try WebVTT.seconds("59:59.999") == 3599.999)
+    #expect(try WebVTT.seconds("100:00:00.000") == 360_000)
+}
+
+/// Regression (#207): a cue time with too many hours throws `WebVTTError` and does not stop the process.
+@Test func webVTTRejectsOutOfRangeCueTimes() throws {
+    func error(_ timing: String) -> String? {
+        do { _ = try WebVTT(text: "WEBVTT\n\n\(timing)\nText"); return nil } catch { return error.message }
+    }
+    // Int.max hours, hours outside Int, and the first whole second past Int.max.
+    for time in ["9223372036854775807:00:00.000", "99999999999999999999:00:00.000", "2562047788015215:30:08.000",
+                 "00:60:00.000", "00:00:60.000", "60:00.000", "00:60.000"] {
+        #expect(error("00:00.000 --> \(time)") == "cue time \"\(time)\" is out of range")
+        #expect(error("\(time) --> \(time)") == "cue time \"\(time)\" is out of range")
+    }
+    // The largest safe timestamp: 2562047788015215 * 3600 + 30 * 60 + 7 == Int.max.
+    let largest = try WebVTT(text: "WEBVTT\n\n00:00.000 --> 2562047788015215:30:07.999\nText")
+    #expect(largest.cues.first?.end == Double(Int.max))
+    #expect(try WebVTT(text: "WEBVTT\n\n00:00.000 --> 100:00:00.000\nText").cues.first?.end == 360_000)
+    #expect(error("00:00.000 --> 00:60:00") == "invalid cue timing \"00:00.000 --> 00:60:00\"")
 }
 
 // MARK: Transcript
