@@ -1,14 +1,15 @@
 import Foundation
 
-/// An OpenAI-compatible chat server that the learner runs on this Mac: LM Studio or Ollama (#152).
-/// It sends only to a literal loopback base URL, with the optional token of the profile. It never uses the session
-/// secret of the owned server. Skillgarden does not start or stop the server.
+/// An OpenAI-compatible Chat Completions server: LM Studio or Ollama on this Mac (#152), OpenRouter or a custom
+/// HTTPS endpoint (#155). It sends only to the base URL of the profile: a literal loopback URL, the OpenRouter URL or an
+/// `https` URL. It follows no redirect. The optional key of the profile goes only into the `Authorization` header.
+/// It never uses the session secret of the owned server. Skillgarden does not start or stop a server.
 /// The stream and cancel contract is the one of `LlamaClient`: deltas, then one `.ended` update.
 @MainActor
 public final class CompatibleAnswerProvider: AnswerProvider {
     public let id: String
     public let displayName: String
-    public let kind = AnswerProviderKind.externalLocal
+    public let kind: AnswerProviderKind
     public let destination: RemoteDestination?
 
     private let profile: ProviderProfile
@@ -16,16 +17,25 @@ public final class CompatibleAnswerProvider: AnswerProvider {
     /// One request at a time, as for the owned server.
     private let client: LlamaClient
 
-    public init(profile: ProviderProfile, credentials: any CredentialStore, transport: any LlamaTransport = LoopbackTransport()) {
+    /// `transport` nil uses the real transport of the profile.
+    public init(profile: ProviderProfile, credentials: any CredentialStore, transport: (any LlamaTransport)? = nil) {
         id = profile.id
         displayName = profile.name
+        kind = profile.kind
         destination = profile.destination
         self.profile = profile
         self.credentials = credentials
-        client = LlamaClient(transport: transport)
+        client = LlamaClient(transport: transport ?? Self.transport(for: profile))
     }
 
-    /// Nil when the base URL is not a loopback URL, the model ID is empty, or the Keychain refuses the token.
+    /// The real transport of `profile`. It follows no redirect.
+    /// A remote endpoint (#155) uses the system proxy settings. A loopback server never does.
+    nonisolated static func transport(for profile: ProviderProfile) -> any LlamaTransport {
+        LoopbackTransport(usesSystemProxy: profile.kind != .externalLocal)
+    }
+
+    /// Nil when the base URL is not valid for the profile, the model ID is empty, OpenRouter has no key,
+    /// or the Keychain refuses the token.
     /// The token is read on each question, so a new token in Settings applies at once.
     public func prepare() -> PreparedAnswer? {
         let token: String?
@@ -53,13 +63,14 @@ public final class CompatibleAnswerProvider: AnswerProvider {
     /// "Test Connection": sends `testMessages` with a short answer limit. A 200 stream is a pass, also with no text,
     /// because a reasoning model can use all of the limit before it writes text.
     public nonisolated static func testConnection(_ profile: ProviderProfile, token: String?,
-                                                  transport: any LlamaTransport = LoopbackTransport()) async -> ConnectionTestResult {
+                                                  transport: (any LlamaTransport)? = nil) async -> ConnectionTestResult {
         guard let request = chatRequest(testMessages, profile: profile, token: token, answerTokens: 16) else {
-            return .failed(reason: profile.originProblem ?? profile.modelProblem ?? ExternalServerErrors.rejectedToken)
+            let noKey = profile.endpoint == .openRouter ? APIService.noKeyText : ExternalServerErrors.rejectedToken
+            return .failed(reason: profile.originProblem ?? profile.upstreamProblem ?? profile.modelProblem ?? noKey)
         }
         let errors = ExternalServerErrors(profile: profile)
         // The task of a request holds the client weakly, so the client must live until the end of the answer.
-        let client = LlamaClient(transport: transport)
+        let client = LlamaClient(transport: transport ?? Self.transport(for: profile))
         let answer = client.start(request) { events, send in
             await pump(events, errors: errors, send: send)
         }
@@ -74,15 +85,15 @@ public final class CompatibleAnswerProvider: AnswerProvider {
         }
     }
 
-    /// The `chat/completions` request under the base URL, or nil when the profile is not a valid external local server
-    /// or the token has a character that a header can't hold.
+    /// The `chat/completions` request under the base URL, or nil when the profile is not a valid compatible profile,
+    /// OpenRouter has no key or upstream, or the token has a character that a header can't hold.
+    /// OpenRouter gets the `provider` routing of the profile: the upstreams in order, the fallback and the data policy (#155).
     nonisolated static func chatRequest(_ messages: [ChatMessage], profile: ProviderProfile, token: String?,
                                         answerTokens: Int? = nil) -> URLRequest? {
         let model = profile.modelID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard profile.kind == .externalLocal, !model.isEmpty, let base = ProviderProfile.loopbackBaseURL(profile.origin) else {
-            return nil
-        }
-        var request = URLRequest(url: base.appending(path: "chat/completions"))
+        guard !model.isEmpty, let url = profile.chatCompletionsURL, profile.upstreamProblem == nil else { return nil }
+        if profile.endpoint == .openRouter, token?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false { return nil }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpShouldHandleCookies = false
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -92,24 +103,45 @@ public final class CompatibleAnswerProvider: AnswerProvider {
         }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        let body = ChatBody(model: model, messages: messages, stream: true, maxTokens: answerTokens ?? profile.answerTokens)
+        let routing = profile.endpoint == .openRouter ? profile.routing.map(ChatBody.Routing.init) : nil
+        let body = ChatBody(model: model, messages: messages, stream: true, maxTokens: answerTokens ?? profile.answerTokens,
+                            provider: routing)
         request.httpBody = try? JSONEncoder().encode(body)
         return request
     }
 
     private struct ChatBody: Encodable {
+        /// The OpenRouter provider routing. With fallback off, `only` also limits the request to the upstreams.
+        struct Routing: Encodable {
+            let order: [String]
+            let only: [String]?
+            let allowFallbacks: Bool
+            let dataCollection: String
+            enum CodingKeys: String, CodingKey {
+                case order, only, allowFallbacks = "allow_fallbacks", dataCollection = "data_collection"
+            }
+
+            init(_ routing: OpenRouterRouting) {
+                order = routing.upstreams
+                only = routing.allowsFallback ? nil : routing.upstreams
+                allowFallbacks = routing.allowsFallback
+                dataCollection = routing.allowsDataCollection ? "allow" : "deny"
+            }
+        }
         let model: String
         let messages: [ChatMessage]
         let stream: Bool
         let maxTokens: Int?
-        enum CodingKeys: String, CodingKey { case model, messages, stream, maxTokens = "max_tokens" }
+        let provider: Routing?
+        enum CodingKeys: String, CodingKey { case model, messages, stream, maxTokens = "max_tokens", provider }
     }
 
     /// The most bytes of an error body that the adapter reads. It reads the body only to find an unknown model.
     nonisolated static let errorBodyLimit = 16_384
 
-    /// Reads the response. No connection gives "not running". A status other than 200 gives the design-note text.
-    /// The body of an error never goes into the text.
+    /// Reads the response. No connection gives "not running", or "can't connect" for a remote endpoint.
+    /// A status other than 200 gives the design-note text. The body of an error never goes into the text.
+    /// A remote endpoint (#155) has its own text for a redirect, a lost connection and unreadable data.
     nonisolated static func pump(_ events: AsyncThrowingStream<LlamaTransportEvent, any Error>, errors: ExternalServerErrors,
                                  send: (String) -> Bool) async -> AnswerOutcome {
         var reader = ChatStreamReader()
@@ -126,14 +158,17 @@ public final class CompatibleAnswerProvider: AnswerProvider {
                         continue
                     }
                     if let outcome = reader.read(data, send: send) {
-                        if case .httpError(let code) = outcome { return .refused(reason: ExternalServerErrors.statusText(code)) }
-                        return outcome
+                        switch outcome {
+                        case .httpError(let code): return .refused(reason: errors.statusText(code))
+                        case .malformed where errors.isRemote: return .refused(reason: errors.unreadable)
+                        default: return outcome
+                        }
                     }
                 }
             }
         } catch {
             if Task.isCancelled { return .canceled }
-            if status == 200 { return .disconnected }
+            if status == 200 { return errors.isRemote ? .refused(reason: errors.connectionLost) : .disconnected }
         }
         if Task.isCancelled { return .canceled }
         guard let status else { return .refused(reason: errors.notRunning) }
@@ -143,34 +178,60 @@ public final class CompatibleAnswerProvider: AnswerProvider {
     }
 }
 
-/// The learner text of the errors of an external local server (#152): the test result and the turn reason.
-/// No text holds the response body.
+/// The learner text of the errors of an external local server (#152) or a remote compatible endpoint (#155):
+/// the test result and the turn reason. No text holds the response body or the key.
 struct ExternalServerErrors: Sendable {
     let vendor: String
     let host: String
     let modelID: String
+    /// True for OpenRouter and a custom HTTPS endpoint (#155).
+    let isRemote: Bool
 
     init(profile: ProviderProfile) {
         vendor = profile.vendor
         host = profile.host
         modelID = profile.modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        isRemote = profile.kind != .externalLocal
     }
 
     static let rejectedToken = "The server did not accept the token."
+    static let redirectText = "The server tried to redirect. Skillgarden stopped the request."
 
     static func statusText(_ status: Int) -> String { "The server sent an error (\(status))." }
 
-    /// "LM Studio is not running at 127.0.0.1:1234."
-    var notRunning: String { "\(vendor) is not running at \(host)." }
+    /// "openrouter.ai sent an error (500)." for a remote endpoint.
+    func statusText(_ status: Int) -> String { isRemote ? "\(host) sent an error (\(status))." : Self.statusText(status) }
+
+    /// "LM Studio is not running at 127.0.0.1:1234." A remote endpoint: "Skillgarden can't connect to openrouter.ai. …"
+    var notRunning: String {
+        isRemote ? "Skillgarden can't connect to \(host). Check the network." : "\(vendor) is not running at \(host)."
+    }
+
+    /// "openrouter.ai did not accept the API key." (#155)
+    var rejectedKey: String { "\(host) did not accept the API key." }
+    var connectionLost: String { "The connection to \(host) stopped. Try again." }
+    var unreadable: String { "\(host) sent data that Skillgarden can't read. Try again." }
+    var limit: String { "\(host) rate limit or quota reached. Try again later." }
 
     var unknownModel: String { "The server has no model \"\(modelID)\"." }
 
     /// The text of a response with `status`. A 404, or an error body that names the model, is an unknown model.
+    /// A remote endpoint never follows a redirect (#155).
     func reason(status: Int, body: Data) -> String {
+        if isRemote {
+            switch status {
+            case 300..<400: return Self.redirectText
+            case 401: return rejectedKey
+            // OpenRouter sends 403 for a flagged prompt, not for a bad key.
+            case 403: return statusText(status)
+            case 429: return limit
+            default: break
+            }
+        }
         switch status {
-        case 401, 403: Self.rejectedToken
-        case 404: unknownModel
-        default: Self.namesUnknownModel(body) ? unknownModel : Self.statusText(status)
+        case 401, 403: return Self.rejectedToken
+        case 404: return unknownModel
+        default: return Self.namesUnknownModel(body) ? unknownModel : statusText(status)
         }
     }
 

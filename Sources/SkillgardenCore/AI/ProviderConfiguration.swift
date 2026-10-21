@@ -37,9 +37,14 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
     public var answerTokens: Int?
     /// The Keychain account of the secret. Nil when the profile has no saved secret.
     public var credentialReference: String?
+    /// The Chat Completions endpoint of an API profile that the compatible adapter serves (#155). Nil for the other profiles.
+    public var endpoint: CompatibleEndpoint?
+    /// The upstream routing of an OpenRouter profile (#155). Nil for the other profiles.
+    public var routing: OpenRouterRouting?
 
     public init(id: String = UUID().uuidString, kind: AnswerProviderKind, name: String, vendor: String, origin: String,
-                modelID: String, contextTokens: Int? = nil, answerTokens: Int? = nil, credentialReference: String? = nil) {
+                modelID: String, contextTokens: Int? = nil, answerTokens: Int? = nil, credentialReference: String? = nil,
+                endpoint: CompatibleEndpoint? = nil, routing: OpenRouterRouting? = nil) {
         self.id = id
         self.kind = kind
         self.name = name
@@ -49,6 +54,8 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
         self.contextTokens = contextTokens
         self.answerTokens = answerTokens
         self.credentialReference = credentialReference
+        self.endpoint = endpoint
+        self.routing = routing
     }
 
     /// Missing optional keys get their defaults, so a later version can add keys.
@@ -63,6 +70,9 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
         contextTokens = try container.decodeIfPresent(Int.self, forKey: .contextTokens)
         answerTokens = try container.decodeIfPresent(Int.self, forKey: .answerTokens)
         credentialReference = try container.decodeIfPresent(String.self, forKey: .credentialReference)
+        // A file of an earlier version has no endpoint and no routing (#155). An unknown endpoint is left out.
+        endpoint = try? container.decodeIfPresent(CompatibleEndpoint.self, forKey: .endpoint)
+        routing = try? container.decodeIfPresent(OpenRouterRouting.self, forKey: .routing)
     }
 
     /// A new profile of an external local server preset (#152). The model ID is empty until the learner types it.
@@ -82,10 +92,50 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
     }
 
     /// The fixed API service of an API profile with the fixed origin of the service (#153, #154). Nil for the other profiles.
+    /// A compatible endpoint (#155) is never a fixed service, also with the same name and host.
     public var apiService: APIService? {
-        guard kind == .api, let service = APIService(rawValue: vendor), origin == service.origin else { return nil }
+        guard kind == .api, endpoint == nil, let service = APIService(rawValue: vendor), origin == service.origin else { return nil }
         return service
     }
+
+    /// A new profile of a compatible endpoint (#155). OpenRouter has its fixed host, no upstream and fallback off.
+    /// A custom endpoint has no name, base URL or model until the learner types them.
+    public static func preset(_ endpoint: CompatibleEndpoint) -> ProviderProfile {
+        switch endpoint {
+        case .openRouter:
+            ProviderProfile(kind: .api, name: CompatibleEndpoint.openRouterName, vendor: CompatibleEndpoint.openRouterName,
+                            origin: CompatibleEndpoint.openRouterBaseURL, modelID: "", endpoint: .openRouter, routing: OpenRouterRouting())
+        case .custom:
+            ProviderProfile(kind: .api, name: "", vendor: "", origin: "", modelID: "", endpoint: .custom)
+        }
+    }
+
+    /// The `chat/completions` URL of a profile that the compatible adapter serves: an external local server (#152),
+    /// OpenRouter or a custom HTTPS endpoint (#155). Nil when the base URL is not valid for the profile.
+    public var chatCompletionsURL: URL? {
+        let base: URL? = switch (kind, endpoint) {
+        case (.externalLocal, _): Self.loopbackBaseURL(origin)
+        case (.api, .openRouter?): origin == CompatibleEndpoint.openRouterBaseURL ? URL(string: origin) : nil
+        case (.api, .custom?): Self.httpsBaseURL(origin)
+        default: nil
+        }
+        return base?.appending(path: "chat/completions")
+    }
+
+    /// The secondary caption under the Base URL field of a custom endpoint (#155). Nil while the URL is not valid.
+    public var requestURLCaption: String? {
+        guard endpoint == .custom, let url = chatCompletionsURL else { return nil }
+        return "Requests go to \(url.absoluteString)"
+    }
+
+    /// The red caption under the Upstream providers field of OpenRouter (#155). Nil when the list has a provider.
+    public var upstreamProblem: String? {
+        endpoint == .openRouter && (routing?.upstreams ?? []).isEmpty ? Self.noUpstreamText : nil
+    }
+
+    public static let httpsOnlyText = "Use an https:// URL."
+    public static let urlCredentialsText = "Remove the user name and password from the URL."
+    public static let noUpstreamText = "Enter at least one upstream provider."
 
     /// The red caption under the Output limit field of an API service (#153, #154). Nil when the limit is
     /// `APIService.minimumAnswerTokens` or more, or not set, so the adapter uses `APIService.defaultAnswerTokens`.
@@ -123,8 +173,9 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
     public var accessibilityLabel: String { "\(name), \(host), \(modelID)" }
 
     /// The destination that a course consent names. A change of kind, host or model needs a new consent.
+    /// For OpenRouter, a change of the upstreams, the fallback or the data policy also needs a new consent (#155).
     public var destination: RemoteDestination {
-        RemoteDestination(profileID: id, kind: kind, host: host, modelID: modelID)
+        RemoteDestination(profileID: id, kind: kind, host: host, modelID: modelID, routing: endpoint == .openRouter ? routing : nil)
     }
 
     /// The Keychain account for the secret of this profile.
@@ -138,9 +189,14 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
             : "Answers come from \(vendor) and can be wrong."
     }
 
-    /// The red caption under the Base URL field of an external local server (#152). Nil when the URL is valid.
+    /// The red caption under the Base URL field of an external local server (#152) or a custom endpoint (#155).
+    /// Nil when the URL is valid.
     public var originProblem: String? {
-        kind == .externalLocal && Self.loopbackBaseURL(origin) == nil ? Self.loopbackOnlyText : nil
+        if kind == .externalLocal { return Self.loopbackBaseURL(origin) == nil ? Self.loopbackOnlyText : nil }
+        guard endpoint == .custom else { return nil }
+        let parts = URLComponents(string: origin.trimmingCharacters(in: .whitespacesAndNewlines))
+        if parts?.user != nil || parts?.password != nil { return Self.urlCredentialsText }
+        return Self.httpsBaseURL(origin) == nil ? Self.httpsOnlyText : nil
     }
 
     /// The red caption under the Model ID field (#152). Nil when the field has text.
@@ -158,8 +214,30 @@ public struct ProviderProfile: Codable, Identifiable, Hashable, Sendable {
         let trimmed = [name, vendor, modelID].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard !trimmed.contains(where: \.isEmpty) else { return false }
         if kind == .externalLocal { return Self.loopbackBaseURL(origin) != nil }
+        // A custom endpoint can run with no key. OpenRouter needs a key and an upstream (#155).
+        if let endpoint {
+            guard chatCompletionsURL != nil, upstreamProblem == nil else { return false }
+            return endpoint == .custom || hasSecret
+        }
         guard Self.isValidOrigin(origin), answerTokensProblem == nil else { return false }
         return !kind.needsAPIKey || hasSecret
+    }
+
+    /// The base URL of a custom endpoint (#155): `https`, a host, an optional port and path, and no user, password,
+    /// query or fragment. Empty segments and a trailing `/chat/completions` go, and a repeated `v1` becomes one,
+    /// so the request never goes to `/v1/v1`. An empty path gives `/v1`. Nil for another URL.
+    public static func httpsBaseURL(_ text: String) -> URL? {
+        guard var parts = URLComponents(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              parts.scheme?.lowercased() == "https", let host = parts.host, !host.isEmpty,
+              parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil else { return nil }
+        if let port = parts.port, !(1...65535).contains(port) { return nil }
+        var segments = parts.path.split(separator: "/").map(String.init)
+        if segments.suffix(2) == ["chat", "completions"] { segments.removeLast(2) }
+        segments = segments.enumerated().filter { $0.offset == 0 || $0.element != "v1" || segments[$0.offset - 1] != "v1" }.map(\.element)
+        if segments.isEmpty { segments = ["v1"] }
+        parts.scheme = "https"
+        parts.path = "/" + segments.joined(separator: "/")
+        return parts.url
     }
 
     /// Plain HTTP is valid only for a literal loopback address (#152).
@@ -282,6 +360,66 @@ public enum APIService: String, CaseIterable, Identifiable, Sendable {
     }
 
     public static let noKeyText = "Enter an API key."
+}
+
+/// The API profiles of "Add Provider" that the compatible Chat Completions adapter serves (#155).
+public enum CompatibleEndpoint: String, Codable, CaseIterable, Identifiable, Sendable {
+    case openRouter
+    case custom
+
+    public var id: String { rawValue }
+
+    public static let openRouterName = "OpenRouter"
+    /// The only base URL of an OpenRouter profile.
+    public static let openRouterBaseURL = "https://openrouter.ai/api/v1"
+
+    /// The "Add Provider" menu item: "OpenRouter…", "Custom HTTPS Endpoint…".
+    public var menuTitle: String {
+        switch self {
+        case .openRouter: Self.openRouterName + "…"
+        case .custom: "Custom HTTPS Endpoint…"
+        }
+    }
+}
+
+/// The upstream routing of an OpenRouter profile (#155). The consent names it, so a change needs a new consent.
+public struct OpenRouterRouting: Codable, Hashable, Sendable {
+    /// The OpenRouter provider slugs, in the order to try, for example `openai`. Lowercase, with no empty or repeated slug.
+    public var upstreams: [String]
+    /// True when OpenRouter can send the request to a provider that is not in `upstreams`. The default is off (owner decision).
+    public var allowsFallback: Bool
+    /// True when an upstream that keeps or trains on prompts can get the request. The default is off.
+    public var allowsDataCollection: Bool
+
+    public init(upstreams: [String] = [], allowsFallback: Bool = false, allowsDataCollection: Bool = false) {
+        self.upstreams = upstreams
+        self.allowsFallback = allowsFallback
+        self.allowsDataCollection = allowsDataCollection
+    }
+
+    /// Each missing key gets its default, which is the safe value.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        upstreams = try container.decodeIfPresent([String].self, forKey: .upstreams) ?? []
+        allowsFallback = try container.decodeIfPresent(Bool.self, forKey: .allowsFallback) ?? false
+        allowsDataCollection = try container.decodeIfPresent(Bool.self, forKey: .allowsDataCollection) ?? false
+    }
+
+    /// The upstream slugs of the comma-separated field text: trimmed, lowercase, with no empty or repeated slug.
+    public static func upstreams(from text: String) -> [String] {
+        var seen = Set<String>()
+        return text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    public static let denyDataCollectionText = "Deny data collection"
+    public static let allowDataCollectionText = "Allow data collection"
+
+    /// The Data policy value of the sheet picker and the consent sheet.
+    public var dataPolicyText: String { allowsDataCollection ? Self.allowDataCollectionText : Self.denyDataCollectionText }
+
+    /// The Fallback value of the consent sheet.
+    public var fallbackText: String { allowsFallback ? "On" : "Off" }
 }
 
 /// The saved provider choices: `Providers.json` in Application Support (#151).
@@ -537,13 +675,20 @@ public final class ProviderSettings {
     /// A new kind, host or model removes the course consents of the profile, so each course asks again.
     public func save(_ profile: ProviderProfile, secret: String?) throws(Problem) {
         var profile = profile
+        let saved = profiles.first { $0.id == profile.id }
         // An edit with no new key keeps the saved key.
         if profile.credentialReference == nil {
-            profile.credentialReference = profiles.first { $0.id == profile.id }?.credentialReference
+            profile.credentialReference = saved?.credentialReference
         }
+        // The key of a compatible endpoint stays bound to its host (#155). A new host with no new key drops the old key,
+        // so the old key never goes to the new host.
+        var dropsKey: String?
         if let secret = secret?.trimmingCharacters(in: .whitespacesAndNewlines), !secret.isEmpty {
             do { try credentials.save(secret, account: profile.keychainAccount) } catch { throw .credential(error) }
             profile.credentialReference = profile.keychainAccount
+        } else if !hasSecret(profile), profile.credentialReference != nil {
+            dropsKey = profile.keychainAccount
+            profile.credentialReference = nil
         }
         let previous = (profiles, consents)
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
@@ -554,6 +699,15 @@ public final class ProviderSettings {
         }
         guard persist() else { (profiles, consents) = previous; throw .saveFailed }
         problems[profile.id] = nil
+        // The profile no longer names the item, so a failed delete leaves an item that no request reads.
+        if let dropsKey { try? credentials.delete(account: dropsKey) }
+    }
+
+    /// True when "Save" of a compatible endpoint (#155) changes the host or the upstream list of a saved profile.
+    /// The sheet then asks "Change the destination?", because each course must allow the new destination again.
+    public func changesDestination(_ profile: ProviderProfile) -> Bool {
+        guard profile.endpoint != nil, let saved = profiles.first(where: { $0.id == profile.id }) else { return false }
+        return saved.host != profile.host || saved.routing?.upstreams != profile.routing?.upstreams
     }
 
     /// "Disconnect": deletes the secret from the Keychain, the course consents and the profile.
@@ -689,8 +843,13 @@ public final class ProviderSettings {
         }
     }
 
-    /// True when a saved secret exists for the profile.
-    public func hasSecret(_ profile: ProviderProfile) -> Bool { profile.credentialReference != nil }
+    /// True when a saved secret exists for the profile. The key of a compatible endpoint (#155) is bound to the saved host,
+    /// so an edit to another host has no saved key.
+    public func hasSecret(_ profile: ProviderProfile) -> Bool {
+        guard profile.credentialReference != nil else { return false }
+        guard profile.endpoint != nil, let saved = profiles.first(where: { $0.id == profile.id }) else { return true }
+        return saved.credentialReference != nil && saved.host == profile.host
+    }
 
     /// True when the provider sheet of `kind` shows "Test Connection" (#152).
     public func canTest(_ kind: AnswerProviderKind) -> Bool { testConnection != nil && adapterKinds.contains(kind) }
@@ -702,7 +861,9 @@ public final class ProviderSettings {
         var key = secret?.trimmingCharacters(in: .whitespacesAndNewlines)
         if key?.isEmpty != false {
             key = nil
-            if let saved = profiles.first(where: { $0.id == profile.id }), saved.credentialReference != nil {
+            // The saved key goes only to its saved host (#155).
+            if let saved = profiles.first(where: { $0.id == profile.id }), saved.credentialReference != nil,
+               profile.endpoint == nil || saved.host == profile.host {
                 do { key = try credentials.secret(account: saved.keychainAccount) } catch { return .failed(reason: error.message) }
             }
         }

@@ -449,6 +449,7 @@ private struct QAComposer: View {
 }
 
 /// The consent sheet (#151): the destination, what leaves the Mac and the exact text of the request.
+/// OpenRouter adds its upstreams to the Provider row, and the data policy and fallback rows (#155).
 /// "Cancel" keeps the question in the field. "Allow and Send" saves the consent of the course, then sends.
 struct RemoteConsentSheet: View {
     let request: RemoteConsentRequest
@@ -463,6 +464,8 @@ struct RemoteConsentSheet: View {
                 row("Provider", request.providerName)
                 row("Host", request.destination.host)
                 row("Model", request.destination.modelID)
+                // OpenRouter: the data policy and the fallback (#155).
+                ForEach(request.routingRows, id: \.label) { row($0.label, $0.value) }
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Skillgarden sends:")

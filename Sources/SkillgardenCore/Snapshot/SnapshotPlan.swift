@@ -88,6 +88,10 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case providerSheetAnthropic = "provider-sheet-anthropic"
     /// The Anthropic API sheet in edit mode (#154): "Saved in the Keychain" with "Replace Key…".
     case providerSheetAnthropicEdit = "provider-sheet-anthropic-edit"
+    /// The new OpenRouter sheet with its defaults (#155): the fixed host, empty fields, fallback off and "Deny data collection".
+    case providerSheetOpenRouter = "provider-sheet-openrouter"
+    /// The custom HTTPS endpoint sheet (#155) with a base URL, so the caption shows the normalized request URL.
+    case providerSheetCustom = "provider-sheet-custom"
     /// The ChatGPT plan sheet (#156) Signed out: the text and "Continue with ChatGPT". The harness draws it in place of the window.
     case chatGPTSheetSignedOut = "chatgpt-sheet-signed-out"
     /// The ChatGPT plan sheet while it waits for the system sign-in sheet (#156).
@@ -143,6 +147,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case qaStartingHistory = "qa-starting-history"
     /// The consent sheet of a question for the OpenAI API profile, with the exact text open (#151).
     case qaConsent = "qa-consent"
+    /// The consent sheet of a question for the OpenRouter profile (#155): "OpenRouter, then openai", the data policy and the fallback.
+    case qaConsentOpenRouter = "qa-consent-openrouter"
     /// The Q&A panel with the OpenAI API profile as "Answer with" and a saved remote turn (#151).
     case qaRemote = "qa-remote"
     /// The Q&A panel with the LM Studio profile as "Answer with" (#152): the header "LM Studio · qwen3-8b-mlx",
@@ -173,7 +179,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     static let settingsScreens: [SnapshotScreen] = [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
                                                     .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError,
                                                     .providerSheetOpenAI, .providerSheetOpenAIEdit, .providerSheetAnthropic,
-                                                    .providerSheetAnthropicEdit, .chatGPTSheetSignedOut, .chatGPTSheetWaiting,
+                                                    .providerSheetAnthropicEdit, .providerSheetOpenRouter, .providerSheetCustom,
+                                                    .chatGPTSheetSignedOut, .chatGPTSheetWaiting,
                                                     .chatGPTSheetSignedIn, .chatGPTSheetFailed,
                                                     .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain]
 
@@ -184,8 +191,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     public var localAIStatus: LocalAIStatus? {
         switch self {
         case .settings, .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI,
-             .providerSheetOpenAIEdit, .providerSheetAnthropic, .providerSheetAnthropicEdit, .chatGPTSheetSignedOut,
-             .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
+             .providerSheetOpenAIEdit, .providerSheetAnthropic, .providerSheetAnthropicEdit, .providerSheetOpenRouter,
+             .providerSheetCustom, .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
              .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain: .ready(version: "b11669")
         case .settingsModelMissing: .noModel
         case .settingsAIOff: .off
@@ -237,15 +244,22 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// True when the harness gives the fixture provider profiles to Settings and the Q&A panel (#151).
     public var usesProviderProfiles: Bool {
-        [.settingsProviders, .qaConsent, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic,
-         .qaCitationRanges].contains(self)
+        [.settingsProviders, .qaConsent, .qaConsentOpenRouter, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError,
+         .qaAnthropic, .qaCitationRanges].contains(self)
     }
 
     /// The "Answer with" profile of `usesProviderProfiles`: LM Studio on `qa-external-local` (#152),
-    /// the Anthropic API on `qa-anthropic` (#154) and `qa-citation-ranges` (#185), else the OpenAI API.
+    /// the Anthropic API on `qa-anthropic` (#154) and `qa-citation-ranges` (#185), OpenRouter on `qa-consent-openrouter` (#155),
+    /// else the OpenAI API.
     public var selectedProviderID: String? {
         guard usesProviderProfiles else { return nil }
-        return SnapshotPlan.providerProfiles[self == .qaExternalLocal ? 1 : [.qaAnthropic, .qaCitationRanges].contains(self) ? 2 : 0].id
+        let index = switch self {
+        case .qaExternalLocal: 1
+        case .qaAnthropic, .qaCitationRanges: 2
+        case .qaConsentOpenRouter: 3
+        default: 0
+        }
+        return SnapshotPlan.providerProfiles[index].id
     }
 
     /// The provider sheet that the harness draws in place of the window (#152), with its injected test result and the
@@ -271,6 +285,14 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
             (ProviderProfile(id: "snapshot-anthropic-edit", kind: .api, name: "Anthropic API", vendor: "Anthropic",
                              origin: "https://api.anthropic.com", modelID: "claude-sonnet-5-5", answerTokens: 2048,
                              credentialReference: "snapshot-anthropic-edit"), nil, "")
+        case .providerSheetOpenRouter:
+            (ProviderProfile(id: "snapshot-openrouter-new", kind: .api, name: CompatibleEndpoint.openRouterName,
+                             vendor: CompatibleEndpoint.openRouterName, origin: CompatibleEndpoint.openRouterBaseURL, modelID: "",
+                             endpoint: .openRouter, routing: OpenRouterRouting()), nil, "")
+        case .providerSheetCustom:
+            // The trailing slash and the repeated `v1` show that the caption normalizes the path.
+            (ProviderProfile(id: "snapshot-custom-new", kind: .api, name: "Team Gateway", vendor: "Team Gateway",
+                             origin: "https://example.com/v1/v1/", modelID: "llama-3.3-70b", endpoint: .custom), nil, "")
         default: nil
         }
     }
@@ -304,7 +326,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     public var usesChatGPTPlanProfile: Bool { self == .settingsChatGPTSignInAgain }
 
     /// The question that the harness sends, so the consent sheet opens (#151). Nil for the other screens.
-    public var qaConsentQuestion: String? { self == .qaConsent ? "Which tools do I need?" : nil }
+    public var qaConsentQuestion: String? { self == .qaConsent || self == .qaConsentOpenRouter ? "Which tools do I need?" : nil }
 
     /// True when the harness opens the player of the video lecture before the capture.
     public var opensVideoPlayer: Bool {
@@ -406,16 +428,17 @@ public enum SnapshotPlan {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
              .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit,
-             .providerSheetAnthropic, .providerSheetAnthropicEdit, .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn,
-             .chatGPTSheetFailed,
+             .providerSheetAnthropic, .providerSheetAnthropicEdit, .providerSheetOpenRouter, .providerSheetCustom,
+             .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
              .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain:
             _ = try CourseStore(root: root)
             return nil
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
              .videoQuickCheck, .videoTheater, .lectureSources, .videoUpNext, .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft,
              .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaArticle, .qaTheater, .qaCitations, .qaCitationExcerpt,
-             .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote, .qaExternalLocal,
-             .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .notesArticleEmpty, .qaCitationRanges, .qaGuardEmpty:
+             .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaConsentOpenRouter, .qaRemote,
+             .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .notesArticleEmpty, .qaCitationRanges,
+             .qaGuardEmpty:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -594,7 +617,7 @@ public enum SnapshotPlan {
             [("What is the goal of this course?", "You plan a course step by step [t1].", .finished),
              ("Which tools do I need?", "You need", .canceled),
              ("How long is the course?", "", .httpError(status: 500))]
-        case .qaDraft, .qaConsent, .qaRemote, .qaExternalLocal:
+        case .qaDraft, .qaConsent, .qaConsentOpenRouter, .qaRemote, .qaExternalLocal:
             [("What is the goal of this course?", "You plan a course step by step [t1].", .finished)]
         case .qaAnthropic:
             [("What is the goal of this course?", "You plan a course step by step [t1]. First you", .incomplete),
@@ -652,6 +675,10 @@ public enum SnapshotPlan {
                         origin: "http://127.0.0.1:1234/v1", modelID: "qwen3-8b-mlx"),
         ProviderProfile(id: "snapshot-anthropic", kind: .api, name: "Anthropic API", vendor: "Anthropic",
                         origin: "https://api.anthropic.com", modelID: "claude-sonnet-5-5", credentialReference: "snapshot-anthropic"),
+        ProviderProfile(id: "snapshot-openrouter", kind: .api, name: CompatibleEndpoint.openRouterName,
+                        vendor: CompatibleEndpoint.openRouterName, origin: CompatibleEndpoint.openRouterBaseURL, modelID: "openai/gpt-5",
+                        credentialReference: "snapshot-openrouter", endpoint: .openRouter,
+                        routing: OpenRouterRouting(upstreams: ["openai"])),
     ]
 
     /// The fixture account of the ChatGPT plan screens (#156).
@@ -754,8 +781,8 @@ public enum SnapshotPlan {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
              .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit,
-             .providerSheetAnthropic, .providerSheetAnthropicEdit, .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn,
-             .chatGPTSheetFailed,
+             .providerSheetAnthropic, .providerSheetAnthropicEdit, .providerSheetOpenRouter, .providerSheetCustom,
+             .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
              .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain: 0
         case .library: 3
         case .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads, .pdfPreview: 2
@@ -768,14 +795,14 @@ public enum SnapshotPlan {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .library, .settings, .settingsModelMissing, .settingsAIOff,
              .settingsAIError, .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI,
-             .providerSheetOpenAIEdit, .providerSheetAnthropic, .providerSheetAnthropicEdit, .chatGPTSheetSignedOut,
-             .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
+             .providerSheetOpenAIEdit, .providerSheetAnthropic, .providerSheetAnthropicEdit, .providerSheetOpenRouter,
+             .providerSheetCustom, .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
              .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain: nil
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
              .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions,
-             .qaTheater, .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
-             .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .qaCitationRanges, .qaGuardEmpty:
+             .qaTheater, .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent,
+             .qaConsentOpenRouter, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .qaCitationRanges, .qaGuardEmpty:
             .lecture(sectionID: "plan", lectureID: "welcome")
         case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle, .qaCitationExcerpt, .notesArticleEmpty:
             .lecture(sectionID: "plan", lectureID: "read")

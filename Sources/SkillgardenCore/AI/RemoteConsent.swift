@@ -7,12 +7,16 @@ public struct RemoteDestination: Codable, Hashable, Sendable {
     public let kind: AnswerProviderKind
     public let host: String
     public let modelID: String
+    /// The upstreams, fallback and data policy of an OpenRouter profile (#155). Nil for the other profiles.
+    /// A consent saved before #155 has none.
+    public let routing: OpenRouterRouting?
 
-    public init(profileID: String, kind: AnswerProviderKind, host: String, modelID: String) {
+    public init(profileID: String, kind: AnswerProviderKind, host: String, modelID: String, routing: OpenRouterRouting? = nil) {
         self.profileID = profileID
         self.kind = kind
         self.host = host
         self.modelID = modelID
+        self.routing = routing
     }
 }
 
@@ -53,7 +57,12 @@ public struct RemoteConsentRequest: Identifiable, Equatable, Sendable {
         self.question = question
         self.destination = destination
         self.vendor = vendor
-        self.providerName = providerName
+        // OpenRouter names the upstreams too: "OpenRouter, then openai, anthropic" (#155).
+        if let upstreams = destination.routing?.upstreams, !upstreams.isEmpty {
+            self.providerName = "\(vendor), then \(upstreams.joined(separator: ", "))"
+        } else {
+            self.providerName = providerName
+        }
         passageCount = prompt.passages.count
         titles = [context.courseTitle, context.lectureTitle]
         earlierMessageCount = prompt.messages.filter { $0.role != .system }.count - 1
@@ -73,6 +82,12 @@ public struct RemoteConsentRequest: Identifiable, Equatable, Sendable {
         case .subscription: "Use of your plan counts toward its limits."
         case .local, .api: nil
         }
+    }
+
+    /// The extra rows under Provider, Host and Model: the data policy and the fallback of OpenRouter (#155).
+    public var routingRows: [(label: String, value: String)] {
+        guard let routing = destination.routing else { return [] }
+        return [("Data policy", routing.dataPolicyText), ("Fallback", routing.fallbackText)]
     }
 
     /// The list of the sheet: what leaves the Mac.

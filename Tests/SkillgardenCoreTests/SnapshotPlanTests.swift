@@ -57,6 +57,8 @@ private func temporaryFolder() throws -> URL {
         "provider-sheet-openai-edit-light.png", "provider-sheet-openai-edit-dark.png",
         "provider-sheet-anthropic-light.png", "provider-sheet-anthropic-dark.png",
         "provider-sheet-anthropic-edit-light.png", "provider-sheet-anthropic-edit-dark.png",
+        "provider-sheet-openrouter-light.png", "provider-sheet-openrouter-dark.png",
+        "provider-sheet-custom-light.png", "provider-sheet-custom-dark.png",
         "chatgpt-sheet-signed-out-light.png", "chatgpt-sheet-signed-out-dark.png",
         "chatgpt-sheet-waiting-light.png", "chatgpt-sheet-waiting-dark.png",
         "chatgpt-sheet-signed-in-light.png", "chatgpt-sheet-signed-in-dark.png",
@@ -84,6 +86,7 @@ private func temporaryFolder() throws -> URL {
         "qa-error-history-light.png", "qa-error-history-dark.png",
         "qa-starting-history-light.png", "qa-starting-history-dark.png",
         "qa-consent-light.png", "qa-consent-dark.png",
+        "qa-consent-openrouter-light.png", "qa-consent-openrouter-dark.png",
         "qa-remote-light.png", "qa-remote-dark.png",
         "qa-external-local-light.png", "qa-external-local-dark.png",
         "qa-incomplete-light.png", "qa-incomplete-dark.png",
@@ -114,8 +117,8 @@ private func temporaryFolder() throws -> URL {
     #expect(SnapshotScreen.allCases.filter(\.scrollsLectureToEnd) == [
         .courseLandingDetails, .videoTranscript, .videoQuickCheck, .videoTheater, .lectureDownloads, .pdfPreview, .lectureSources,
         .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaTheater,
-        .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
-        .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .qaCitationRanges, .qaGuardEmpty,
+        .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaConsentOpenRouter,
+        .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .qaCitationRanges, .qaGuardEmpty,
     ])
     // #181: two screens open the Notes panel. Only the video screen opens a note in edit.
     #expect(SnapshotScreen.allCases.filter(\.showsNotes) == [.notesVideo, .notesArticleEmpty])
@@ -124,30 +127,43 @@ private func temporaryFolder() throws -> URL {
     #expect(SnapshotScreen.allCases.filter(\.showsQA) == [.qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting,
                                                           .qaStopping, .qaError, .qaNoCaptions, .qaArticle, .qaTheater,
                                                           .qaCitations, .qaCitationExcerpt, .qaCitationsStale,
-                                                          .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaRemote,
+                                                          .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent,
+                                                          .qaConsentOpenRouter, .qaRemote,
                                                           .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic,
                                                           .qaCitationRanges, .qaGuardEmpty])
     #expect(SnapshotScreen.allCases.filter { $0.qaStatus != nil } == SnapshotScreen.allCases.filter(\.showsQA))
     #expect(SnapshotScreen.allCases.compactMap(\.qaStatus).map { LectureQAState(status: $0, content: .ready) }
         == [.ready, .ready, .ready, .noModel, .off, .starting, .stopping, .error(reason: "The server stopped. Exit code 9."),
             .ready, .ready, .ready, .ready, .ready, .ready, .off, .error(reason: "The server stopped. Exit code 9."), .starting,
-            .ready, .ready, .ready, .ready, .ready, .ready, .ready, .ready])
-    // #151: three screens use the fixture profiles. Only the consent screen sends a question.
-    #expect(SnapshotScreen.allCases.filter(\.usesProviderProfiles) == [.settingsProviders, .qaConsent, .qaRemote, .qaExternalLocal,
+            .ready, .ready, .ready, .ready, .ready, .ready, .ready, .ready, .ready])
+    // #151: the screens that use the fixture profiles. Only the consent screens send a question (#155: OpenRouter).
+    #expect(SnapshotScreen.allCases.filter(\.usesProviderProfiles) == [.settingsProviders, .qaConsent, .qaConsentOpenRouter,
+                                                                       .qaRemote, .qaExternalLocal,
                                                                        .qaIncomplete, .qaAuthError, .qaAnthropic,
                                                                        .qaCitationRanges])
     #expect(SnapshotScreen.allCases.compactMap(\.selectedProviderID)
-        == ["snapshot-openai", "snapshot-openai", "snapshot-openai", "snapshot-lm-studio", "snapshot-openai", "snapshot-openai",
-            "snapshot-anthropic", "snapshot-anthropic"])
-    #expect(SnapshotScreen.allCases.filter { $0.qaConsentQuestion != nil } == [.qaConsent])
-    #expect(SnapshotPlan.providerProfiles.map(\.kind) == [.api, .externalLocal, .api])
+        == ["snapshot-openai", "snapshot-openai", "snapshot-openrouter", "snapshot-openai", "snapshot-lm-studio", "snapshot-openai",
+            "snapshot-openai", "snapshot-anthropic", "snapshot-anthropic"])
+    #expect(SnapshotScreen.allCases.filter { $0.qaConsentQuestion != nil } == [.qaConsent, .qaConsentOpenRouter])
+    #expect(SnapshotPlan.providerProfiles.map(\.kind) == [.api, .externalLocal, .api, .api])
+    #expect(SnapshotPlan.providerProfiles[3].endpoint == .openRouter)
+    #expect(SnapshotPlan.providerProfiles[3].routing?.upstreams == ["openai"])
     #expect(SnapshotPlan.providerProfiles.allSatisfy { $0.isValid(hasSecret: true) })
     #expect(SnapshotScreen.allCases.filter { SnapshotPlan.qaOrigin(for: $0).providerID != BundledAnswerProvider.providerID }
         == [.qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .qaCitationRanges])
     // #152: the LM Studio sheet passed its test. The Ollama sheet has the loopback error, so "Save" is off.
     #expect(SnapshotScreen.allCases.filter { $0.providerSheet != nil } == [.providerSheetLMStudio, .providerSheetOllamaError,
                                                                            .providerSheetOpenAI, .providerSheetOpenAIEdit,
-                                                                           .providerSheetAnthropic, .providerSheetAnthropicEdit])
+                                                                           .providerSheetAnthropic, .providerSheetAnthropicEdit,
+                                                                           .providerSheetOpenRouter, .providerSheetCustom])
+    // #155: the new OpenRouter sheet has its defaults. The custom sheet shows the normalized request URL.
+    let openRouterSheet = try #require(SnapshotScreen.providerSheetOpenRouter.providerSheet)
+    #expect(openRouterSheet.profile.routing == OpenRouterRouting())
+    #expect(openRouterSheet.profile.host == "openrouter.ai")
+    #expect(!openRouterSheet.profile.isValid(hasSecret: false))
+    let customSheet = try #require(SnapshotScreen.providerSheetCustom.providerSheet)
+    #expect(customSheet.profile.requestURLCaption == "Requests go to https://example.com/v1/chat/completions")
+    #expect(customSheet.profile.isValid(hasSecret: false))
     // #154: the new Anthropic sheet passed its test. The edit sheet has a saved key, so it shows "Replace Key…".
     let anthropicSheet = try #require(SnapshotScreen.providerSheetAnthropic.providerSheet)
     #expect(anthropicSheet.testResult == .connected)
@@ -192,7 +208,8 @@ private func temporaryFolder() throws -> URL {
                                                                     .settingsProviders, .providerSheetLMStudio,
                                                                     .providerSheetOllamaError, .providerSheetOpenAI,
                                                                     .providerSheetOpenAIEdit, .providerSheetAnthropic,
-                                                                    .providerSheetAnthropicEdit, .chatGPTSheetSignedOut,
+                                                                    .providerSheetAnthropicEdit, .providerSheetOpenRouter,
+                                                                    .providerSheetCustom, .chatGPTSheetSignedOut,
                                                                     .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
                                                                     .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone,
                                                                     .settingsChatGPTSignInAgain])
@@ -226,8 +243,8 @@ private func temporaryFolder() throws -> URL {
         switch screen {
         case .libraryEmpty, .libraryEmptyCustomFolder, .settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
              .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit,
-             .providerSheetAnthropic, .providerSheetAnthropicEdit, .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn,
-             .chatGPTSheetFailed,
+             .providerSheetAnthropic, .providerSheetAnthropicEdit, .providerSheetOpenRouter, .providerSheetCustom,
+             .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
              .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain:
             #expect(courseID == nil)
             #expect(!screen.selectsCourse)
@@ -451,8 +468,8 @@ private func temporaryFolder() throws -> URL {
             }
         case .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions, .qaArticle,
              .qaTheater, .qaCitations, .qaCitationExcerpt, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory,
-             .qaConsent, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .qaCitationRanges,
-             .qaGuardEmpty:
+             .qaConsent, .qaConsentOpenRouter, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic,
+             .qaCitationRanges, .qaGuardEmpty:
             #expect(courseID == "sample-course")
             #expect(SnapshotPlan.imageLoads(for: screen) == 1)
             library.selectCourse(courseID)
@@ -475,7 +492,7 @@ private func temporaryFolder() throws -> URL {
                 #expect(turns.map(\.status) == [.complete, .cancelled, .failed(reason: "Local AI returned an error (500). Try again.")])
                 #expect(turns.map(\.answer) == ["You plan a course step by step [t1].", "You need", ""])
             case .qaDraft, .qaCitations, .qaCitationExcerpt, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory,
-                 .qaConsent, .qaRemote, .qaExternalLocal:
+                 .qaConsent, .qaConsentOpenRouter, .qaRemote, .qaExternalLocal:
                 #expect(turns.map(\.status) == [.complete])
                 #expect(turns.map(\.origin) == [SnapshotPlan.qaOrigin(for: screen)])
             case .qaIncomplete:
