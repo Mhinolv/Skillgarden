@@ -726,6 +726,18 @@ private func signInProviders(browser: FakeBrowser, tokenNonce: @escaping @Sendab
     #expect(signIn.state == .failed("Sign-in did not finish. Try again."))
 }
 
+/// The owner crash of PR #202: AuthenticationServices calls the sheet completion on its XPC queue, not on the main queue.
+@MainActor @Test func theSheetCompletionOnABackgroundQueueGivesCanceledOnTheMainActor() async {
+    let (result, onMain) = await withCheckedContinuation {
+        (continuation: CheckedContinuation<(Result<URL, ChatGPTAuthError>, Bool), Never>) in
+        let completion = ChatGPTSheetCompletion.make { continuation.resume(returning: ($0, Thread.isMainThread)) }
+        DispatchQueue(label: "com.skillgarden.tests.sheet-completion").async {
+            completion(nil, NSError(domain: "com.apple.AuthenticationServices.WebAuthenticationSession", code: 1))
+        }
+    }
+    #expect(result == .failure(.canceled) && onMain)
+}
+
 // MARK: Loopback listener
 
 @Test func theListenerAcceptsOnlyAGETOfTheCallbackPath() {

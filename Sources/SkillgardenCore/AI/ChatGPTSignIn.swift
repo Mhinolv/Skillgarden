@@ -13,6 +13,19 @@ public protocol ChatGPTBrowser: AnyObject {
     func stop()
 }
 
+/// The completion handler of the system sign-in sheet (#156). AuthenticationServices calls it on its own XPC queue after
+/// the learner closes the sheet or `stop()` cancels it. A handler that main-actor code passes inline to
+/// `ASWebAuthenticationSession` is main-actor isolated, and its isolation check traps on that queue. This handler is
+/// nonisolated: it only hops to the main actor.
+public enum ChatGPTSheetCompletion {
+    /// Gives `.canceled` to `finish` on the main actor. `finish` must ignore a second result.
+    public nonisolated static func make(
+        _ finish: @escaping @MainActor @Sendable (Result<URL, ChatGPTAuthError>) -> Void
+    ) -> @Sendable (URL?, (any Error)?) -> Void {
+        { _, _ in Task { @MainActor in finish(.failure(.canceled)) } }
+    }
+}
+
 /// The ChatGPT plan sheet (#156): Signed out, Waiting, Signed in and Failed. A sign-in saves the session in the Keychain
 /// and the profile in `Providers.json` only after every callback and token check passes.
 @MainActor @Observable

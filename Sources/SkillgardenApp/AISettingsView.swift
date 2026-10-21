@@ -387,15 +387,18 @@ final class SystemChatGPTBrowser: NSObject, ChatGPTBrowser, ASWebAuthenticationP
         let result = await withCheckedContinuation { (continuation: CheckedContinuation<Result<URL, ChatGPTAuthError>, Never>) in
             let pending = Pending(continuation)
             self.pending = pending
-            let session = ASWebAuthenticationSession(url: url, callback: .customScheme(Self.callbackScheme)) { _, _ in
-                // The learner closed the sheet, or `stop()` cancelled it after the callback.
-                Task { @MainActor in pending.finish(.failure(.canceled)) }
-            }
+            // The learner closed the sheet, or `stop()` cancelled it after the callback. The handler runs on an XPC queue,
+            // so it comes from a nonisolated factory: a closure written here is main-actor isolated and traps.
+            let completion = ChatGPTSheetCompletion.make { pending.finish($0) }
+            let session = ASWebAuthenticationSession(url: url, callback: .customScheme(Self.callbackScheme),
+                                                     completionHandler: completion)
             session.presentationContextProvider = self
             self.session = session
             watcher = Task { @MainActor in
                 for await callback in listener.callbacks {
                     pending.finish(.success(callback))
+                    // The browser has the focus after the sign-in. Bring the app back for the Signed in state.
+                    NSApp.activate()
                     break
                 }
             }
@@ -415,8 +418,14 @@ final class SystemChatGPTBrowser: NSObject, ChatGPTBrowser, ASWebAuthenticationP
         listener = nil
     }
 
+    /// AuthenticationServices calls this from `start()` on the main queue. If it calls from another queue, the window
+    /// lookup moves to the main queue, so no main-actor code runs off the main queue.
     nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        MainActor.assumeIsolated { NSApp.keyWindow ?? NSApp.windows.first ?? ASPresentationAnchor() }
+        let anchor: @MainActor @Sendable () -> ASPresentationAnchor = {
+            NSApp.keyWindow ?? NSApp.windows.first ?? ASPresentationAnchor()
+        }
+        if Thread.isMainThread { return MainActor.assumeIsolated(anchor) }
+        return DispatchQueue.main.sync { MainActor.assumeIsolated(anchor) }
     }
 }
 
