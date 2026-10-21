@@ -321,9 +321,11 @@ private let allPassBeforeSignature = "PASS arm64\nPASS deployment target 15.0\nP
     try resign(app, ["--remove-signature"])
     let result = try check(app, signed: false)
     #expect(result.status == 1)
-    // macOS does not start an arm64 binary without a signature, so "library paths" fails too.
-    #expect(result.output.hasSuffix("FAIL library paths: llama-server --version failed\nPASS upstream hash\n"
-        + "FAIL signature: llama-server has no valid signature\n"))
+    // Some hosts start an unsigned arm64 binary and some do not, so "library paths" can pass or fail.
+    let lines = result.output.split(separator: "\n").map(String.init)
+    let libraryPaths = lines.first { $0.hasPrefix("PASS library paths") || $0.hasPrefix("FAIL library paths") }
+    #expect(libraryPaths == "PASS library paths" || libraryPaths == "FAIL library paths: llama-server --version failed")
+    #expect(lines.suffix(2) == ["PASS upstream hash", "FAIL signature: llama-server has no valid signature"])
 }
 
 @Test func checkScriptWithSignedNeedsTheHardenedRuntimeAndADeveloperID() throws {
