@@ -102,6 +102,10 @@ private func bundleRepository(in root: URL) throws -> URL {
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("license".utf8).write(to: file)
     }
+    // #214: the bundle script reads the release metadata from Skillgarden.swift.
+    let releaseSource = root.appending(path: "Sources/SkillgardenCore/Skillgarden.swift")
+    try FileManager.default.createDirectory(at: releaseSource.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.copyItem(at: repo.appending(path: "Sources/SkillgardenCore/Skillgarden.swift"), to: releaseSource)
     return scripts.appending(path: "bundle_app.sh")
 }
 
