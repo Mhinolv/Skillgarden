@@ -142,8 +142,8 @@ public struct AnswerCitations: Equatable, Sendable {
             sources.append(value)
             return value
         }
-        // #171: the video sources cited in the current line. A later cue in the same line within the merge window
-        // shows the number of the earlier cue.
+        // #171: the video sources cited so far. A later cue within the merge window shows the number of the earlier cue.
+        // #203: the window applies across the whole answer, because line breaks do not start new information.
         var anchors: [AnswerSource] = []
         func seekTime(of passageID: String) -> Double? {
             guard !isStale, let context, context.passage(id: passageID) != nil else { return nil }
@@ -173,7 +173,6 @@ public struct AnswerCitations: Equatable, Sendable {
         while index < matches.endIndex {
             let before = rest[..<matches[index].range.lowerBound]
             if !before.isEmpty { segments.append(.text(String(before))) }
-            if before.contains(where: \.isNewline) { anchors = [] }
             // A group is a marker list or markers with only spaces between them, such as `[t5] [t6]`.
             var group: [(leading: Substring, passageIDs: [String])] = []
             var end = index
@@ -218,7 +217,8 @@ public struct AnswerCitations: Equatable, Sendable {
     nonisolated(unsafe) static let marker =
         /\[\s*([A-Za-z]{1,3}\d{1,6}(?:\s*[-–]\s*[A-Za-z]{0,3}\d{1,6})?(?:\s*[,;]\s*[A-Za-z]{1,3}\d{1,6}(?:\s*[-–]\s*[A-Za-z]{0,3}\d{1,6})?)*)\s*\]|\(\s*([A-Za-z]{1,3}\d{1,6}(?:\s*[-–]\s*[A-Za-z]{0,3}\d{1,6})?(?:\s*[,;]\s*[A-Za-z]{1,3}\d{1,6}(?:\s*[-–]\s*[A-Za-z]{0,3}\d{1,6})?)*)\s*\)/
 
-    /// A video cue that starts this many seconds or less after a cue cited in the same line shows the number of that cue (#171).
+    /// A video cue that starts this many seconds or less after a cue cited earlier in the answer shows the number of that cue
+    /// (#171, #203).
     static let mergeSeconds: Double = 30
 
     /// A range with more IDs is one unknown marker (#185).

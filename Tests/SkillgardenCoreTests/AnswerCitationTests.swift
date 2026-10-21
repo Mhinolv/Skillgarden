@@ -130,8 +130,9 @@ private let denseVideoContext: LectureContext = {
 @Test func anOverCitedVideoAnswerShowsOneSourceForEachPoint() {
     let answer = "- Pick a palette [t0][t1][t2][t3][t4] and keep it [t2].\n- Later, test it [t5, t6, t7, t8].\n- Last point [t9]."
     let citations = AnswerCitations(answer: answer, context: denseVideoContext, isStale: false)
-    #expect(citations.text == "- Pick a palette [1] and keep it [1].\n- Later, test it [2].\n- Last point [3].")
-    #expect(citations.sources.map(\.title) == ["1 · 1:36", "2 · 2:38", "3 · 2:55"])
+    // #203: 2:55 is 30 s or less after 2:38 in the line before, so it shows the number of 2:38.
+    #expect(citations.text == "- Pick a palette [1] and keep it [1].\n- Later, test it [2].\n- Last point [2].")
+    #expect(citations.sources.map(\.title) == ["1 · 1:36", "2 · 2:38"])
     // The stored text keeps the raw IDs for the #130 check.
     #expect(AnswerCitations.passageIDs(in: answer) == ["t0", "t1", "t2", "t3", "t4", "t2", "t5", "t6", "t7", "t8", "t9"])
 }
@@ -144,8 +145,9 @@ private let denseVideoContext: LectureContext = {
     #expect(text("A [t0] B [t5].") == "A [1] B [2].")
     // A cue before the cited cue does not merge.
     #expect(text("A [t4] B [t0].") == "A [1] B [2].")
-    // In another line, the same fact gets its own source.
-    #expect(text("A [t0]\nB [t1]") == "A [1]\nB [2]")
+    // #203: the window also applies in another line.
+    #expect(text("A [t0]\nB [t1]") == "A [1]\nB [1]")
+    #expect(text("A [t0]\n\nB [t5]") == "A [1]\n\nB [2]")
     // Markers with only spaces between them keep the earliest cue, with no `[1][1]`.
     #expect(text("A [t3] [t1]  [t3].") == "A [1].")
     // An earlier source keeps its own number in a later line.
@@ -159,6 +161,25 @@ private let denseVideoContext: LectureContext = {
         seekTimes: ["t0": 10, "t1": 40, "t2": 40.5])
     #expect(AnswerCitations(answer: "A [t0] B [t1].", context: context, isStale: false).text == "A [1] B [1].")
     #expect(AnswerCitations(answer: "A [t0] B [t2].", context: context, isStale: false).text == "A [1] B [2].")
+}
+
+// MARK: Merge across lines (#203)
+
+@Test func theOwnerExampleInTwoParagraphsShowsOneMarkerAndOneChip() {
+    // OpenAI `gpt-6-luna`: "What is a data_offset". The line breaks come from the voice instructions.
+    let context = LectureContext(
+        courseTitle: "C", lectureTitle: "L",
+        passages: ["t0", "t1", "t2"].map { LecturePassage(id: $0, label: "", text: "Cue \($0).") },
+        seekTimes: ["t0": 89, "t1": 91, "t2": 120])
+    let citations = AnswerCitations(answer: "A data_offset is a start point [t0].\n\nIt moves the read head [t1].",
+                                    context: context, isStale: false)
+    #expect(citations.text == "A data_offset is a start point [1].\n\nIt moves the read head [1].")
+    #expect(citations.sources.map(\.title) == ["1 · 1:29"])
+    #expect(citations.sources.first?.kind == .video(seconds: 89, cueText: "Cue t0."))
+    // 31 s after the cited cue: a new chip, in the same line or not.
+    let far = AnswerCitations(answer: "A [t0].\nB [t2]. C [t0] D [t2].", context: context, isStale: false)
+    #expect(far.text == "A [1].\nB [2]. C [1] D [2].")
+    #expect(far.sources.map(\.title) == ["1 · 1:29", "2 · 2:00"])
 }
 
 @Test func articleStaleAndUnknownMarkersDoNotMerge() {
@@ -280,20 +301,22 @@ private let longVideoContext = LectureContext(
     await qa.load()
     let turn = try #require(qa.conversation.turns.first)
     let citations = qa.citations(for: turn)
-    #expect(citations.text == "It starts with a welcome [1].\nThen you plan the course step by step [2]. The guide has more help [?].")
-    #expect(citations.sources.map(\.title) == ["1 · 0:00", "2 · 0:02", "? · Unknown source"])
+    // #203: the cue at 0:02 in the second line merges with the cue at 0:00.
+    #expect(citations.text == "It starts with a welcome [1].\nThen you plan the course step by step [1]. The guide has more help [?].")
+    #expect(citations.sources.map(\.title) == ["1 · 0:00", "? · Unknown source"])
 
     // Unknown sources do not seek.
-    qa.seek(to: citations.sources[2])
+    qa.seek(to: citations.sources[1])
     #expect(library.transcriptSeek == nil)
 
-    qa.seek(to: citations.sources[1])
+    // The merged source seeks to the start of the first cited cue.
+    qa.seek(to: citations.sources[0])
     let seek = try #require(library.transcriptSeek)
-    #expect(seek.lectureID == "welcome" && seek.seconds == 2)
+    #expect(seek.lectureID == "welcome" && seek.seconds == 0)
     #expect(!seek.showsTranscript)
     #expect(library.destination == .lecture(sectionID: "plan", lectureID: "welcome"))
     // A second click seeks again.
-    qa.seek(to: citations.sources[1])
+    qa.seek(to: citations.sources[0])
     #expect(library.transcriptSeek?.id != seek.id)
 
     // A seek for a lecture that is not open does nothing.
