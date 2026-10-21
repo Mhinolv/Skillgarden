@@ -110,7 +110,7 @@ private func bundleRepository(in root: URL) throws -> URL {
 
     let bundle = try run(URL(fileURLWithPath: "/bin/zsh"), [script.path], in: root, environment: ["HOME": home.path])
     #expect(bundle.status == 0, "\(bundle.errorText)")
-    #expect(bundle.output == "Bundled llama.cpp b1 (arm64) into build/Skillgarden.app\n")
+    #expect(bundle.output == "Bundled llama.cpp b1 (arm64) into build/Skillgarden.app\nBundled Skillgarden (debug) into build/Skillgarden.app\n")
     #expect(bundle.errorText.isEmpty)
 
     let contents = root.appending(path: "build/Skillgarden.app/Contents")
@@ -129,7 +129,7 @@ private func bundleRepository(in root: URL) throws -> URL {
     // #123: the helper that owns llama-server, and loopback HTTP for the health check.
     #expect(try String(contentsOf: contents.appending(path: "Helpers/SkillgardenAIHost"), encoding: .utf8) == "host")
     #expect(try String(contentsOf: root.appending(path: "build.log"), encoding: .utf8)
-        == "build --product SkillgardenApp\nbuild --product skillgarden\nbuild --product SkillgardenAIHost\n")
+        == "build --configuration debug --product SkillgardenApp\nbuild --configuration debug --product skillgarden\nbuild --configuration debug --product SkillgardenAIHost\n")
     let plist = try #require(NSDictionary(contentsOf: contents.appending(path: "Info.plist")))
     #expect((plist["NSAppTransportSecurity"] as? [String: Any])?["NSAllowsLocalNetworking"] as? Bool == true)
 }
