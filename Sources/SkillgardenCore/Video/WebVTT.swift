@@ -43,8 +43,8 @@ public struct WebVTT: Equatable, Sendable {
             let parts = block[index].components(separatedBy: "-->")
             // Cue settings follow the end time.
             let end = parts.count == 2 ? parts[1].split(whereSeparator: \.isWhitespace).first.map(String.init) : nil
-            guard let end, let start = Self.seconds(parts[0].trimmingCharacters(in: .whitespaces)),
-                  let finish = Self.seconds(end), finish >= start else {
+            guard let end, let start = try Self.seconds(parts[0].trimmingCharacters(in: .whitespaces)),
+                  let finish = try Self.seconds(end), finish >= start else {
                 throw WebVTTError(message: "invalid cue timing \"\(block[index])\"")
             }
             let text = block[(index + 1)...].map(Self.plainText).joined(separator: "\n")
@@ -64,16 +64,21 @@ public struct WebVTT: Equatable, Sendable {
     }
 
     /// Reads `hh:mm:ss.ttt` or `mm:ss.ttt`. The hours have two or more digits.
-    static func seconds(_ text: String) -> Double? {
+    /// Nil when the format is wrong. Throws when a part is out of range or the whole seconds do not fit in `Int`.
+    static func seconds(_ text: String) throws(WebVTTError) -> Double? {
         let parts = text.split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count == 2 || parts.count == 3,
               parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy { $0.isASCII && ($0.isNumber || $0 == ".") } }) else { return nil }
         let last = parts[parts.count - 1]
-        guard last.count == 6, last.dropFirst(2).first == ".", let seconds = Double(last), seconds < 60 else { return nil }
-        guard parts[parts.count - 2].count == 2, parts.count == 2 || parts[0].count >= 2 else { return nil }
-        let units = parts.dropLast().compactMap { Int($0) }
-        guard units.count == parts.count - 1, let minutes = units.last, minutes < 60 else { return nil }
-        return Double(units.reduce(0) { $0 * 60 + $1 }) * 60 + seconds
+        guard last.count == 6, last.dropFirst(2).first == ".", let seconds = Double(last) else { return nil }
+        guard parts[parts.count - 2].count == 2, parts.count == 2 || parts[0].count >= 2,
+              parts.dropLast().allSatisfy({ !$0.contains(".") }) else { return nil }
+        let outOfRange = WebVTTError(message: "cue time \"\(text)\" is out of range")
+        let units = parts.dropLast().map { Int($0) }
+        guard seconds < 60, let minutes = units.last ?? nil, minutes < 60, let hours = parts.count == 3 ? units[0] : 0 else { throw outOfRange }
+        let (hourSeconds, overflow) = hours.multipliedReportingOverflow(by: 3600)
+        guard !overflow, hourSeconds.addingReportingOverflow(minutes * 60 + Int(seconds)).overflow == false else { throw outOfRange }
+        return Double(hours * 60 + minutes) * 60 + seconds
     }
 
     private static func plainText(_ line: String) -> String {
