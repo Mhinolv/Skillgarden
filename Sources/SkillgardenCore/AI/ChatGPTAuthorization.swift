@@ -109,6 +109,19 @@ public enum ChatGPTAuthError: Error, Equatable, Sendable {
         }
     }
 
+    /// The case name for the sign-in log, for example `missingScopes` or `refused(access_denied)`. It holds no token,
+    /// code, state, nonce or URL. The OAuth error code keeps only letters, digits and `_`.
+    public var logName: String {
+        switch self {
+        case .refused(let code):
+            "refused(\(String(code.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == "_" }.prefix(40))))"
+        case .httpStatus(let status): "httpStatus(\(status))"
+        case .credential(.denied): "credential(denied)"
+        case .credential(.failed(let status)): "credential(failed(\(status)))"
+        default: "\(self)"
+        }
+    }
+
     public static let notFinishedText = "Sign-in did not finish. Try again."
     public static let unverifiedText = "OpenAI sent a response that Skillgarden can't verify."
 }
@@ -410,7 +423,20 @@ public final class ChatGPTAuthorizer {
             && callback.port == redirect.port && callback.path == redirect.path
     }
 
-    static func scopes(_ text: String) -> [String] { text.split(separator: " ").map(String.init) }
+    /// The scope names of a callback or token response. The callback is form data, so `+` is a space. A token response
+    /// can also give a JSON array of names. JSON `null` is no scope. Another type grants no scope.
+    nonisolated static func scopeList(_ value: Any) -> [String]? {
+        switch value {
+        case is NSNull: nil
+        case let text as String: scopes(text)
+        case let names as [String]: names.flatMap { scopes($0) }
+        default: []
+        }
+    }
+
+    nonisolated static func scopes(_ text: String) -> [String] {
+        text.replacingOccurrences(of: "+", with: " ").split(whereSeparator: \.isWhitespace).map(String.init)
+    }
 
     private func requireScopes(_ granted: [String]) throws(ChatGPTAuthError) {
         guard Set(configuration.requiredScopes).isSubset(of: granted) else { throw .missingScopes }
@@ -494,7 +520,7 @@ public final class ChatGPTAuthorizer {
         }
         if let previous, token.subject != previous.subject { throw .wrongSubject }
         // RFC 6749 5.1: no `scope` means the requested scopes. A refresh keeps the saved scopes.
-        let scopes = (json["scope"] as? String).map(Self.scopes) ?? grantedScopes ?? previous?.scopes ?? configuration.scopes
+        let scopes = json["scope"].flatMap(Self.scopeList) ?? grantedScopes ?? previous?.scopes ?? configuration.scopes
         try requireScopes(scopes)
         let lifetime = (json["expires_in"] as? NSNumber)?.doubleValue ?? 3600
         return ChatGPTSession(clientID: clientID, accessToken: accessToken,

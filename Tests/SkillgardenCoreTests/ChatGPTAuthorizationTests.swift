@@ -340,6 +340,59 @@ private func query(_ url: URL) -> [String: String] {
     await expectFailure(.missingScopes, scope: nil, callbackURL: callback(scope: "openid"))
 }
 
+/// The owner check of PR #202: OpenAI joins the callback scopes with `+` (form encoding).
+@MainActor @Test func aCallbackScopeWithPlusSeparatorsCompletesTheSignIn() async throws {
+    let raw = "http://127.0.0.1:53682/auth/callback?code=code-1"
+        + "&scope=chatgpt.tokens.use.direct+email+offline_access+openid+profile+resource.invoke"
+        + "&state=\(state)&client_id=\(clientID)"
+    let (plus, _) = authorizer([(200, tokenJSON(scope: nil))])
+    let session = try await plus.complete(callback: try #require(URL(string: raw)))
+    #expect(Set(session.scopes) == Set(ChatGPTAuthConfiguration.openAI.scopes) && session.scopes.count == 6)
+    // `%20` separators also complete it.
+    let (percent, _) = authorizer([(200, tokenJSON(scope: nil))])
+    let spaced = try await percent.complete(callback: try #require(URL(string: raw.replacingOccurrences(of: "+", with: "%20"))))
+    #expect(Set(spaced.scopes) == Set(session.scopes))
+    // A `+`-joined list without the direct token scope still fails before the code exchange.
+    let (missing, transport) = authorizer([(200, tokenJSON())])
+    let noDirect = raw.replacingOccurrences(of: "chatgpt.tokens.use.direct+", with: "")
+    await #expect(throws: ChatGPTAuthError.missingScopes) { try await missing.complete(callback: try #require(URL(string: noDirect))) }
+    #expect(transport.requests.isEmpty)
+}
+
+@Test func scopeListsSplitOnAnyWhitespaceAndAcceptAJSONArray() {
+    #expect(ChatGPTAuthorizer.scopes("  openid\tprofile\n+email++ ") == ["openid", "profile", "email"])
+    #expect(ChatGPTAuthorizer.scopes("") == [])
+    #expect(ChatGPTAuthorizer.scopeList(["openid profile", "email"]) == ["openid", "profile", "email"])
+    #expect(ChatGPTAuthorizer.scopeList("openid+email") == ["openid", "email"])
+    #expect(ChatGPTAuthorizer.scopeList(NSNull()) == nil)
+    #expect(ChatGPTAuthorizer.scopeList(42) == [])
+}
+
+@MainActor @Test func aTokenResponseScopeCanBeAJSONArrayOrPlusJoined() async throws {
+    func reply(_ scope: Any) -> String {
+        let object: [String: Any] = ["access_token": "access-secret-1", "token_type": "Bearer", "expires_in": 3600,
+                                     "id_token": idToken(), "scope": scope]
+        return String(decoding: try! JSONSerialization.data(withJSONObject: object, options: .sortedKeys), as: UTF8.self)
+    }
+    let (array, _) = authorizer([(200, reply(ChatGPTAuthConfiguration.openAI.scopes))])
+    #expect(try await array.complete(callback: callback(scope: nil)).scopes == ChatGPTAuthConfiguration.openAI.scopes)
+    let (plus, _) = authorizer([(200, reply("openid+chatgpt.tokens.use.direct"))])
+    #expect(try await plus.complete(callback: callback(scope: nil)).scopes == ["openid", "chatgpt.tokens.use.direct"])
+    let (short, _) = authorizer([(200, reply(["openid", "email"]))])
+    await #expect(throws: ChatGPTAuthError.missingScopes) { try await short.complete(callback: callback(scope: nil)) }
+    let (wrongType, _) = authorizer([(200, reply(7))])
+    await #expect(throws: ChatGPTAuthError.missingScopes) { try await wrongType.complete(callback: callback(scope: nil)) }
+}
+
+@Test func theSignInLogNameHoldsOnlyTheCaseName() {
+    #expect(ChatGPTAuthError.missingScopes.logName == "missingScopes")
+    #expect(ChatGPTAuthError.refused("access_denied").logName == "refused(access_denied)")
+    #expect(ChatGPTAuthError.refused("x https://evil/?code=abc").logName == "refused(xhttpsevilcodeabc)")
+    #expect(ChatGPTAuthError.httpStatus(401).logName == "httpStatus(401)")
+    #expect(ChatGPTAuthError.credential(.failed(-25300)).logName == "credential(failed(-25300))")
+    #expect(ChatGPTAuthError.canceled.logName == "canceled")
+}
+
 @MainActor @Test func aWrongNonceIsRejected() async {
     await expectFailure(.nonceMismatch, token: idToken(nonce: "nonce-of-another-sign-in"))
     await expectFailure(.nonceMismatch, token: idToken(nonce: nil))

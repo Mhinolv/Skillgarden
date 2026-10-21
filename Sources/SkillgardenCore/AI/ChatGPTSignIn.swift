@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 /// Opens the OpenAI sign-in page and gives the loopback callback (#156). The app uses `ASWebAuthenticationSession` with a
 /// `LoopbackCallbackListener`, and no web view. Tests use a fake.
@@ -46,6 +47,9 @@ public final class ChatGPTSignIn {
         }
     }
 
+    /// Each failed sign-in logs only `ChatGPTAuthError.logName`. It never logs a token, a code, the state, the nonce or a URL.
+    nonisolated static let log = Logger(subsystem: "dev.skillgarden.app", category: "chatgpt-sign-in")
+
     public static let signedOutText = "Sign in with your ChatGPT account. OpenAI shows its sign-in page."
     public static let waitingText = "Waiting for sign-in…"
 
@@ -82,6 +86,7 @@ public final class ChatGPTSignIn {
                 try self.providers.saveChatGPT(session, profile: self.profile)
                 self.state = .signedIn(session.account)
             } catch {
+                Self.log.error("ChatGPT sign-in failed: \(error.logName, privacy: .public)")
                 browser.stop()
                 authorizer.cancel()
                 guard let self, !Task.isCancelled else { return }
