@@ -324,6 +324,12 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
         } detail: {
             detail.gardenColumn()
+                // One strip shows every progress write that the store refused (#210).
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if let text = library.progressSaveFailureText {
+                        ProgressSaveFailureStrip(text: text) { library.retryProgressSaves() }
+                    }
+                }
                 .sheet(item: Binding(get: { showsReviewInline ? nil : library.sectionReview },
                                      set: { if $0 == nil { library.closeReview() } })) { review in
                     reviewSheet(review)
@@ -543,6 +549,36 @@ extension EnvironmentValues {
     var snapshotStartsTheater: Bool {
         get { self[SnapshotStartsTheaterKey.self] }
         set { self[SnapshotStartsTheaterKey.self] = newValue }
+    }
+}
+
+/// The save-failure strip at the top of the detail column (#210). It uses the red box of the quiz feedback.
+/// "Try Again" writes the latest values once. VoiceOver hears the text when it shows or changes.
+struct ProgressSaveFailureStrip: View {
+    let text: String
+    let retry: () -> Void
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(palette.wrong)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(GardenFont.body)
+                .foregroundStyle(palette.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Try Again", action: retry)
+                .buttonStyle(.garden(.bordered))
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, GardenSpacing.s)
+        .background(palette.wrongFill, in: .garden(GardenRadius.button))
+        .padding(.horizontal, GardenSpacing.s)
+        .padding(.top, 8)
+        .accessibilityElement(children: .contain)
+        .onChange(of: text, initial: true) { _, text in AccessibilityNotification.Announcement(text).post() }
     }
 }
 

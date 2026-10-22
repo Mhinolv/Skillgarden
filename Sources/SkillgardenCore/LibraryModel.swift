@@ -110,6 +110,13 @@ public final class LibraryModel {
     /// The store of the last reload. Progress writes use it off the main actor, one at a time.
     private var store: CourseStore?
     private var pendingWrite: Task<Bool, Never>?
+    /// The progress writes that the store refused (#210). The detail column shows one strip with "Try Again" for all of them.
+    /// They are not saved, so a restart shows only the saved state.
+    public private(set) var failedProgressSaves: Set<ProgressSaveKey> = []
+    /// The refused write and its state change for each key. "Try Again" runs each one once.
+    @ObservationIgnored private var progressRetries: [ProgressSaveKey: ProgressRetry] = [:]
+    /// The number of the last write for each key. Only the result of the last write changes the state.
+    @ObservationIgnored private var progressWriteNumbers: [ProgressSaveKey: Int] = [:]
     /// A bad data folder setting. Each reload shows it and does not open the store.
     private let rootError: String?
 
@@ -264,19 +271,23 @@ public final class LibraryModel {
         selectDestination(summary(of: course).nextDestination ?? .overview)
     }
 
-    /// Marks the selected lecture complete or incomplete. If the write fails, the state goes back.
+    /// Marks the selected lecture complete or incomplete. If the write fails, the state goes back and the strip shows (#210).
     /// Incomplete by hand turns off the automatic complete of a video. Complete by hand turns it on again (#79).
     public func toggleSelectedLectureComplete() async {
         guard let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return }
         let completed = !isComplete(lectureID)
         let wasOff = progress[courseID]?[lectureID]?.autoCompleteOff ?? false
-        progress[courseID, default: [:]][lectureID, default: LectureProgress()].completed = completed
-        progress[courseID, default: [:]][lectureID, default: LectureProgress()].autoCompleteOff = !completed
-        let saved = await enqueueWrite { try $0.setCompletedByHand(completed, courseID: courseID, lectureID: lectureID) }.value
-        if !saved, progress[courseID]?[lectureID]?.completed == completed {
-            progress[courseID]?[lectureID]?.completed = !completed
-            progress[courseID]?[lectureID]?.autoCompleteOff = wasOff
+        let apply: @MainActor () -> Void = { [weak self] in
+            self?.progress[courseID, default: [:]][lectureID, default: LectureProgress()].completed = completed
+            self?.progress[courseID, default: [:]][lectureID, default: LectureProgress()].autoCompleteOff = !completed
         }
+        apply()
+        let key = ProgressSaveKey(kind: .completion, courseID: courseID, lectureID: lectureID)
+        let retry = ProgressRetry(write: { try $0.setCompletedByHand(completed, courseID: courseID, lectureID: lectureID) }, apply: apply)
+        _ = await enqueueProgressWrite(key, retry) { [weak self] in
+            self?.progress[courseID]?[lectureID]?.completed = !completed
+            self?.progress[courseID]?[lectureID]?.autoCompleteOff = wasOff
+        }.value
     }
 
     /// True if the video of `lectureID` completes the lecture at 90% or at the end (#79).
@@ -291,9 +302,21 @@ public final class LibraryModel {
     public func autoCompleteVideo(lectureID: String) -> Bool {
         guard let courseID = selectedCourseID, let lecture = selectedLecture, lecture.id == lectureID, lecture.type == .video,
               !isComplete(lectureID), autoCompletes(lectureID) else { return false }
-        progress[courseID, default: [:]][lectureID, default: LectureProgress()].completed = true
-        enqueueWrite { try $0.setCompleted(true, courseID: courseID, lectureID: lectureID) }
+        enqueueCompletion(courseID: courseID, lectureID: lectureID)
         return true
+    }
+
+    /// Marks a lecture complete by the video or the interactive module. If the write fails, the lecture is not complete (#210).
+    private func enqueueCompletion(courseID: String, lectureID: String) {
+        let apply: @MainActor () -> Void = { [weak self] in
+            self?.progress[courseID, default: [:]][lectureID, default: LectureProgress()].completed = true
+        }
+        apply()
+        let key = ProgressSaveKey(kind: .completion, courseID: courseID, lectureID: lectureID)
+        enqueueProgressWrite(key, ProgressRetry(write: { try $0.setCompleted(true, courseID: courseID, lectureID: lectureID) },
+                                                apply: apply)) { [weak self] in
+            self?.progress[courseID]?[lectureID]?.completed = false
+        }
     }
 
     /// The time to seek to when the video of a lecture in the selected course opens.
@@ -303,11 +326,17 @@ public final class LibraryModel {
     }
 
     /// The video player calls this every `PlaybackResume.saveInterval` seconds, on pause and when the learner leaves.
+    /// If the write fails, playback continues and the strip shows (#210). The next save that succeeds hides it.
     public func saveResumePosition(_ seconds: Double, lectureID: String) {
         guard let courseID = selectedCourseID, seconds.isFinite,
               progress[courseID]?[lectureID]?.resumeSeconds != seconds else { return }
-        progress[courseID, default: [:]][lectureID, default: LectureProgress()].resumeSeconds = seconds
-        enqueueWrite { try $0.saveResumePosition(seconds, courseID: courseID, lectureID: lectureID) }
+        let apply: @MainActor () -> Void = { [weak self] in
+            self?.progress[courseID, default: [:]][lectureID, default: LectureProgress()].resumeSeconds = seconds
+        }
+        apply()
+        let key = ProgressSaveKey(kind: .resumePosition, courseID: courseID, lectureID: lectureID)
+        enqueueProgressWrite(key, ProgressRetry(write: { try $0.saveResumePosition(seconds, courseID: courseID, lectureID: lectureID) },
+                                                apply: apply))
     }
 
     /// The last opened lecture of the selected course, if the learner can still see it.
@@ -347,8 +376,15 @@ public final class LibraryModel {
         quizAttempts[courseID, default: [:]][lectureID] = attempt
         guard attempt.showsResults, !wasShowingResults else { return }
         let result = attempt.result
-        quizResults[courseID, default: [:]][lectureID] = result
-        enqueueWrite { try $0.saveQuizResult(result, courseID: courseID, lectureID: lectureID) }
+        let previous = quizResults[courseID]?[lectureID]
+        let apply: @MainActor () -> Void = { [weak self] in self?.quizResults[courseID, default: [:]][lectureID] = result }
+        apply()
+        // If the write fails, the saved result shows again and the strip shows (#210).
+        let key = ProgressSaveKey(kind: .quizResult, courseID: courseID, lectureID: lectureID)
+        enqueueProgressWrite(key, ProgressRetry(write: { try $0.saveQuizResult(result, courseID: courseID, lectureID: lectureID) },
+                                                apply: apply)) { [weak self] in
+            self?.quizResults[courseID]?[lectureID] = previous
+        }
     }
 
     // MARK: Assignment
@@ -468,8 +504,7 @@ public final class LibraryModel {
         switch message {
         case .complete:
             guard !isComplete(lectureID) else { return }
-            progress[courseID, default: [:]][lectureID, default: LectureProgress()].completed = true
-            enqueueWrite { try $0.setCompleted(true, courseID: courseID, lectureID: lectureID) }
+            enqueueCompletion(courseID: courseID, lectureID: lectureID)
         case let .score(score):
             let result = InteractiveResult(score: score, objective: lecture.objective)
             interactiveResults[courseID, default: [:]][lectureID] = result
@@ -663,6 +698,53 @@ public final class LibraryModel {
             guard let store else { return false }
             return (try? await onStoreQueue { try body(store) }) != nil
         }
+        pendingWrite = task
+        return task
+    }
+
+    // MARK: Progress save failures (#210)
+
+    /// The text of the save-failure strip. Nil when no progress write failed.
+    public var progressSaveFailureText: String? { ProgressSaveKey.failureText(failedProgressSaves) }
+
+    /// "Try Again" of the save-failure strip: writes the latest value of each refused write once.
+    /// A success applies the value and hides its part of the strip. A second click before the result does nothing.
+    public func retryProgressSaves() {
+        let retries = progressRetries
+        progressRetries = [:]
+        for (key, retry) in retries { enqueueProgressWrite(key, retry, isRetry: true) }
+    }
+
+    /// The snapshot harness shows the strip for the selected lecture with these failures. It writes nothing.
+    public func showSnapshotProgressSaveFailures(_ kinds: [ProgressSaveKey.Kind]) {
+        guard let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return }
+        failedProgressSaves = Set(kinds.map { ProgressSaveKey(kind: $0, courseID: courseID, lectureID: lectureID) })
+    }
+
+    /// Queues a progress write. The caller applies the value first. Only the last write of a key changes the state:
+    /// a failure runs `revert` and shows the strip, a success hides the strip. A retry applies the value after its success.
+    @discardableResult
+    private func enqueueProgressWrite(_ key: ProgressSaveKey, _ retry: ProgressRetry, isRetry: Bool = false,
+                                      revert: (@MainActor () -> Void)? = nil) -> Task<Bool, Never> {
+        let number = progressWriteNumbers[key, default: 0] + 1
+        progressWriteNumbers[key] = number
+        let write = enqueueWrite(retry.write)
+        let task = Task { @MainActor [weak self] in
+            let saved = await write.value
+            guard let self, self.progressWriteNumbers[key] == number else { return saved }
+            if saved {
+                if isRetry { retry.apply() }
+                self.progressRetries[key] = nil
+                // A resume save runs every few seconds. Only a change of the set publishes.
+                if self.failedProgressSaves.contains(key) { self.failedProgressSaves.remove(key) }
+            } else {
+                if !isRetry { revert?() }
+                self.progressRetries[key] = retry
+                if !self.failedProgressSaves.contains(key) { self.failedProgressSaves.insert(key) }
+            }
+            return saved
+        }
+        // `waitForWrites()` also waits for the state change.
         pendingWrite = task
         return task
     }
@@ -876,6 +958,34 @@ public struct TranscriptSeek: Equatable, Sendable {
         self.showsTranscript = showsTranscript
         self.plays = plays
     }
+}
+
+/// One progress write that the store can refuse (#210): its kind and its lecture.
+public struct ProgressSaveKey: Hashable, Sendable {
+    public enum Kind: Hashable, Sendable {
+        case completion, resumePosition, quizResult
+    }
+
+    public let kind: Kind
+    public let courseID: String
+    public let lectureID: String
+
+    /// The text of the save-failure strip for these refused writes. Nil for none.
+    public static func failureText(_ failures: Set<ProgressSaveKey>) -> String? {
+        guard let first = failures.first else { return nil }
+        guard failures.count == 1 else { return "Skillgarden couldn't save some of your progress." }
+        return switch first.kind {
+        case .completion: "Skillgarden couldn't save that this lecture is complete."
+        case .resumePosition: "Skillgarden couldn't save your place in this video."
+        case .quizResult: "Skillgarden couldn't save your quiz result."
+        }
+    }
+}
+
+/// A refused progress write: the store write and the change of the model state that it saves.
+struct ProgressRetry {
+    let write: @Sendable (CourseStore) throws -> Void
+    let apply: @MainActor () -> Void
 }
 
 /// The data that `LibraryModel` reads from the installed publication folders. Add new fields here.

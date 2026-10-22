@@ -181,6 +181,11 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The Q&A panel of the video lecture (#209): the store did not remove the turn. It shows
     /// "Couldn't remove this question. Try again." under it.
     case qaRemoveFailed = "qa-remove-failed"
+    /// The article lecture (#210): the store refused the completion. The strip shows over the page and the button
+    /// shows "Mark as Complete".
+    case progressSaveFailedCompletion = "progress-save-failed-completion"
+    /// The quiz results screen (#210): the store refused the quiz result. The strip shows over the results.
+    case progressSaveFailedQuiz = "progress-save-failed-quiz"
 
     static let settingsScreens: [SnapshotScreen] = [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
                                                     .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError,
@@ -243,6 +248,15 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
 
     /// True when the harness shows the last saved turn as a turn that the store did not remove (#209).
     public var qaRemoveFailed: Bool { self == .qaRemoveFailed }
+
+    /// The refused progress writes that the harness shows in the save-failure strip (#210). Empty for the other screens.
+    public var progressSaveFailures: [ProgressSaveKey.Kind] {
+        switch self {
+        case .progressSaveFailedCompletion: [.completion]
+        case .progressSaveFailedQuiz: [.quizResult]
+        default: []
+        }
+    }
 
     /// The model row state that the harness injects into the Settings form (#122). Nil for the other screens.
     public func modelState(home: URL) -> ModelSettings.State? {
@@ -451,7 +465,7 @@ public enum SnapshotPlan {
              .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaArticle, .qaTheater, .qaCitations, .qaCitationExcerpt,
              .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaConsentOpenRouter, .qaRemote,
              .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .notesArticleEmpty, .qaCitationRanges,
-             .qaGuardEmpty, .qaSaveFailed, .qaRemoveFailed:
+             .qaGuardEmpty, .qaSaveFailed, .qaRemoveFailed, .progressSaveFailedCompletion:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -476,7 +490,7 @@ public enum SnapshotPlan {
             try CourseStore(root: root).saveInteractiveResult(
                 InteractiveResult(score: 75, objective: "Order the steps of a course plan"), courseID: id, lectureID: "order-steps")
             return id
-        case .quizQuestion, .quizWrongAnswer, .quizResults, .notesPage, .notesPageEmpty:
+        case .quizQuestion, .quizWrongAnswer, .quizResults, .notesPage, .notesPageEmpty, .progressSaveFailedQuiz:
             // The fixture quiz is in a draft section. The copy publishes that section so the learner sees the quiz.
             let id = try publishCopy(of: fixture, root: root, replacing: [
                 ("objective: Apply the course plan\n    state: draft", "objective: Apply the course plan\n    state: published"),
@@ -770,7 +784,7 @@ public enum SnapshotPlan {
     public static func quizActions(for screen: SnapshotScreen) -> [QuizAction] {
         switch screen {
         case .quizWrongAnswer: [.select(choiceID: "lectures"), .submit]
-        case .quizResults:
+        case .quizResults, .progressSaveFailedQuiz:
             [.select(choiceID: "lectures"), .submit, .next, .select(choiceID: "newest"), .submit, .next,
              .select(choiceID: "skill"), .submit, .next]
         default: []
@@ -818,13 +832,14 @@ public enum SnapshotPlan {
              .qaConsentOpenRouter, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .qaCitationRanges, .qaGuardEmpty,
              .qaSaveFailed, .qaRemoveFailed:
             .lecture(sectionID: "plan", lectureID: "welcome")
-        case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle, .qaCitationExcerpt, .notesArticleEmpty:
+        case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle, .qaCitationExcerpt, .notesArticleEmpty,
+             .progressSaveFailedCompletion:
             .lecture(sectionID: "plan", lectureID: "read")
         case .notesPage, .notesPageEmpty: .notes
         case .courseLanding, .courseLandingDarkTheme, .courseLandingDetails, .transcriptSearch, .transcriptSearchSelected,
              .transcriptSearchNoResults: .overview
         case .courseCredits: .credits
-        case .quizQuestion, .quizWrongAnswer, .quizResults: .lecture(sectionID: "practice", lectureID: "check")
+        case .quizQuestion, .quizWrongAnswer, .quizResults, .progressSaveFailedQuiz: .lecture(sectionID: "practice", lectureID: "check")
         case .interactiveResult: .lecture(sectionID: "practice", lectureID: "order-steps")
         case .assignment, .assignmentComplete: .lecture(sectionID: "practice", lectureID: "apply")
         case .outlineDurations: .lecture(sectionID: "plan", lectureID: "recap")

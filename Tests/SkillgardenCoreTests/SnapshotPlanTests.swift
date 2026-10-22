@@ -100,6 +100,8 @@ private func temporaryFolder() throws -> URL {
         "qa-guard-empty-light.png", "qa-guard-empty-dark.png",
         "qa-save-failed-light.png", "qa-save-failed-dark.png",
         "qa-remove-failed-light.png", "qa-remove-failed-dark.png",
+        "progress-save-failed-completion-light.png", "progress-save-failed-completion-dark.png",
+        "progress-save-failed-quiz-light.png", "progress-save-failed-quiz-dark.png",
     ])
     // #182 retired the `-unthemed-dark` captures: each screen has one light and one dark capture.
     #expect(!outputs.contains { $0.url.lastPathComponent.contains("unthemed") })
@@ -199,6 +201,11 @@ private func temporaryFolder() throws -> URL {
     // #209: one screen shows a draft that the store did not save, one a turn that the store did not remove.
     #expect(SnapshotScreen.allCases.filter(\.qaDraftSaveFailed) == [.qaSaveFailed])
     #expect(SnapshotScreen.allCases.filter(\.qaRemoveFailed) == [.qaRemoveFailed])
+    // #210: the save-failure strip on a lecture with a refused completion and on quiz results with a refused result.
+    #expect(SnapshotScreen.allCases.filter { !$0.progressSaveFailures.isEmpty } == [.progressSaveFailedCompletion, .progressSaveFailedQuiz])
+    #expect(SnapshotScreen.progressSaveFailedCompletion.progressSaveFailures == [.completion])
+    #expect(SnapshotScreen.progressSaveFailedQuiz.progressSaveFailures == [.quizResult])
+    #expect(SnapshotPlan.quizActions(for: .progressSaveFailedQuiz) == SnapshotPlan.quizActions(for: .quizResults))
     #expect(SnapshotScreen.allCases.filter(\.startsTheater) == [.videoTheater, .videoUpNextTheater, .qaTheater])
     #expect(SnapshotScreen.allCases.filter(\.showsQuickChecks) == [.videoQuickCheck])
     #expect(SnapshotScreen.allCases.filter(\.checksTitlebarForVideo) == [.videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater,
@@ -303,6 +310,18 @@ private func temporaryFolder() throws -> URL {
             library.selectDestination(SnapshotPlan.destination(for: screen))
             #expect(library.selectedLecture?.type == .article)
             #expect(library.article(forLecture: "read")?.path == "content/plan.md")
+        case .progressSaveFailedCompletion, .progressSaveFailedQuiz:
+            // #210: the harness shows the strip for the selected lecture. The store keeps no progress for it.
+            #expect(courseID == "sample-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            for action in SnapshotPlan.quizActions(for: screen) { library.performQuizAction(action) }
+            await library.waitForWrites()
+            library.showSnapshotProgressSaveFailures(screen.progressSaveFailures)
+            #expect(library.failedProgressSaves.map(\.lectureID) == [screen == .progressSaveFailedQuiz ? "check" : "read"])
+            #expect(library.progressSaveFailureText == ProgressSaveKey.failureText(library.failedProgressSaves))
+            #expect(!library.isSelectedLectureComplete)
+            #expect((library.selectedQuizAttempt?.showsResults == true) == (screen == .progressSaveFailedQuiz))
         case .lectureSources:
             #expect(courseID == "sample-course")
             library.selectCourse(courseID)
