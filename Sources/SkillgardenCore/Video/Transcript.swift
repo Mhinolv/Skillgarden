@@ -37,6 +37,11 @@ public struct Transcript: Equatable, Sendable {
     public func activeLine(at seconds: Double) -> Int? {
         lines.lastIndex { $0.start <= seconds && seconds < $0.end }
     }
+
+    /// `activeLine(at:)` with a binary search (#218). The player builds it once and reads it on each time tick.
+    public var activeLineTimeline: CueTimeline<Int> {
+        CueTimeline(intervals: lines.map { ($0.start, $0.end) }) { $0.last }
+    }
 }
 
 /// Auto-scroll of the transcript stops for `pause` seconds after the learner scrolls the panel.
