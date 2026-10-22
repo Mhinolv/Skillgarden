@@ -443,17 +443,27 @@ public enum SnapshotPlan {
     public struct Output: Equatable, Sendable {
         public let screen: SnapshotScreen
         public let appearance: SnapshotAppearance
+        /// True when the capture uses the "Increase contrast" palette (#219).
+        public var increasedContrast = false
         public let url: URL
     }
 
+    /// The screens that also render with "Increase contrast" on (#219): the outline, a wrong answer and Q&A status labels.
+    public static let increasedContrastScreens: [SnapshotScreen] = [.lecture, .quizWrongAnswer, .qaThread]
+
     /// One output per screen and appearance, in a fixed order: `<out-dir>/<screen>-<light|dark>.png`.
+    /// The `increasedContrastScreens` also get `<out-dir>/<screen>-<light|dark>-high-contrast.png` (#219).
     /// `screens` limits the outputs to these screens. The order stays the same.
     /// #182 retired the `-unthemed-dark` captures: every window uses the system accent, so they matched the `-dark` captures.
     public static func outputs(outDirectory: URL, screens: Set<SnapshotScreen>? = nil) -> [Output] {
         SnapshotScreen.allCases.filter { screens?.contains($0) ?? true }.flatMap { screen in
-            SnapshotAppearance.allCases.map { appearance in
-                Output(screen: screen, appearance: appearance,
-                       url: outDirectory.appending(path: "\(screen.rawValue)-\(appearance.rawValue).png"))
+            let contrasts = increasedContrastScreens.contains(screen) ? [false, true] : [false]
+            return contrasts.flatMap { increasedContrast in
+                SnapshotAppearance.allCases.map { appearance in
+                    Output(screen: screen, appearance: appearance, increasedContrast: increasedContrast,
+                           url: outDirectory.appending(path: "\(screen.rawValue)-\(appearance.rawValue)"
+                               + (increasedContrast ? "-high-contrast.png" : ".png")))
+                }
             }
         }
     }
