@@ -169,6 +169,8 @@ struct ContentView: View {
     private let customRootPath: String?
     /// The app appearance. Dark and Light also apply in the course workspace (#93).
     private let appearance: AppAppearance
+    /// The snapshot override of the macOS "Increase contrast" setting (#219). Nil reads the system.
+    private let increasedContrast: Bool?
     /// The Settings "Auto-play next lecture" choice (#99).
     private let autoPlays: Bool
     /// True while the "Up next" overlay shows. Escape then cancels the countdown and does not end theater.
@@ -207,7 +209,8 @@ struct ContentView: View {
     init(library: LibraryModel, reloadsOnAppear: Bool = true, customRootPath: String? = nil, appearance: AppAppearance = .dark,
          videoText: VideoTextChoices = VideoTextChoices(), saveVideoText: ((VideoTextChoices) -> Void)? = nil, autoPlays: Bool = true,
          localAI: RuntimeSupervisor = RuntimeSupervisor(isEnabled: false, backend: nil), client: LlamaClient = LlamaClient(),
-         providers: ProviderSettings = ProviderSettings(store: nil, credentials: MemoryCredentialStore())) {
+         providers: ProviderSettings = ProviderSettings(store: nil, credentials: MemoryCredentialStore()),
+         increasedContrast: Bool? = nil) {
         _library = State(initialValue: library)
         self.localAI = localAI
         self.providers = providers
@@ -219,6 +222,7 @@ struct ContentView: View {
         self.reloadsOnAppear = reloadsOnAppear
         self.customRootPath = customRootPath
         self.appearance = appearance
+        self.increasedContrast = increasedContrast
         self.autoPlays = autoPlays
     }
 
@@ -286,7 +290,7 @@ struct ContentView: View {
             ImportProgressSheet(title: $0.title)
         }
         // The course theme sets only the light or dark look of the window. The accent is the system accent (#182).
-        .gardenTheme(library.selectedLanding?.theme, appearance: appearance)
+        .gardenTheme(library.selectedLanding?.theme, appearance: appearance, increasedContrast: increasedContrast)
         .frame(minWidth: 900, minHeight: 600)
         .focusedSceneValue(\.library, library)
         .task { if reloadsOnAppear { await library.reload() } }

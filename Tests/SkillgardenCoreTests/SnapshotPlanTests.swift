@@ -20,6 +20,7 @@ private func temporaryFolder() throws -> URL {
         "library-empty-custom-folder-light.png", "library-empty-custom-folder-dark.png", "library-light.png", "library-dark.png",
         "section-light.png", "section-dark.png",
         "lecture-light.png", "lecture-dark.png",
+        "lecture-light-high-contrast.png", "lecture-dark-high-contrast.png",
         "lecture-complete-light.png", "lecture-complete-dark.png",
         "article-light.png", "article-dark.png",
         "course-landing-light.png", "course-landing-dark.png",
@@ -27,6 +28,7 @@ private func temporaryFolder() throws -> URL {
         "course-landing-details-light.png", "course-landing-details-dark.png",
         "quiz-question-light.png", "quiz-question-dark.png",
         "quiz-wrong-answer-light.png", "quiz-wrong-answer-dark.png",
+        "quiz-wrong-answer-light-high-contrast.png", "quiz-wrong-answer-dark-high-contrast.png",
         "quiz-results-light.png", "quiz-results-dark.png",
         "interactive-result-light.png", "interactive-result-dark.png",
         "video-player-light.png", "video-player-dark.png",
@@ -70,6 +72,7 @@ private func temporaryFolder() throws -> URL {
         "settings-chatgpt-sign-in-again-light.png", "settings-chatgpt-sign-in-again-dark.png",
         "settings-chatgpt-choose-model-light.png", "settings-chatgpt-choose-model-dark.png",
         "qa-thread-light.png", "qa-thread-dark.png",
+        "qa-thread-light-high-contrast.png", "qa-thread-dark-high-contrast.png",
         "qa-empty-light.png", "qa-empty-dark.png",
         "qa-draft-light.png", "qa-draft-dark.png",
         "qa-no-model-light.png", "qa-no-model-dark.png",
@@ -106,9 +109,9 @@ private func temporaryFolder() throws -> URL {
         "article-image-enlarged-light.png", "article-image-enlarged-dark.png",
         "article-image-enlarged-no-alt-light.png", "article-image-enlarged-no-alt-dark.png",
     ])
-    // #182 retired the `-unthemed-dark` captures: each screen has one light and one dark capture.
+    // #182 retired the `-unthemed-dark` captures: each screen has one light and one dark default capture.
     #expect(!outputs.contains { $0.url.lastPathComponent.contains("unthemed") })
-    #expect(outputs.map(\.url.lastPathComponent) == SnapshotScreen.allCases.flatMap { screen in
+    #expect(outputs.filter { !$0.increasedContrast }.map(\.url.lastPathComponent) == SnapshotScreen.allCases.flatMap { screen in
         SnapshotAppearance.allCases.map { "\(screen.rawValue)-\($0.rawValue).png" }
     })
     #expect(SnapshotScreen.allCases.filter { $0.transcriptQuery != nil }
@@ -254,7 +257,13 @@ private func temporaryFolder() throws -> URL {
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
     #expect(outputs == SnapshotPlan.outputs(outDirectory: out))
-    #expect(Set(outputs.map(\.url)).count == SnapshotScreen.allCases.count * SnapshotAppearance.allCases.count)
+    let defaultCount = SnapshotScreen.allCases.count * SnapshotAppearance.allCases.count
+    let contrastCount = SnapshotPlan.increasedContrastScreens.count * SnapshotAppearance.allCases.count
+    #expect(Set(outputs.map(\.url)).count == defaultCount + contrastCount)
+    // #219: only the high-contrast captures use the "Increase contrast" palette.
+    let contrastOutputs = outputs.filter { (output: SnapshotPlan.Output) in output.increasedContrast }
+    #expect(contrastOutputs.count == contrastCount)
+    #expect(contrastOutputs.allSatisfy { $0.url.lastPathComponent.hasSuffix("-high-contrast.png") })
     #expect(SnapshotPlan.width == 1280 && SnapshotPlan.height == 800 && SnapshotPlan.scale == 2)
 }
 

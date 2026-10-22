@@ -99,11 +99,12 @@ struct GardenPalette: Equatable, Sendable {
     let wrong: Color
     let wrongFill: Color
 
-    /// A nil accent uses the system accent.
-    init(accent theme: ThemeColor?, colorScheme: ColorScheme) {
+    /// A nil accent uses the system accent. `increasedContrast` selects the stronger neutral tokens (#219).
+    init(accent theme: ThemeColor?, colorScheme: ColorScheme, increasedContrast: Bool = false) {
         let shown = theme?.displayAccent(for: CourseAppearance(colorScheme))
         let accent = shown?.color ?? .accentColor
         let dark = colorScheme == .dark
+        let neutrals = GardenNeutrals(appearance: CourseAppearance(colorScheme), increasedContrast: increasedContrast)
         func tinted(_ base: Int, _ fraction: Double) -> Color {
             ThemeColor(hexValue: base).color.mix(with: accent, by: fraction, in: .device)
         }
@@ -117,26 +118,24 @@ struct GardenPalette: Equatable, Sendable {
             sidebar = tinted(0x262628, 0.06)
             tint = tinted(0x1E1E20, 0.14)
             selection = tinted(0x262628, SidebarSelection.fraction(for: .dark))
-            fill = .white.opacity(0.06)
-            track = .white.opacity(0.16)
-            line = .white.opacity(0.08)
+            fill = .white.opacity(neutrals.fillOpacity)
+            track = .white.opacity(neutrals.trackOpacity)
+            line = .white.opacity(neutrals.lineOpacity)
             ink = ThemeColor(hexValue: 0xF2F2F7).color
-            muted = ThemeColor(hexValue: 0x98989D).color
-            faint = ThemeColor(hexValue: 0x5E5E63).color
             wrongFill = page.mix(with: wrong, by: 0.2, in: .device)
         } else {
             page = .white
             sidebar = tinted(0xF4F4F3, 0.04)
             tint = tinted(0xFFFFFF, 0.08)
             selection = tinted(0xF4F4F3, SidebarSelection.fraction(for: .light))
-            fill = .black.opacity(0.045)
-            track = .black.opacity(0.09)
-            line = .black.opacity(0.08)
+            fill = .black.opacity(neutrals.fillOpacity)
+            track = .black.opacity(neutrals.trackOpacity)
+            line = .black.opacity(neutrals.lineOpacity)
             ink = ThemeColor.ink.color
-            muted = ThemeColor(hexValue: 0x6E6E73).color
-            faint = ThemeColor(hexValue: 0xAEAEB2).color
             wrongFill = ThemeColor(hexValue: 0xFCEDEA).color
         }
+        muted = ThemeColor(hexValue: neutrals.muted).color
+        faint = ThemeColor(hexValue: neutrals.faint).color
         card = page
     }
 }
@@ -161,8 +160,9 @@ extension View {
     /// Apply at the window root. Every window uses the system accent (#182). The course theme sets only the light or dark look.
     /// `appearance` is the app setting. Dark and Light win over the theme appearance (#93).
     /// System uses the theme, then the system color scheme.
-    func gardenTheme(_ theme: CourseTheme?, appearance: AppAppearance = .system) -> some View {
-        modifier(GardenTheme(theme: theme, appearance: appearance))
+    /// `increasedContrast` overrides the macOS "Increase contrast" setting for the snapshot harness (#219). Nil reads the system.
+    func gardenTheme(_ theme: CourseTheme?, appearance: AppAppearance = .system, increasedContrast: Bool? = nil) -> some View {
+        modifier(GardenTheme(theme: theme, appearance: appearance, increasedContrast: increasedContrast))
     }
 
     /// Fills a split view column with the sidebar or the page color.
@@ -184,13 +184,16 @@ extension View {
 private struct GardenTheme: ViewModifier {
     let theme: CourseTheme?
     let appearance: AppAppearance
+    let increasedContrast: Bool?
     @Environment(\.colorScheme) private var systemColorScheme
+    @Environment(\.colorSchemeContrast) private var systemContrast
 
     func body(content: Content) -> some View {
         let resolved = appearance.resolved(course: theme?.appearance)
         let colorScheme = resolved?.colorScheme ?? systemColorScheme
         // #182: the manifest accent stays valid but does not color the window. Cover image and title brand a course.
-        let palette = GardenPalette(accent: nil, colorScheme: colorScheme)
+        let palette = GardenPalette(accent: nil, colorScheme: colorScheme,
+                                    increasedContrast: increasedContrast ?? (systemContrast == .increased))
         content
             .tint(palette.accent)
             .environment(\.gardenPalette, palette)

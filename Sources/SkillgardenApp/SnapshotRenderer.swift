@@ -126,7 +126,8 @@ enum SnapshotRenderer {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top))
         } else {
             AnyView(ContentView(library: library, reloadsOnAppear: false, customRootPath: output.screen.customRootPath,
-                                  appearance: output.appearance == .dark ? .dark : .light, localAI: localAI, providers: providers))
+                                  appearance: output.appearance == .dark ? .dark : .light, localAI: localAI, providers: providers,
+                                  increasedContrast: output.increasedContrast))
         }
         let content = screenView
             // The system color scheme of the capture. `GardenTheme` reads it when the window has no course theme (#82).
