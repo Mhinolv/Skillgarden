@@ -592,6 +592,29 @@ public final class ProviderSettings {
     /// The red caption of a ChatGPT plan session that can't refresh (#156).
     public static let signInAgainText = "Sign in again."
 
+    /// True for a ChatGPT plan with no credential problem and a session that can't refresh (#156). The row shows "Sign In…".
+    public func needsSignIn(_ profile: ProviderProfile) -> Bool {
+        problems[profile.id] == nil && profile.isChatGPTPlan && expiredSessions.contains(profile.id)
+    }
+
+    /// True for a ChatGPT plan that can answer but has no model, from before #157 or a failed model load (#232).
+    /// "Answer with" hides it, so the row shows `chooseModelText` and "Choose Model…".
+    public func needsModel(_ profile: ProviderProfile) -> Bool {
+        problems[profile.id] == nil && profile.isChatGPTPlan && !needsSignIn(profile) && canAnswer(profile.kind)
+            && profile.modelProblem != nil
+    }
+
+    /// The red caption of a ChatGPT plan with no model (#232).
+    public static let chooseModelText = "Choose a model to use this plan for Q&A."
+
+    /// The red caption of a row, first match wins: the credential problem, then "Sign in again.", then no model (#232).
+    public func redCaption(for profile: ProviderProfile) -> String? {
+        if let problem = problems[profile.id] { return problem.message }
+        if needsSignIn(profile) { return Self.signInAgainText }
+        if needsModel(profile) { return Self.chooseModelText }
+        return nil
+    }
+
     /// The provider that answers the next question: the bundled model, or the provider of the chosen profile.
     /// A profile with no shipped adapter gets a provider that can't answer.
     public func activeProvider(bundled: any AnswerProvider) -> any AnswerProvider {
