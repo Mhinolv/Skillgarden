@@ -68,22 +68,34 @@ SKILLGARDEN_LLAMA_DIR=/path/to/llama-b11669 ./scripts/build.sh app
 Check the bundle with:
 
 ```sh
-scripts/check_llama_runtime.sh [build/Skillgarden.app]
+scripts/check_llama_runtime.sh [--signed] [build/Skillgarden.app]
 ```
 
 ```
 PASS arm64
 PASS deployment target 15.0
 PASS library paths
-PASS checksums
+PASS upstream hash
+PASS signature
 ```
 
 - The script uses `PATH=/usr/bin:/bin:/usr/sbin:/sbin` and no `DYLD_*` variables, so Homebrew cannot help it.
 - `arm64`: each Mach-O file in `Contents/Helpers/llama` holds arm64 code.
 - `deployment target`: no file needs a newer macOS than `LSMinimumSystemVersion` of the app.
 - `library paths`: each library is in `Contents/Helpers/llama`, `/usr/lib` or `/System/Library`. Each rpath is `@loader_path`, `@executable_path` or a system folder. `llama-server --version` starts.
-- `checksums`: each bundled file matches `runtime.json`, and the license notice is present.
+- `upstream hash`: each bundled file matches its upstream sha256 in `runtime.json`, and the license notice is present.
+- `signature`: `codesign --verify --strict` accepts each Mach-O file. An ad hoc signature is accepted.
 - A failure prints `FAIL <check>: <detail>`, and the exit status is 1.
+
+A Developer ID signature changes the binaries, so their upstream hashes cannot match after signing (#212).
+`scripts/release_app.sh` runs the check before signing and again with `--signed` after notarization:
+
+| Check | With `--signed` |
+|---|---|
+| `upstream hash` | Compares only the files that are not Mach-O, for example `LICENSE` |
+| `signature` | Each binary also needs the hardened runtime, a Developer ID of one team and a secure timestamp |
+
+See `docs/release.md`.
 
 ## Server lifecycle
 
