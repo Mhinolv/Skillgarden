@@ -68,6 +68,7 @@ private func temporaryFolder() throws -> URL {
         "chatgpt-sheet-models-failed-light.png", "chatgpt-sheet-models-failed-dark.png",
         "chatgpt-sheet-model-gone-light.png", "chatgpt-sheet-model-gone-dark.png",
         "settings-chatgpt-sign-in-again-light.png", "settings-chatgpt-sign-in-again-dark.png",
+        "settings-chatgpt-choose-model-light.png", "settings-chatgpt-choose-model-dark.png",
         "qa-thread-light.png", "qa-thread-dark.png",
         "qa-empty-light.png", "qa-empty-dark.png",
         "qa-draft-light.png", "qa-draft-dark.png",
@@ -100,6 +101,8 @@ private func temporaryFolder() throws -> URL {
         "qa-guard-empty-light.png", "qa-guard-empty-dark.png",
         "qa-save-failed-light.png", "qa-save-failed-dark.png",
         "qa-remove-failed-light.png", "qa-remove-failed-dark.png",
+        "progress-save-failed-completion-light.png", "progress-save-failed-completion-dark.png",
+        "progress-save-failed-quiz-light.png", "progress-save-failed-quiz-dark.png",
         "article-image-enlarged-light.png", "article-image-enlarged-dark.png",
         "article-image-enlarged-no-alt-light.png", "article-image-enlarged-no-alt-dark.png",
     ])
@@ -205,6 +208,11 @@ private func temporaryFolder() throws -> URL {
     // #209: one screen shows a draft that the store did not save, one a turn that the store did not remove.
     #expect(SnapshotScreen.allCases.filter(\.qaDraftSaveFailed) == [.qaSaveFailed])
     #expect(SnapshotScreen.allCases.filter(\.qaRemoveFailed) == [.qaRemoveFailed])
+    // #210: the save-failure strip on a lecture with a refused completion and on quiz results with a refused result.
+    #expect(SnapshotScreen.allCases.filter { !$0.progressSaveFailures.isEmpty } == [.progressSaveFailedCompletion, .progressSaveFailedQuiz])
+    #expect(SnapshotScreen.progressSaveFailedCompletion.progressSaveFailures == [.completion])
+    #expect(SnapshotScreen.progressSaveFailedQuiz.progressSaveFailures == [.quizResult])
+    #expect(SnapshotPlan.quizActions(for: .progressSaveFailedQuiz) == SnapshotPlan.quizActions(for: .quizResults))
     #expect(SnapshotScreen.allCases.filter(\.startsTheater) == [.videoTheater, .videoUpNextTheater, .qaTheater])
     #expect(SnapshotScreen.allCases.filter(\.showsQuickChecks) == [.videoQuickCheck])
     #expect(SnapshotScreen.allCases.filter(\.checksTitlebarForVideo) == [.videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater,
@@ -224,7 +232,7 @@ private func temporaryFolder() throws -> URL {
                                                                     .providerSheetCustom, .chatGPTSheetSignedOut,
                                                                     .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
                                                                     .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone,
-                                                                    .settingsChatGPTSignInAgain])
+                                                                    .settingsChatGPTSignInAgain, .settingsChatGPTChooseModel])
     // #156: four ChatGPT plan sheet states, and one Settings screen with a session that can't refresh.
     let signedIn = ChatGPTSignIn.State.signedIn(SnapshotPlan.chatGPTAccount)
     #expect(SnapshotScreen.allCases.compactMap(\.chatGPTSheetState)
@@ -235,7 +243,13 @@ private func temporaryFolder() throws -> URL {
         == [.loaded(models), .loading, .loaded([]), .failed("ChatGPT sent an error (503)."), .loaded(models)])
     #expect(SnapshotScreen.chatGPTSheetModelGone.chatGPTSheetModels?.modelID == "gpt-4.1")
     #expect(SnapshotScreen.chatGPTSheetSignedIn.chatGPTSheetModels?.modelID == "gpt-5")
-    #expect(SnapshotScreen.allCases.filter(\.usesChatGPTPlanProfile) == [.settingsChatGPTSignInAgain])
+    #expect(SnapshotScreen.allCases.filter(\.usesChatGPTPlanProfile) == [.settingsChatGPTSignInAgain, .settingsChatGPTChooseModel])
+    // #232: Choose Model gets a session that can refresh. The other screens get no ChatGPT secrets.
+    #expect(SnapshotScreen.settingsChatGPTSignInAgain.chatGPTSecrets == SnapshotPlan.chatGPTSecrets)
+    #expect(SnapshotScreen.settingsChatGPTChooseModel.chatGPTSecrets == SnapshotPlan.chatGPTRefreshableSecrets)
+    #expect(SnapshotScreen.allCases.filter { !$0.chatGPTSecrets.isEmpty } == [.settingsChatGPTSignInAgain, .settingsChatGPTChooseModel])
+    let fixture = try #require(SnapshotPlan.chatGPTRefreshableSecrets.values.first.flatMap(ChatGPTSession.init(keychainText:)))
+    #expect(!fixture.needsRefresh(at: Date()) && fixture.canRefresh(at: Date()))
     #expect(SnapshotScreen.settingsChatGPTSignInAgain.isSettings && SnapshotScreen.chatGPTSheetFailed.isSettings)
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
@@ -257,7 +271,7 @@ private func temporaryFolder() throws -> URL {
              .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit,
              .providerSheetAnthropic, .providerSheetAnthropicEdit, .providerSheetOpenRouter, .providerSheetCustom,
              .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
-             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain:
+             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain, .settingsChatGPTChooseModel:
             #expect(courseID == nil)
             #expect(!screen.selectsCourse)
             #expect(SnapshotPlan.imageLoads(for: screen) == 0)
@@ -309,6 +323,19 @@ private func temporaryFolder() throws -> URL {
             library.selectDestination(SnapshotPlan.destination(for: screen))
             #expect(library.selectedLecture?.type == .article)
             #expect(library.article(forLecture: "read")?.path == "content/plan.md")
+        case .progressSaveFailedCompletion, .progressSaveFailedQuiz:
+            // #210: the harness shows the strip for the selected lecture. The store keeps no progress for it.
+            #expect(courseID == "sample-course")
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            for action in SnapshotPlan.quizActions(for: screen) { library.performQuizAction(action) }
+            // The harness does not wait for the quiz write. The strip must stay after the queued writes end.
+            await library.showSnapshotProgressSaveFailures(screen.progressSaveFailures)
+            await library.waitForWrites()
+            #expect(library.failedProgressSaves.map(\.lectureID) == [screen == .progressSaveFailedQuiz ? "check" : "read"])
+            #expect(library.progressSaveFailureText == ProgressSaveKey.failureText(library.failedProgressSaves))
+            #expect(!library.isSelectedLectureComplete)
+            #expect((library.selectedQuizAttempt?.showsResults == true) == (screen == .progressSaveFailedQuiz))
         case .articleImageEnlarged, .articleImageEnlargedNoAlt:
             // #238: the article lecture with one image. The harness opens it after the course image and the article image load.
             #expect(courseID == "sample-course")
