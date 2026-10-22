@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import Testing
 @testable import SkillgardenCore
 
@@ -312,4 +313,137 @@ private let course = Course(id: "c", title: "Course", state: .published, section
     try store.saveResumePosition(-3, courseID: "c", lectureID: "v")
     try store.saveResumePosition(.nan, courseID: "c", lectureID: "w")
     #expect(try store.allProgress()["c"]?.mapValues(\.resumeSeconds) == ["v": 0, "w": 0])
+}
+
+/// Another connection holds a write lock on the library database, so each store write fails after the busy timeout.
+/// The returned closure releases the lock.
+@MainActor
+private func lockStore(_ library: LibraryModel) -> () -> Void {
+    var handle: OpaquePointer?
+    #expect(sqlite3_open_v2(library.root.appending(path: "library.sqlite").path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK)
+    #expect(sqlite3_exec(handle, "BEGIN EXCLUSIVE", nil, nil, nil) == SQLITE_OK)
+    return {
+        sqlite3_exec(handle, "ROLLBACK", nil, nil, nil)
+        sqlite3_close(handle)
+    }
+}
+
+private let fixture = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent().deletingLastPathComponent()
+    .appendingPathComponent("Fixtures/sample-course")
+
+/// The fixture course with its quiz section published. The learner is on the "welcome" video, and no write waits.
+@MainActor private func fixtureLibrary(root: URL) async throws -> (LibraryModel, String) {
+    let courseID = try #require(try SnapshotPlan.seedStore(for: .quizQuestion, root: root, fixture: fixture))
+    let library = LibraryModel(root: root)
+    await library.reload()
+    library.selectCourse(courseID)
+    library.selectDestination(.lecture(sectionID: "plan", lectureID: "welcome"))
+    await library.waitForWrites()
+    return (library, courseID)
+}
+
+private let quizAnswers: [QuizAction] = [.selectNumber(1), .submit, .next, .selectNumber(2), .submit, .next, .selectNumber(2), .submit, .next]
+
+// #210: a write that the store refuses must not look saved. The automatic complete of a video and the quiz result go back.
+@MainActor @Test func refusedProgressWritesDoNotLookSaved() async throws {
+    try await withRoot { root in
+        let (library, courseID) = try await fixtureLibrary(root: root)
+        let unlock = lockStore(library)
+        #expect(library.autoCompleteVideo(lectureID: "welcome"))
+        await library.waitForWrites()
+        unlock()
+        #expect(!library.isComplete("welcome"))
+
+        library.selectDestination(.lecture(sectionID: "practice", lectureID: "check"))
+        await library.waitForWrites()
+        let relock = lockStore(library)
+        for action in quizAnswers { library.performQuizAction(action) }
+        await library.waitForWrites()
+        relock()
+        #expect(library.quizResults[courseID]?["check"] == nil)
+        #expect(try CourseStore(root: root).allQuizResults().isEmpty)
+    }
+}
+
+// #210: a refused completion shows the strip and "Mark as Complete". "Try Again" saves it once.
+@MainActor @Test func refusedCompletionShowsTheStripAndTryAgainSavesIt() async throws {
+    try await withRoot { root in
+        let (library, courseID) = try await fixtureLibrary(root: root)
+        let unlock = lockStore(library)
+        await library.toggleSelectedLectureComplete()
+        #expect(!library.isComplete("welcome") && library.autoCompletes("welcome"))
+        #expect(library.progressSaveFailureText == "Skillgarden couldn't save that this lecture is complete.")
+        // Another failure keeps the strip and the state.
+        library.retryProgressSaves()
+        await library.waitForWrites()
+        #expect(!library.isComplete("welcome"))
+        #expect(library.failedProgressSaves.count == 1)
+        unlock()
+
+        library.retryProgressSaves()
+        // A second click before the result writes nothing more.
+        library.retryProgressSaves()
+        await library.waitForWrites()
+        #expect(library.isComplete("welcome") && library.progressSaveFailureText == nil)
+        #expect(try CourseStore(root: root).progress(courseID: courseID, lectureID: "welcome")?.completed == true)
+        // No failure: "Try Again" does nothing.
+        library.retryProgressSaves()
+        await library.waitForWrites()
+        #expect(library.isComplete("welcome"))
+    }
+}
+
+// #210: refused resume ticks show one strip and playback state stays. A quiz failure too gives the shared text.
+// A later resume save that succeeds hides its part. A restart shows only the saved state.
+@MainActor @Test func refusedResumeAndQuizWritesShareOneStrip() async throws {
+    try await withRoot { root in
+        let (library, courseID) = try await fixtureLibrary(root: root)
+        let unlock = lockStore(library)
+        library.saveResumePosition(10, lectureID: "welcome")
+        library.saveResumePosition(20, lectureID: "welcome")
+        await library.waitForWrites()
+        #expect(library.failedProgressSaves.map(\.kind) == [.resumePosition])
+        #expect(library.progressSaveFailureText == "Skillgarden couldn't save your place in this video.")
+        #expect(library.startSeconds(forLecture: "welcome", duration: nil) == 20)
+
+        library.selectDestination(.lecture(sectionID: "practice", lectureID: "check"))
+        for action in quizAnswers { library.performQuizAction(action) }
+        await library.waitForWrites()
+        #expect(library.progressSaveFailureText == "Skillgarden couldn't save some of your progress.")
+        // The results screen of the attempt stays.
+        #expect(library.selectedQuizAttempt?.showsResults == true)
+        unlock()
+
+        // A restart shows only the saved state and no strip.
+        let reopened = LibraryModel(root: root)
+        await reopened.reload()
+        reopened.selectCourse(courseID)
+        #expect(reopened.failedProgressSaves.isEmpty)
+        #expect(reopened.quizResults[courseID]?["check"] == nil)
+        #expect(reopened.startSeconds(forLecture: "welcome", duration: nil) == 0)
+
+        library.selectDestination(.lecture(sectionID: "plan", lectureID: "welcome"))
+        library.saveResumePosition(30, lectureID: "welcome")
+        await library.waitForWrites()
+        #expect(library.progressSaveFailureText == "Skillgarden couldn't save your quiz result.")
+        library.retryProgressSaves()
+        await library.waitForWrites()
+        #expect(library.progressSaveFailureText == nil)
+        let expected = QuizResult(correct: 1, total: 3, weakSkills: ["Order course sections", "Check a lecture objective"])
+        #expect(library.quizResults[courseID]?["check"] == expected)
+        #expect(try CourseStore(root: root).allQuizResults() == [courseID: ["check": expected]])
+        #expect(try CourseStore(root: root).progress(courseID: courseID, lectureID: "welcome")?.resumeSeconds == 30)
+    }
+}
+
+@Test func progressSaveFailureTextNamesOneWriteOrAll() {
+    let key = { (kind: ProgressSaveKey.Kind, lecture: String) in ProgressSaveKey(kind: kind, courseID: "c", lectureID: lecture) }
+    #expect(ProgressSaveKey.failureText([]) == nil)
+    #expect(ProgressSaveKey.failureText([key(.completion, "a")]) == "Skillgarden couldn't save that this lecture is complete.")
+    #expect(ProgressSaveKey.failureText([key(.resumePosition, "a")]) == "Skillgarden couldn't save your place in this video.")
+    #expect(ProgressSaveKey.failureText([key(.quizResult, "a")]) == "Skillgarden couldn't save your quiz result.")
+    // Two writes of the same kind on two lectures also use the shared text.
+    #expect(ProgressSaveKey.failureText([key(.completion, "a"), key(.completion, "b")])
+            == "Skillgarden couldn't save some of your progress.")
 }
