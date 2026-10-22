@@ -205,6 +205,8 @@ struct VideoLectureView: View {
     /// The width of the pills with titles, and the width that the controls row gives them (#181).
     @State private var pillsFullWidth: CGFloat = 0
     @State private var pillsSpace: CGFloat = .infinity
+    /// Goes up by one when Play, Up next or a transcript line starts playback. The player then gets the keyboard (#236).
+    @State private var playerFocusRequest = 0
 
     /// The transcript and the quick checks keep this cap in theater.
     private static let maxWidth = TheaterMode.videoWidth
@@ -425,7 +427,8 @@ struct VideoLectureView: View {
             .aspectRatio(16 / 9, contentMode: .fit)
             .overlay {
                 if let playback {
-                    PlayerView(player: playback.player, fullScreenChanged: { playback.isFullScreen = $0 })
+                    PlayerView(player: playback.player, fullScreenChanged: { playback.isFullScreen = $0 },
+                               focusRequest: playerFocusRequest)
                         .overlay {
                             if showsCaptions, let text = playback.captionText { CaptionOverlay(text: text) }
                         }
@@ -483,16 +486,21 @@ struct VideoLectureView: View {
         AccessibilityNotification.Announcement("Lecture complete").post()
     }
 
+    /// The Play button (click or Space) and Up next auto-play call it. The player gets the keyboard (#236).
+    /// The snapshot harness player opens paused and keeps the focus as it is.
     private func play() {
         guard let video, playback == nil else { return }
         playback = VideoPlayback(url: video.url, start: snapshotVideoStart ?? startSeconds(), duration: duration,
                                  captions: captions, transcript: transcript, plays: !opensVideoPlayer, save: saveResumePosition,
                                  complete: completeAutomatically)
+        if !opensVideoPlayer { playerFocusRequest += 1 }
     }
 
     /// Seeks to the start of the line and plays. Before the first play, the player starts at the line.
+    /// The player gets the keyboard (#236 owner decision).
     private func seek(_ line: Transcript.Line) {
         upNext.cancel()
+        playerFocusRequest += 1
         if let playback {
             playback.seek(to: line.start)
         } else if let video, available == true {
@@ -524,6 +532,7 @@ struct VideoLectureView: View {
     private func load() async {
         playback?.stop()
         playback = nil
+        playerFocusRequest = 0
         upNext.cancel()
         poster = nil
         captions = nil
@@ -686,38 +695,78 @@ private struct PageTopClip: View {
 /// AVKit has no public API to start full screen from code, so only this button starts it.
 /// SwiftUI `VideoPlayer` crashes on macOS 15 when the app is built with the macOS 26 SDK (#42), so do not use it.
 /// The delegate callbacks tell the page when full screen starts and ends, so the arrows skip there (#186).
+/// A new `focusRequest` value makes the player view the first responder, so Space and the arrows control the video (#236).
 struct PlayerView: NSViewRepresentable {
     let player: AVPlayer
     /// Gets true before AVKit full screen starts and false after it ends.
     var fullScreenChanged: @MainActor (Bool) -> Void = { _ in }
+    /// Goes up by one each time playback starts from Play, Up next or a transcript line. 0 asks for no focus.
+    var focusRequest = 0
 
     func makeCoordinator() -> Coordinator { Coordinator(fullScreenChanged: fullScreenChanged) }
 
-    func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView()
+    func makeNSView(context: Context) -> FocusPlayerView {
+        let view = FocusPlayerView()
         view.controlsStyle = .inline
         view.showsFullScreenToggleButton = true
         view.videoGravity = .resizeAspect
+        // The keyboard focus shows no ring on the video (#236).
+        view.focusRingType = .none
         view.player = player
         view.delegate = context.coordinator
+        context.coordinator.focusRequest = focusRequest
+        view.wantsFocus = focusRequest > 0
         return view
     }
 
-    func updateNSView(_ view: AVPlayerView, context: Context) {
+    func updateNSView(_ view: FocusPlayerView, context: Context) {
         if view.player !== player { view.player = player }
         context.coordinator.fullScreenChanged = fullScreenChanged
+        if context.coordinator.focusRequest != focusRequest {
+            context.coordinator.focusRequest = focusRequest
+            view.wantsFocus = focusRequest > 0
+            view.takeFocusIfWanted()
+        }
     }
 
     /// A removed player view is not in full screen.
-    static func dismantleNSView(_ view: AVPlayerView, coordinator: Coordinator) {
+    static func dismantleNSView(_ view: FocusPlayerView, coordinator: Coordinator) {
         view.delegate = nil
         view.player = nil
         coordinator.fullScreenChanged(false)
     }
 
+    /// A new player view is not in a window yet, so it takes the focus when it moves into one.
+    final class FocusPlayerView: AVPlayerView {
+        var wantsFocus = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            takeFocusIfWanted()
+        }
+
+        /// A Q&A or notes field (its field editor is an `NSText`) keeps the focus (#128, #181).
+        /// Only the keyboard focus moves. VoiceOver gets no announcement.
+        func takeFocusIfWanted() {
+            guard wantsFocus, let window else { return }
+            wantsFocus = false
+            let current: VideoKeyFocus.Holder
+            switch window.firstResponder {
+            case self: current = .player
+            case is NSText: current = .textField
+            default: current = .other
+            }
+            if VideoKeyFocus.holder(afterPlayStartsWith: current) == .player, window.firstResponder !== self {
+                window.makeFirstResponder(self)
+            }
+        }
+    }
+
     /// AVKit calls the delegate on the main thread.
     @MainActor final class Coordinator: NSObject, @preconcurrency AVPlayerViewDelegate {
         var fullScreenChanged: @MainActor (Bool) -> Void
+        /// The last `focusRequest` that the view got.
+        var focusRequest = 0
 
         init(fullScreenChanged: @escaping @MainActor (Bool) -> Void) {
             self.fullScreenChanged = fullScreenChanged
