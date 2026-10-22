@@ -1,15 +1,22 @@
 #!/bin/zsh
 # Check the llama.cpp runtime in an app bundle (default: build/Skillgarden.app). See docs/local-ai.md.
-# Usage: scripts/check_llama_runtime.sh [<Skillgarden.app>]
+# Usage: scripts/check_llama_runtime.sh [--signed] [<Skillgarden.app>]
 # The checks use a PATH without Homebrew folders and no DYLD_* variables.
 # Each check prints "PASS <check>" or "FAIL <check>: <detail>". A failure makes the exit status 1.
+# "upstream hash" compares the files with runtime.json. "signature" verifies the code signature of each binary (#212).
+# --signed is for a Developer ID bundle (scripts/release_app.sh). Signing changes the binaries, so "upstream hash"
+# compares only the other files, and "signature" also needs a Developer ID, the hardened runtime and a timestamp.
 set -uo pipefail
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH DYLD_FRAMEWORK_PATH DYLD_INSERT_LIBRARIES
 
+USAGE="usage: scripts/check_llama_runtime.sh [--signed] [<Skillgarden.app>]"
+SIGNED=0
 case ${1:-} in
-  -h|--help) echo "usage: scripts/check_llama_runtime.sh [<Skillgarden.app>]"; exit 0 ;;
+  -h|--help) echo "$USAGE"; exit 0 ;;
+  --signed) SIGNED=1; shift ;;
 esac
+(( $# <= 1 )) || { print -r -- "$USAGE" >&2; exit 2 }
 APP=${1:-$(dirname "$0")/../build/Skillgarden.app}
 APP=${APP%/}
 LLAMA=$APP/Contents/Helpers/llama
@@ -86,7 +93,8 @@ if [[ -z $detail && -x $LLAMA/llama-server ]]; then
 fi
 [[ -z $detail ]] && pass "library paths" || fail "library paths" "$detail"
 
-# 4. The bundled files match runtime.json, and the license notice is present.
+# 4. The bundled files match the upstream sha256 in runtime.json, and the license notice is present.
+# With --signed, the binaries are not compared: the Developer ID signature changed them after the upstream check.
 detail=""
 if [[ -z $ENTRIES ]]; then
   detail="runtime.json has no sha256 entries"
@@ -95,10 +103,29 @@ else
     name=${line%%$'\t'*}
     case $name in LICENSE*|NOTICE*) file=$LICENSES/$name ;; *) file=$LLAMA/$name ;; esac
     if [[ ! -f $file ]]; then detail="$name not found"; break; fi
+    (( SIGNED )) && [[ $(file -b "$file") == Mach-O* ]] && continue
     [[ $(shasum -a 256 < "$file") == ${line#*$'\t'}\ * ]] || { detail="$name does not match runtime.json"; break }
   done
   [[ -n $detail || -f $LICENSES/LICENSE ]] || detail="LICENSE not found in Contents/Resources/Licenses/llama.cpp"
 fi
-[[ -z $detail ]] && pass checksums || fail checksums "$detail"
+[[ -z $detail ]] && pass "upstream hash" || fail "upstream hash" "$detail"
+
+# 5. Every binary has a valid signature. With --signed: a Developer ID of one team, the hardened runtime and a timestamp.
+detail=""
+TEAM=""
+for file in $BINARIES; do
+  codesign --verify --strict "$file" 2>/dev/null || { detail="${file:t} has no valid signature"; break }
+  (( SIGNED )) || continue
+  info=$(codesign -d --verbose=4 "$file" 2>&1)
+  # For example "CodeDirectory v=20500 size=1234 flags=0x10000(runtime) hashes=…".
+  directory=${${info#*$'\n'CodeDirectory }%%$'\n'*}
+  [[ $directory == *flags=*[\(,]runtime[\),]* ]] || { detail="${file:t} has no hardened runtime"; break }
+  [[ $info == *$'\n'"Authority=Developer ID Application: "* ]] || { detail="${file:t} is not signed with a Developer ID"; break }
+  [[ $info == *$'\n'Timestamp=* ]] || { detail="${file:t} has no secure timestamp"; break }
+  team=${${info#*$'\n'TeamIdentifier=}%%$'\n'*}
+  [[ -z $TEAM ]] && TEAM=$team
+  [[ $team == $TEAM ]] || { detail="${file:t} has team $team, not $TEAM"; break }
+done
+[[ -z $detail ]] && pass signature || fail signature "$detail"
 
 exit $FAILED

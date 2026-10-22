@@ -80,7 +80,7 @@ func makeLlamaRuntime(at folder: URL, manifest: URL, server: URL) throws {
                        "LICENSE": folder.appending(path: "LICENSE")], to: manifest)
 }
 
-/// A repository copy with bundle_app.sh, a stub build.sh that logs its calls, and stub build products.
+/// A repository copy with bundle_app.sh, a stub build.sh that logs its calls, stub build products and license notices.
 private func bundleRepository(in root: URL) throws -> URL {
     let scripts = root.appending(path: "scripts")
     let debug = root.appending(path: ".build/debug")
@@ -96,6 +96,12 @@ private func bundleRepository(in root: URL) throws -> URL {
     try Data("cli".utf8).write(to: debug.appending(path: "skillgarden"))
     try Data("host".utf8).write(to: debug.appending(path: "SkillgardenAIHost"))
     try Data("icon".utf8).write(to: icon.appending(path: "AppIcon.icns"))
+    // #213: the bundle script stops if a repository license notice is missing.
+    for notice in ["LICENSE", "Vendor/Yams/LICENSE", "Vendor/Yams/Sources/CYaml/LICENSE"] {
+        let file = root.appending(path: notice)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("license".utf8).write(to: file)
+    }
     return scripts.appending(path: "bundle_app.sh")
 }
 
@@ -110,7 +116,8 @@ private func bundleRepository(in root: URL) throws -> URL {
 
     let bundle = try run(URL(fileURLWithPath: "/bin/zsh"), [script.path], in: root, environment: ["HOME": home.path])
     #expect(bundle.status == 0, "\(bundle.errorText)")
-    #expect(bundle.output == "Bundled llama.cpp b1 (arm64) into build/Skillgarden.app\nBundled Skillgarden (debug) into build/Skillgarden.app\n")
+    #expect(bundle.output == "Bundled llama.cpp b1 (arm64) into build/Skillgarden.app\n"
+        + "Copied license notices: Skillgarden, Yams, libyaml, llama.cpp\nBundled Skillgarden (debug) into build/Skillgarden.app\n")
     #expect(bundle.errorText.isEmpty)
 
     let contents = root.appending(path: "build/Skillgarden.app/Contents")
@@ -221,7 +228,7 @@ private func check(_ app: URL) throws -> Run {
             in: app.deletingLastPathComponent(), environment: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"])
 }
 
-private let allPass = "PASS arm64\nPASS deployment target 15.0\nPASS library paths\nPASS checksums\n"
+private let allPass = "PASS arm64\nPASS deployment target 15.0\nPASS library paths\nPASS upstream hash\nPASS signature\n"
 
 @Test func checkScriptPassesASystemOnlyRuntime() throws {
     let root = try temporaryFolder()
@@ -269,8 +276,8 @@ private let allPass = "PASS arm64\nPASS deployment target 15.0\nPASS library pat
     let result = try check(app)
     #expect(result.status == 1)
     #expect(result.output.contains("FAIL library paths: llama-server has rpath /opt/homebrew/lib\n"))
-    // install_name_tool changed the file after runtime.json pinned it.
-    #expect(result.output.hasSuffix("FAIL checksums: llama-server does not match runtime.json\n"))
+    // install_name_tool changed the file after runtime.json pinned it and after codesign signed it.
+    #expect(result.output.hasSuffix("FAIL upstream hash: llama-server does not match runtime.json\nFAIL signature: llama-server has no valid signature\n"))
 }
 
 @Test func checkScriptFailsAMissingLicense() throws {
@@ -280,13 +287,90 @@ private let allPass = "PASS arm64\nPASS deployment target 15.0\nPASS library pat
     try FileManager.default.removeItem(at: app.appending(path: "Contents/Resources/Licenses/llama.cpp/LICENSE"))
     let result = try check(app)
     #expect(result.status == 1)
-    #expect(result.output == "PASS arm64\nPASS deployment target 15.0\nPASS library paths\nFAIL checksums: LICENSE not found\n")
+    #expect(result.output == "PASS arm64\nPASS deployment target 15.0\nPASS library paths\nFAIL upstream hash: LICENSE not found\nPASS signature\n")
 
     let empty = root.appending(path: "Empty.app")
     try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
     let none = try check(empty)
     #expect(none.status == 1)
     #expect(none.errorText == "error: no llama.cpp runtime at \(empty.path)/Contents/Helpers/llama\n")
+}
+
+// #212: "upstream hash" compares runtime.json. "signature" verifies the code signature after the upstream check.
+
+private func check(_ app: URL, signed: Bool) throws -> Run {
+    try run(URL(fileURLWithPath: "/bin/zsh"), [repo.appending(path: "scripts/check_llama_runtime.sh").path] + (signed ? ["--signed"] : []) + [app.path],
+            in: app.deletingLastPathComponent())
+}
+
+/// Signs llama-server again and pins the new file in runtime.json, so that only the signature changes the result.
+private func resign(_ app: URL, _ arguments: [String]) throws {
+    let llama = app.appending(path: "Contents/Helpers/llama")
+    let server = llama.appending(path: "llama-server")
+    try tool("/usr/bin/codesign", arguments + [server.path])
+    try writeManifest(["llama-server": server, "LICENSE": app.appending(path: "Contents/Resources/Licenses/llama.cpp/LICENSE")],
+                      to: llama.appending(path: "runtime.json"))
+}
+
+private let allPassBeforeSignature = "PASS arm64\nPASS deployment target 15.0\nPASS library paths\nPASS upstream hash\n"
+
+@Test func checkScriptFailsABinaryWithoutAValidSignature() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let app = try checkedApp(in: root)
+    try resign(app, ["--remove-signature"])
+    let result = try check(app, signed: false)
+    #expect(result.status == 1)
+    // Some hosts start an unsigned arm64 binary and some do not, so "library paths" can pass or fail.
+    let lines = result.output.split(separator: "\n").map(String.init)
+    let libraryPaths = lines.first { $0.hasPrefix("PASS library paths") || $0.hasPrefix("FAIL library paths") }
+    #expect(libraryPaths == "PASS library paths" || libraryPaths == "FAIL library paths: llama-server --version failed")
+    #expect(lines.suffix(2) == ["PASS upstream hash", "FAIL signature: llama-server has no valid signature"])
+}
+
+@Test func checkScriptWithSignedNeedsTheHardenedRuntimeAndADeveloperID() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let app = try checkedApp(in: root)
+    // An ad hoc signature passes the default check only.
+    #expect(try check(app, signed: false).output == allPass)
+    let adHoc = try check(app, signed: true)
+    #expect(adHoc.status == 1)
+    #expect(adHoc.output == allPassBeforeSignature + "FAIL signature: llama-server has no hardened runtime\n")
+
+    try resign(app, ["--force", "--sign", "-", "--options", "runtime"])
+    let runtime = try check(app, signed: true)
+    #expect(runtime.status == 1)
+    #expect(runtime.output == allPassBeforeSignature + "FAIL signature: llama-server is not signed with a Developer ID\n")
+}
+
+@Test func checkScriptWithSignedComparesOnlyTheFilesThatSigningKeeps() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let app = try checkedApp(in: root)
+    // A new signature changes llama-server after runtime.json pinned it.
+    try tool("/usr/bin/codesign", ["--force", "--sign", "-", "--identifier", "dev.skillgarden.llama-server",
+                                   app.appending(path: "Contents/Helpers/llama/llama-server").path])
+    let unsigned = try check(app, signed: false)
+    #expect(unsigned.output.contains("FAIL upstream hash: llama-server does not match runtime.json\nPASS signature\n"))
+    #expect(try check(app, signed: true).output.contains("PASS upstream hash\n"))
+
+    // The license notice is not code, so --signed still compares it.
+    try Data("changed".utf8).write(to: app.appending(path: "Contents/Resources/Licenses/llama.cpp/LICENSE"))
+    let license = try check(app, signed: true)
+    #expect(license.status == 1)
+    #expect(license.output.contains("FAIL upstream hash: LICENSE does not match runtime.json\n"))
+}
+
+@Test func checkScriptPrintsUsageForExtraArguments() throws {
+    let script = repo.appending(path: "scripts/check_llama_runtime.sh").path
+    let usage = "usage: scripts/check_llama_runtime.sh [--signed] [<Skillgarden.app>]\n"
+    let help = try run(URL(fileURLWithPath: "/bin/zsh"), [script, "--help"], in: FileManager.default.temporaryDirectory)
+    #expect(help.status == 0)
+    #expect(help.output == usage)
+    let extra = try run(URL(fileURLWithPath: "/bin/zsh"), [script, "--signed", "a.app", "b.app"], in: FileManager.default.temporaryDirectory)
+    #expect(extra.status == 2)
+    #expect(extra.errorText == usage)
 }
 
 // MARK: - Pinned manifest
