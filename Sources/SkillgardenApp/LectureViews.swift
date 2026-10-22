@@ -156,11 +156,29 @@ struct LectureFrameView<Content: View>: View {
     @State private var visibleTop: CGFloat?
     /// True while a notes field has focus. Quiz number keys and Return then type text (#181).
     @State private var notesFieldFocused = false
+    /// The article image in the large view (#238). It covers the detail column, not the sidebar or the toolbar.
+    @State private var enlarged: EnlargedImage?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ScrollViewReader { proxy in
             page.environment(\.lectureScrollProxy, proxy)
         }
+        .environment(\.enlargeImage, EnlargeImageAction { image in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { enlarged = image }
+        })
+        .overlay {
+            if let enlarged {
+                EnlargedImageOverlay(image: enlarged, close: closeEnlarged).transition(.opacity)
+            }
+        }
+    }
+
+    /// Closes the large view and moves the focus back to the image.
+    private func closeEnlarged() {
+        let restoreFocus = enlarged?.restoreFocus
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { enlarged = nil }
+        restoreFocus?()
     }
 
     private var page: some View {

@@ -147,6 +147,7 @@ enum SnapshotRenderer {
             .environment(\.snapshotQAConsentQuestion, output.screen.qaConsentQuestion)
             .environment(\.snapshotSelectsFirstTranscriptHit, output.screen.selectsFirstTranscriptHit)
             .environment(\.snapshotShowsLandingDetails, output.screen.showsLandingDetails)
+            .environment(\.snapshotEnlargedImage, output.screen.enlargedImage)
             .environment(\.showsReviewInline, true)
             .environment(\.showsPDFPreviewInline, output.screen.showsPDFPreviewInline)
             .transaction { $0.disablesAnimations = true; $0.animation = nil }

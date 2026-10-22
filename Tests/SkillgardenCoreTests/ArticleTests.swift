@@ -259,3 +259,24 @@ func readingMinutesRoundUpWithMinimumOne(markdown: String, minutes: Int) {
     #expect(lecture.image(for: "other.png")?.alt == nil)
     #expect(lecture.image(for: "https://example.com/a.png") == nil)
 }
+
+/// #238: the large view never draws a bitmap past its pixel size. A vector image has no limit.
+@Test func enlargedImageLimitIsThePixelSizeInPoints() {
+    // A 2x screenshot on a 2x display: one image pixel for each display pixel.
+    #expect(ImageEnlargement.maximumSize(pixelSize: CGSize(width: 2400, height: 1600), displayScale: 2)
+        == CGSize(width: 1200, height: 800))
+    #expect(ImageEnlargement.maximumSize(pixelSize: CGSize(width: 640, height: 480), displayScale: 1)
+        == CGSize(width: 640, height: 480))
+    // The smallest bitmap: one pixel stays one display pixel.
+    #expect(ImageEnlargement.maximumSize(pixelSize: CGSize(width: 1, height: 1), displayScale: 2)
+        == CGSize(width: 0.5, height: 0.5))
+    // A very large bitmap keeps its full limit. The window inset then makes it fit.
+    #expect(ImageEnlargement.maximumSize(pixelSize: CGSize(width: 20_000, height: 100), displayScale: 2)
+        == CGSize(width: 10_000, height: 50))
+    // An SVG or PDF has no pixel size, so it has no limit.
+    #expect(ImageEnlargement.maximumSize(pixelSize: nil, displayScale: 2) == nil)
+    // An empty bitmap or an unknown display scale does not give a zero or an infinite limit.
+    #expect(ImageEnlargement.maximumSize(pixelSize: CGSize(width: 0, height: 300), displayScale: 2) == nil)
+    #expect(ImageEnlargement.maximumSize(pixelSize: CGSize(width: 300, height: 200), displayScale: 0)
+        == CGSize(width: 300, height: 200))
+}

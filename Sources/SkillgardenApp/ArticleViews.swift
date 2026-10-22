@@ -164,22 +164,35 @@ struct MarkdownBlocksView: View {
 }
 
 /// An article image at column width, aspect fit and never cropped. A missing file shows the alt text.
+/// A click, Return or Space opens a loaded image in the large view of the lecture page (#238).
 struct ArticleImageView: View {
     let url: URL?
     let alt: String
     @Environment(\.imageLoads) private var imageLoads
     @Environment(\.gardenPalette) private var palette
+    @Environment(\.enlargeImage) private var enlargeImage
+    @Environment(\.snapshotEnlargedImage) private var snapshotEnlargedImage
     @State private var loaded: NSImage?
     @State private var failed = false
+    @FocusState private var focused: Bool
 
     var body: some View {
         Group {
             if let loaded {
+                let enlarges = enlargeImage != nil
                 Image(nsImage: loaded)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .clipShape(.garden(GardenRadius.image))
                     .frame(maxHeight: 480)
+                    .contentShape(.garden(GardenRadius.image))
+                    .contentShape(.focusEffect, .garden(GardenRadius.image))
+                    .focusable(enlarges)
+                    .focused($focused)
+                    .onTapGesture { enlarge() }
+                    .onKeyPress(keys: [.return, .space]) { _ in enlarge() ? .handled : .ignored }
+                    .pointerStyle(enlarges ? .link : nil)
+                    .help(enlarges ? "Enlarge image" : "")
             } else {
                 Rectangle()
                     .fill(palette.fill)
@@ -201,6 +214,11 @@ struct ArticleImageView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(alt)
         .accessibilityAddTraits(.isImage)
+        .accessibilityActions {
+            if loaded != nil, enlargeImage != nil {
+                Button("Enlarge image") { enlarge() }
+            }
+        }
         .task(id: url) {
             loaded = nil
             failed = false
@@ -210,7 +228,119 @@ struct ArticleImageView: View {
             let data = await Task.detached { try? Data(contentsOf: url) }.value
             loaded = data.flatMap(NSImage.init(data:))
             failed = loaded == nil
+            // The snapshot harness opens the large view after the load (#238).
+            if let snapshotEnlargedImage { enlarge(alt: snapshotEnlargedImage == .withAlt ? alt : "") }
             imageLoads?.finish(loaded: loaded != nil)
         }
+    }
+
+    /// Opens the loaded image in the large view. Returns false when the image did not load or no page shows the view.
+    @discardableResult private func enlarge() -> Bool { enlarge(alt: alt) }
+
+    @discardableResult private func enlarge(alt: String) -> Bool {
+        guard let loaded, let enlargeImage else { return false }
+        enlargeImage(EnlargedImage(image: loaded, alt: alt, restoreFocus: { focused = true }))
+        return true
+    }
+}
+
+/// An image in the large view of the lecture page (#238).
+struct EnlargedImage {
+    let image: NSImage
+    let alt: String
+    /// Moves the focus back to the image in the page when the large view closes.
+    let restoreFocus: () -> Void
+
+    /// The pixel size of a bitmap. Nil for a vector image (SVG, PDF), which has no pixel limit.
+    var pixelSize: CGSize? {
+        guard let bitmap = image.representations.first as? NSBitmapImageRep else { return nil }
+        return CGSize(width: bitmap.pixelsWide, height: bitmap.pixelsHigh)
+    }
+}
+
+/// Opens an image in the large view. The lecture page sets it. Nil means no page shows the large view.
+struct EnlargeImageAction {
+    let open: (EnlargedImage) -> Void
+
+    func callAsFunction(_ image: EnlargedImage) { open(image) }
+}
+
+/// The large view of an article image (#238): a 60% black scrim over the detail column, the image aspect fit with a 32 pt
+/// inset, the alt text below it and a close button at the top right. Esc, a scrim click or the button closes it.
+struct EnlargedImageOverlay: View {
+    let image: EnlargedImage
+    let close: () -> Void
+    @Environment(\.gardenPalette) private var palette
+    @Environment(\.displayScale) private var displayScale
+    @FocusState private var closeFocused: Bool
+
+    var body: some View {
+        let limit = ImageEnlargement.maximumSize(pixelSize: image.pixelSize, displayScale: displayScale)
+        ZStack(alignment: .topTrailing) {
+            Color.black.opacity(0.6)
+                .contentShape(.rect)
+                .onTapGesture(perform: close)
+                .accessibilityHidden(true)
+            VStack(spacing: GardenSpacing.s) {
+                Image(nsImage: image.image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .clipShape(.garden(GardenRadius.image))
+                    // A click on the image does not close the view.
+                    .onTapGesture {}
+                    .frame(maxWidth: limit?.width ?? .infinity, maxHeight: limit?.height ?? .infinity)
+                    .accessibilityLabel(image.alt)
+                    .accessibilityAddTraits(.isImage)
+                if !image.alt.isEmpty {
+                    Text(image.alt)
+                        .font(GardenFont.meta)
+                        .foregroundStyle(.white.opacity(0.85))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(GardenSpacing.xl)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Button("Close", systemImage: "xmark", action: close)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(palette.ink)
+                .frame(width: 28, height: 28)
+                .background(palette.card, in: .circle)
+                .contentShape(.circle)
+                .contentShape(.focusEffect, .circle)
+                .keyboardShortcut(.cancelAction)
+                .focused($closeFocused)
+                .help("Close (Esc)")
+                .padding(GardenSpacing.m)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .onAppear { closeFocused = true }
+        .onExitCommand(perform: close)
+    }
+}
+
+private struct EnlargeImageKey: EnvironmentKey {
+    static var defaultValue: EnlargeImageAction? { nil }
+}
+
+private struct SnapshotEnlargedImageKey: EnvironmentKey {
+    static let defaultValue: SnapshotEnlargedImage? = nil
+}
+
+extension EnvironmentValues {
+    /// Opens an article image in the large view of the lecture page (#238).
+    var enlargeImage: EnlargeImageAction? {
+        get { self[EnlargeImageKey.self] }
+        set { self[EnlargeImageKey.self] = newValue }
+    }
+
+    /// The snapshot harness sets this, so the first article image opens in the large view after the load. The app sets none.
+    var snapshotEnlargedImage: SnapshotEnlargedImage? {
+        get { self[SnapshotEnlargedImageKey.self] }
+        set { self[SnapshotEnlargedImageKey.self] = newValue }
     }
 }
