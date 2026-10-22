@@ -88,7 +88,12 @@ public final class LibraryModel {
     /// Learner notes by course id, then lecture id, in creation order (#181).
     public private(set) var notes: [String: [String: [LectureNote]]] = [:]
     /// Indexed transcript cues by course id (#18). Courses published before the index have none.
+    /// Only the selected course has an entry (#215). No entry means that its cues did not load yet.
     public private(set) var transcriptCues: [String: [TranscriptCue]] = [:]
+    /// The cue read of the selected course (#215). `waitForTranscriptCues()` waits for it.
+    @ObservationIgnored private var cueLoad: Task<Void, Never>?
+    /// Each course change and each reload adds 1. A cue read applies only if the number did not change.
+    @ObservationIgnored private var cueGeneration = 0
     /// The text of the transcript search field of the selected course.
     public var transcriptQuery = ""
     /// The results of the last search. Nil shows the outline.
@@ -516,11 +521,35 @@ public final class LibraryModel {
 
     /// Searches the transcripts of the selected course for `transcriptQuery`.
     /// A query shorter than `TranscriptSearch.minimumQueryLength` clears the results, so the outline shows.
+    /// If the cues of the course did not load yet, nothing changes, so "No transcripts" does not show (#215).
+    /// The cue read runs the search again when it ends.
     public func searchTranscripts() {
-        let results = selectedCourse.flatMap {
-            TranscriptSearch.search(transcriptQuery, course: $0, cues: transcriptCues[$0.id] ?? [])
+        var results: TranscriptSearchResults?
+        if let course = selectedCourse {
+            guard let cues = transcriptCues[course.id] else { return }
+            results = TranscriptSearch.search(transcriptQuery, course: course, cues: cues)
         }
         if results != transcriptResults { transcriptResults = results }
+    }
+
+    /// Waits for the cue read of the selected course. Tests and the snapshot harness use it.
+    public func waitForTranscriptCues() async {
+        await cueLoad?.value
+    }
+
+    /// Reads the cues of `courseID` off the main actor, then runs the search again (#215).
+    /// A course change or a reload during the read discards the result.
+    private func loadTranscriptCues(courseID: String) {
+        cueLoad?.cancel()
+        guard let store else { cueLoad = nil; return }
+        let generation = cueGeneration
+        cueLoad = Task { [weak self] in
+            // A failed read keeps the cues unloaded, so the search does not show "No transcripts" by mistake.
+            guard let cues = try? await onStoreQueue({ try store.transcriptCues(courseID: courseID) }),
+                  let self, self.cueGeneration == generation, self.selectedCourseID == courseID else { return }
+            self.transcriptCues = [courseID: cues]
+            self.searchTranscripts()
+        }
     }
 
     /// Clears the query and the results, so the outline shows again.
@@ -532,7 +561,9 @@ public final class LibraryModel {
     /// Opens the lecture of a result. The video player seeks to the cue start and stays paused.
     /// The results stay, so the learner can select another result.
     public func openTranscriptHit(_ hit: TranscriptHit) {
-        guard let course = selectedCourse, Self.isValid(hit.destination, in: course, credits: selectedCredits) else { return }
+        // Only a hit of the current results opens, so a hit of a removed cue does not open after a republish (#215).
+        guard let course = selectedCourse, transcriptResults?.hits.contains(hit) == true,
+              Self.isValid(hit.destination, in: course, credits: selectedCredits) else { return }
         open(hit.destination)
         seekCount += 1
         transcriptSeek = TranscriptSeek(id: seekCount, lectureID: hit.lectureID, seconds: hit.start)
@@ -760,6 +791,10 @@ public final class LibraryModel {
         transcriptSeek = nil
         autoPlayLectureID = nil
         clearTranscriptSearch()
+        // Only the cues of the new course stay in memory (#215).
+        cueGeneration += 1
+        transcriptCues = [:]
+        if let selectedCourseID { loadTranscriptCues(courseID: selectedCourseID) } else { cueLoad?.cancel(); cueLoad = nil }
     }
 
     public func selectDestination(_ value: CourseDestination?) {
@@ -815,6 +850,11 @@ public final class LibraryModel {
         // Queued writes finish first, so the reload reads them.
         await waitForWrites()
         let recovery = recovery
+        // The reload reads the cues of the selected course only (#215). Launch has no selected course, so it reads none.
+        // The cues update with the course, so a search after a republish never shows a removed cue.
+        cueGeneration += 1
+        let generation = cueGeneration
+        let cueCourseID = selectedCourseID
         do {
             let (store, loaded, installed, progress, lastOpened, quizResults, interactiveResults, reviewed, cues, notes) = try await Task.detached {
                 let store = try CourseStore(root: root)
@@ -823,8 +863,8 @@ public final class LibraryModel {
                 try recovery.recoverOnce(root: root) { try store.interruptPendingQATurns() }
                 return (store, try store.listCourses(), try Self.installedData(store: store, root: root),
                         try store.allProgress(), try store.lastOpenedLectures(), try store.allQuizResults(),
-                        try store.allInteractiveResults(), try store.allReviewedSections(), try store.allTranscriptCues(),
-                        try store.allNotes())
+                        try store.allInteractiveResults(), try store.allReviewedSections(),
+                        try cueCourseID.map { [$0: try store.transcriptCues(courseID: $0)] } ?? [:], try store.allNotes())
             }.value
             self.store = store
             courses = loaded
@@ -842,7 +882,12 @@ public final class LibraryModel {
             sources = installed.sources
             self.interactiveResults = interactiveResults
             reviewedSections = reviewed
-            transcriptCues = cues
+            // A course change during the read started its own cue read. That read applies, not this one.
+            if generation == cueGeneration {
+                cueLoad?.cancel()
+                cueLoad = nil
+                transcriptCues = cues
+            }
             self.notes = notes
             errorMessage = nil
             if let course = selectedCourse {
@@ -850,6 +895,7 @@ public final class LibraryModel {
             } else {
                 selectedCourseID = nil
                 destination = nil
+                transcriptCues = [:]
             }
             if sectionReview?.courseID != selectedCourseID { sectionReview = nil }
             if selectedCourseID == nil { clearTranscriptSearch() } else { searchTranscripts() }
@@ -871,6 +917,8 @@ public final class LibraryModel {
             sources = [:]
             reviewedSections = [:]
             transcriptCues = [:]
+            cueLoad?.cancel()
+            cueLoad = nil
             notes = [:]
             clearTranscriptSearch()
             transcriptSeek = nil

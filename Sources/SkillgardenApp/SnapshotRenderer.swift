@@ -76,6 +76,8 @@ enum SnapshotRenderer {
             var seeded = false
             var seedError: (any Error)?
             Task {
+                // #215: the cue read of the course ends and runs the search with the query.
+                await library.waitForTranscriptCues()
                 // #210: after the queued quiz write, so its success does not hide the strip.
                 await library.showSnapshotProgressSaveFailures(output.screen.progressSaveFailures)
                 do { try await SnapshotPlan.seedQATurns(for: output.screen, library: library) } catch { seedError = error }

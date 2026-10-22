@@ -245,6 +245,7 @@ private func cue(_ lecture: String, _ index: Int, _ text: String) -> TranscriptC
         let library = LibraryModel(root: root)
         await library.reload()
         library.selectCourse(id)
+        await library.waitForTranscriptCues()
         library.transcriptQuery = "p"
         library.searchTranscripts()
         #expect(library.transcriptResults == nil)
@@ -282,5 +283,117 @@ private func cue(_ lecture: String, _ index: Int, _ text: String) -> TranscriptC
         library.selectCourse(nil)
         #expect(library.transcriptQuery.isEmpty)
         #expect(library.transcriptResults == nil)
+    }
+}
+
+// MARK: Scoped cue reads (#215)
+
+/// The number of cues in each large course.
+private let largeCueCount = 3_000
+
+/// Saves three published courses. The first two have `largeCueCount` cues each. The third course has no cues.
+private func seedLargeCourses(root: URL) throws -> CourseStore {
+    let store = try CourseStore(root: root)
+    for id in ["alpha", "beta", "gamma"] {
+        let course = Course(id: id, title: id.capitalized, state: .published, sections: [
+            CourseSection(id: "s", title: "Section", order: 0, state: .published, lectures: [
+                Lecture(id: "v1", title: "One", type: .video, order: 0, state: .published),
+                Lecture(id: "v2", title: "Two", type: .video, order: 1, state: .published),
+            ]),
+        ])
+        let cues = id == "gamma" ? [] : (0..<largeCueCount).map {
+            cue($0.isMultiple(of: 2) ? "v1" : "v2", $0, id + " seed cue " + String($0))
+        }
+        try store.savePublication(course, manifest: Data("{}".utf8), directory: "courses/" + id, transcriptCues: cues)
+    }
+    return store
+}
+
+@Test func theStoreReadsTheCuesOfOneCourseOnly() throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: "SkillgardenSearchTests-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = try seedLargeCourses(root: root)
+    let alpha = try store.transcriptCues(courseID: "alpha")
+    #expect(alpha.count == largeCueCount)
+    #expect(alpha.allSatisfy { $0.text.hasPrefix("alpha ") })
+    // Lecture id order, then cue order, as the full read.
+    #expect(alpha == (try store.allTranscriptCues()["alpha"]))
+    #expect(try store.transcriptCues(courseID: "gamma").isEmpty)
+    #expect(try store.transcriptCues(courseID: "unknown").isEmpty)
+}
+
+@MainActor @Test func launchReadsNoCuesAndACourseChangeReadsTheNewCourseOnly() async throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: "SkillgardenSearchTests-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    _ = try seedLargeCourses(root: root)
+    let library = LibraryModel(root: root)
+    await library.reload()
+    #expect(library.courses.count == 3)
+    // Launch shows the Library with no transcript read.
+    #expect(library.transcriptCues.isEmpty)
+
+    // A query before the cues load does not show the "No transcripts" state. The results show when the cues load.
+    library.selectCourse("alpha")
+    library.transcriptQuery = "seed"
+    library.searchTranscripts()
+    #expect(library.transcriptResults == nil)
+    await library.waitForTranscriptCues()
+    #expect(Array(library.transcriptCues.keys) == ["alpha"])
+    #expect(library.transcriptCues["alpha"]?.count == largeCueCount)
+    let results = try #require(library.transcriptResults)
+    #expect(results.hasTranscripts && results.hitCount == largeCueCount)
+
+    // A course change clears the query and drops the cues of the old course at once.
+    library.selectCourse("beta")
+    #expect(library.transcriptCues.isEmpty)
+    #expect(library.transcriptQuery.isEmpty && library.transcriptResults == nil)
+    await library.waitForTranscriptCues()
+    #expect(Array(library.transcriptCues.keys) == ["beta"])
+    #expect(library.transcriptCues["beta"]?.allSatisfy { $0.text.hasPrefix("beta ") } == true)
+
+    // A fast change discards the read of the first course.
+    library.selectCourse("alpha")
+    library.selectCourse("gamma")
+    await library.waitForTranscriptCues()
+    #expect(Array(library.transcriptCues.keys) == ["gamma"])
+    // A course with no captions shows "No transcripts", as before.
+    library.transcriptQuery = "seed"
+    library.searchTranscripts()
+    #expect(library.transcriptResults?.hasTranscripts == false)
+
+    // A reload reads the cues of the selected course only.
+    await library.reload()
+    #expect(Array(library.transcriptCues.keys) == ["gamma"])
+    library.selectCourse(nil)
+    #expect(library.transcriptCues.isEmpty)
+}
+
+@MainActor @Test func republishReplacesTheCuesOfTheOpenCourseAndAnOldHitDoesNotOpen() async throws {
+    try await withCourse { folder, root in
+        let id = try CoursePublisher.publish(courseFolder: folder, root: root).id
+        let library = LibraryModel(root: root)
+        await library.reload()
+        library.selectCourse(id)
+        await library.waitForTranscriptCues()
+        library.transcriptQuery = "plan"
+        library.searchTranscripts()
+        let old = try #require(library.transcriptResults?.hits.last)
+        #expect(old.id == "recap#1")
+
+        try "WEBVTT\n\n00:00.000 --> 00:01.000\nNew plan words.\n"
+            .write(to: folder.appending(path: "content/recap.vtt"), atomically: true, encoding: .utf8)
+        _ = try CoursePublisher.publish(courseFolder: folder, root: root)
+        await library.reload()
+        // The search after the republish uses the new cues of the course.
+        #expect(library.transcriptCues[id]?.contains { $0.text == "Keep the plan short." } == false)
+        let results = try #require(library.transcriptResults)
+        #expect(results.hits.map(\.id) == ["welcome#1", "recap#0"])
+        #expect(results.hits[1].snippet == "New plan words.")
+        // A hit of a removed cue does not open.
+        library.openTranscriptHit(old)
+        #expect(library.destination == .overview)
+        #expect(library.transcriptSeek == nil)
+        library.openTranscriptHit(results.hits[1])
+        #expect(library.transcriptSeek?.seconds == 0)
     }
 }
