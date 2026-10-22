@@ -229,9 +229,10 @@ struct QAProvidersSection: View {
 
     private func row(_ profile: ProviderProfile) -> some View {
         let problem = providers.problems[profile.id]
-        // A ChatGPT plan whose session can't refresh shows "Sign in again." (#156).
-        let signInAgain = problem == nil && profile.isChatGPTPlan && providers.expiredSessions.contains(profile.id)
-        let redText = problem?.message ?? (signInAgain ? ProviderSettings.signInAgainText : nil)
+        // A ChatGPT plan whose session can't refresh shows "Sign in again." (#156). A plan with no model asks for one (#232).
+        let signInAgain = providers.needsSignIn(profile)
+        let needsModel = providers.needsModel(profile)
+        let redText = providers.redCaption(for: profile)
         let caption = providers.caption(for: profile)
         return LabeledContent {
             HStack(spacing: 8) {
@@ -244,8 +245,8 @@ struct QAProvidersSection: View {
                 if !profile.isChatGPTPlan {
                     Button("Edit…") { editing = profile }
                 } else if problem == nil && !signInAgain {
-                    // The Signed in sheet with the model picker (#157).
-                    Button("Edit…") {
+                    // The Signed in sheet with the model picker (#157). "Choose Model…" opens the same sheet (#232).
+                    Button(needsModel ? "Choose Model…" : "Edit…") {
                         let account = providers.accounts[profile.id] ?? ChatGPTAccount(email: nil, planType: nil)
                         chatGPTSheet = ChatGPTSheetRequest(state: .signedIn(account))
                     }
