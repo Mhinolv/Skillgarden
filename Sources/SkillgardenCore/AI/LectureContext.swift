@@ -264,7 +264,11 @@ public enum LectureContextBuilder {
 
 /// Caches lecture contexts by course, lecture and source revision (#125). Reads run on this actor, off the main actor.
 /// A republish installs a new snapshot folder, so the source path changes and the next call reads the new text.
+/// The cache keeps only the most recently used contexts (#217). A call for an evicted lecture reads its text again.
 public actor LectureContextCache {
+    /// The maximum number of lecture contexts in the cache (#217).
+    static let maximumEntries = 8
+
     struct Revision: Hashable {
         let courseTitle: String
         let lectureTitle: String
@@ -279,8 +283,12 @@ public actor LectureContextCache {
 
     /// One entry for each lecture. A new revision replaces the entry, so the cache does not grow.
     private var entries: [Key: (revision: Revision, outcome: LectureContextOutcome)] = [:]
+    /// The keys of `entries`, from the least recently used to the most recently used.
+    private var recent: [Key] = []
     /// The number of source reads. Tests use it.
     private(set) var loadCount = 0
+    /// The number of contexts in the cache. Tests use it.
+    var count: Int { entries.count }
 
     public init() {}
 
@@ -296,11 +304,27 @@ public actor LectureContextCache {
         let key = Key(courseID: course.id, lectureID: lectureID)
         let revision = Revision(courseTitle: course.title, lectureTitle: lecture.title,
                                 source: source?.standardizedFileURL.path(percentEncoded: false), budget: budget)
-        if let entry = entries[key], entry.revision == revision { return entry.outcome }
+        if let entry = entries[key], entry.revision == revision {
+            use(key)
+            return entry.outcome
+        }
         loadCount += 1
         let outcome = LectureContextBuilder.build(course: course, lectureID: lectureID, video: video, article: article, budget: budget)
         // A read error can pass, so the next call tries again.
-        if outcome == .cantLoad { entries[key] = nil } else { entries[key] = (revision, outcome) }
+        if outcome == .cantLoad {
+            entries[key] = nil
+            recent.removeAll { $0 == key }
+        } else {
+            entries[key] = (revision, outcome)
+            use(key)
+        }
         return outcome
+    }
+
+    /// Makes `key` the most recently used key, then removes the least recently used entries over the limit.
+    private func use(_ key: Key) {
+        recent.removeAll { $0 == key }
+        recent.append(key)
+        while recent.count > Self.maximumEntries { entries[recent.removeFirst()] = nil }
     }
 }
