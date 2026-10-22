@@ -141,6 +141,8 @@ enum SnapshotRenderer {
             .environment(\.snapshotShowsNotes, output.screen.showsNotes)
             .environment(\.snapshotEditsNote, output.screen.editsNote)
             .environment(\.snapshotQADraft, output.screen.qaDraft)
+            .environment(\.snapshotQASaveFailed, output.screen.qaDraftSaveFailed)
+            .environment(\.snapshotQARemoveFailed, output.screen.qaRemoveFailed)
             .environment(\.snapshotOpensCitationExcerpt, output.screen.opensCitationExcerpt)
             .environment(\.snapshotQAConsentQuestion, output.screen.qaConsentQuestion)
             .environment(\.snapshotSelectsFirstTranscriptHit, output.screen.selectsFirstTranscriptHit)

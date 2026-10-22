@@ -50,6 +50,8 @@ struct LectureQAView: View, Equatable {
     var focusChanged: (Bool) -> Void = { _ in }
     @Environment(\.gardenPalette) private var palette
     @Environment(\.snapshotQADraft) private var snapshotDraft
+    @Environment(\.snapshotQASaveFailed) private var snapshotSaveFailed
+    @Environment(\.snapshotQARemoveFailed) private var snapshotRemoveFailed
     @Environment(\.snapshotOpensCitationExcerpt) private var snapshotOpensExcerpt
     @Environment(\.snapshotQAConsentQuestion) private var snapshotConsentQuestion
     /// The snapshot harness draws the consent sheet in the window, so the panel shows no real sheet.
@@ -102,7 +104,10 @@ struct LectureQAView: View, Equatable {
         .task(id: qa.key) {
             openExcerpt = nil
             await qa.load()
-            if let snapshotDraft { qa.showSnapshotDraft(question: snapshotDraft.question, text: snapshotDraft.text) }
+            if let snapshotDraft {
+                qa.showSnapshotDraft(question: snapshotDraft.question, text: snapshotDraft.text, saveFailed: snapshotSaveFailed)
+            }
+            if snapshotRemoveFailed { qa.showSnapshotRemoveFailed() }
             if let snapshotConsentQuestion { qa.send(snapshotConsentQuestion) }
             if snapshotOpensExcerpt, let turn = qa.conversation.turns.last,
                let source = qa.citations(for: turn).sources.first(where: { if case .article = $0.kind { true } else { false } }) {
@@ -290,15 +295,17 @@ struct LectureQAView: View, Equatable {
         let openID = openExcerpt?.turnID == turn.id ? openExcerpt?.sourceID : nil
         return QATurnView(turn: turn, citations: qa.citations(for: turn), sourceText: providers.sourceText(for: turn.origin),
                           canRetry: qa.conversation.canRetry(turn), retryDisabled: qa.isAnswering || panelState != .ready,
+                          removeFailed: qa.removeFailedTurnIDs.contains(turn.id),
                           openID: openID, setOpenID: { openExcerpt = $0.map { OpenExcerpt(turnID: turn.id, sourceID: $0) } },
                           seek: { qa.seek(to: $0) }, retry: { qa.retry(turn) }, remove: { removesTurn = turn })
             .equatable()
     }
 
-    /// Removes the turn of the dialog. An open excerpt of the turn closes with it.
+    /// Removes the turn of the dialog after the store confirms (#209). An open excerpt of the turn closes with it.
     private func remove(_ turn: QATurn) {
-        if openExcerpt?.turnID == turn.id { openExcerpt = nil }
-        qa.remove(turn)
+        Task {
+            if await qa.remove(turn), openExcerpt?.turnID == turn.id { openExcerpt = nil }
+        }
     }
 }
 
@@ -321,6 +328,8 @@ private struct QATurnView: View, Equatable {
     let sourceText: String?
     let canRetry: Bool
     let retryDisabled: Bool
+    /// True when the store did not remove the turn (#209).
+    let removeFailed: Bool
     /// The open excerpt of this turn. Opening an excerpt closes the excerpt of any other turn.
     let openID: String?
     let setOpenID: (String?) -> Void
@@ -332,7 +341,7 @@ private struct QATurnView: View, Equatable {
 
     nonisolated static func == (lhs: QATurnView, rhs: QATurnView) -> Bool {
         lhs.turn == rhs.turn && lhs.sourceText == rhs.sourceText && lhs.canRetry == rhs.canRetry
-            && lhs.retryDisabled == rhs.retryDisabled && lhs.openID == rhs.openID && lhs.citations == rhs.citations
+            && lhs.retryDisabled == rhs.retryDisabled && lhs.removeFailed == rhs.removeFailed && lhs.openID == rhs.openID && lhs.citations == rhs.citations
     }
 
     var body: some View {
@@ -352,6 +361,11 @@ private struct QATurnView: View, Equatable {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(turn.accessibilityLabel(answer: citations.text))
+            if removeFailed {
+                Label(LectureQA.removeFailedText, systemImage: "exclamationmark.triangle")
+                    .font(GardenFont.small)
+                    .foregroundStyle(palette.muted)
+            }
             if let sourceText {
                 Text(sourceText).gardenText(.label)
             }
@@ -397,16 +411,28 @@ private struct QADraftView: View {
             if let draft = qa.draft {
                 VStack(alignment: .leading, spacing: 6) {
                     QuestionBubble(text: draft.question)
-                    if draft.text.isEmpty {
-                        ProgressView().controlSize(.small).accessibilityLabel("Answering")
-                    } else {
+                    if !draft.text.isEmpty {
                         Text(answerText(draft.citations, palette: palette)).fixedSize(horizontal: false, vertical: true)
+                    } else if !draft.saveFailed {
+                        ProgressView().controlSize(.small).accessibilityLabel("Answering")
+                    }
+                    if draft.saveFailed {
+                        Label(LectureQA.answerSaveFailedText, systemImage: "exclamationmark.triangle")
+                            .font(GardenFont.small)
+                            .foregroundStyle(palette.muted)
                     }
                     HStack(spacing: GardenSpacing.xs) {
-                        // Escape cancels the answer. Theater does not take Escape while an answer runs.
-                        Button("Cancel", systemImage: "stop.circle") { qa.cancel() }
-                            .buttonStyle(.garden(.plain, .small))
-                            .keyboardShortcut(.cancelAction)
+                        if draft.saveFailed {
+                            // #209: Retry saves the same text again. It does not ask the model again.
+                            Button("Retry", systemImage: "arrow.clockwise") { qa.retrySave() }
+                                .buttonStyle(.garden(.plain, .small))
+                                .help("Save the answer again")
+                        } else {
+                            // Escape cancels the answer. Theater does not take Escape while an answer runs.
+                            Button("Cancel", systemImage: "stop.circle") { qa.cancel() }
+                                .buttonStyle(.garden(.plain, .small))
+                                .keyboardShortcut(.cancelAction)
+                        }
                         // The draft has no dialog (owner decision, #170): the request stops and no turn is saved.
                         Button("Remove", systemImage: "trash") { qa.removeDraft() }
                             .buttonStyle(.garden(.plain, .small))
@@ -645,6 +671,14 @@ private struct SnapshotQADraftKey: EnvironmentKey {
     static let defaultValue: (question: String, text: String)? = nil
 }
 
+private struct SnapshotQASaveFailedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+private struct SnapshotQARemoveFailedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 private struct SnapshotOpensCitationExcerptKey: EnvironmentKey {
     static let defaultValue = false
 }
@@ -664,6 +698,18 @@ extension EnvironmentValues {
     var snapshotQADraft: (question: String, text: String)? {
         get { self[SnapshotQADraftKey.self] }
         set { self[SnapshotQADraftKey.self] = newValue }
+    }
+
+    /// The snapshot harness sets this, so the draft shows as an answer that the store did not save (#209). The app sets none.
+    var snapshotQASaveFailed: Bool {
+        get { self[SnapshotQASaveFailedKey.self] }
+        set { self[SnapshotQASaveFailedKey.self] = newValue }
+    }
+
+    /// The snapshot harness sets this, so the last turn shows as a turn that the store did not remove (#209). The app sets none.
+    var snapshotQARemoveFailed: Bool {
+        get { self[SnapshotQARemoveFailedKey.self] }
+        set { self[SnapshotQARemoveFailedKey.self] = newValue }
     }
 
     /// The snapshot harness sets this, so the first article excerpt of the last answer opens (#129). The app sets none.
