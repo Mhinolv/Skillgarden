@@ -252,6 +252,20 @@ public final class CourseStore: @unchecked Sendable {
         }
     }
 
+    /// The indexed cues of one course, in lecture id and cue order (#215). The read uses the primary key prefix `course_id`.
+    /// A course without an index has none.
+    public func transcriptCues(courseID: String) throws -> [TranscriptCue] {
+        try lock.withLock {
+            try database.query("""
+                SELECT lecture_id, cue_index, start_seconds, end_seconds, text FROM transcript_cues
+                WHERE course_id = ? ORDER BY lecture_id, cue_index
+                """, [courseID]) {
+                TranscriptCue(lectureID: SQLiteDatabase.text($0, 0), index: Int(sqlite3_column_int64($0, 1)),
+                              start: sqlite3_column_double($0, 2), end: sqlite3_column_double($0, 3), text: SQLiteDatabase.text($0, 4))
+            }
+        }
+    }
+
     /// Learner data has no foreign key to outline rows, so a republish keeps it.
     /// It writes the complete flag and the resume position. It keeps the saved `autoCompleteOff`.
     public func saveProgress(_ progress: LectureProgress, courseID: String, lectureID: String) throws {
