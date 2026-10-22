@@ -518,7 +518,7 @@ private func temporaryFolder() throws -> URL {
             library.selectDestination(SnapshotPlan.destination(for: screen))
             library.transcriptQuery = try #require(screen.transcriptQuery)
             library.searchTranscripts()
-            await library.waitForTranscriptCues()
+            await library.waitForTranscriptSearch()
             let results = try #require(library.transcriptResults)
             #expect(results.hasTranscripts)
             if screen != .transcriptSearchNoResults {

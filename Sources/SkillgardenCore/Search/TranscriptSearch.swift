@@ -98,6 +98,7 @@ public enum TranscriptSearch {
 
     /// Finds the cues of learner lectures that contain the query. Case and diacritics do not matter.
     /// Cues of draft or unknown lectures are left out. Returns nil for a short query.
+    /// A cancelled task stops the scan and gets nil (#216).
     public static func search(_ query: String, course: Course, cues: [TranscriptCue]) -> TranscriptSearchResults? {
         guard let query = normalizedQuery(query) else { return nil }
         let byLecture = Dictionary(grouping: cues, by: \.lectureID)
@@ -107,6 +108,7 @@ public enum TranscriptSearch {
         var seen: Set<String> = []
         for section in course.learnerSections {
             for lecture in section.lectures where seen.insert(lecture.id).inserted {
+                if Task.isCancelled { return nil }
                 guard let lectureCues = byLecture[lecture.id], !lectureCues.isEmpty else { continue }
                 hasTranscripts = true
                 let hits = lectureCues.sorted { $0.index < $1.index }.compactMap { cue -> TranscriptHit? in
@@ -121,6 +123,13 @@ public enum TranscriptSearch {
             }
         }
         return TranscriptSearchResults(query: query, groups: groups, hasTranscripts: hasTranscripts)
+    }
+
+    /// `search` off the main actor (#216). A nonisolated async function runs on the global executor,
+    /// and the cancellation of the calling task stops the scan.
+    public nonisolated static func searchInBackground(_ query: String, course: Course,
+                                                      cues: [TranscriptCue]) async -> TranscriptSearchResults? {
+        search(query, course: course, cues: cues)
     }
 
     /// The snippet of `text` and the matches of `query` in it. Nil if the text does not contain the query.
