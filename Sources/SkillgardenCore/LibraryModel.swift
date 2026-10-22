@@ -95,7 +95,12 @@ public final class LibraryModel {
     /// Each course change and each reload adds 1. A cue read applies only if the number did not change.
     @ObservationIgnored private var cueGeneration = 0
     /// The text of the transcript search field of the selected course.
-    public var transcriptQuery = ""
+    /// A change cancels the running search, so its old result does not apply (#216).
+    public var transcriptQuery = "" {
+        didSet { if transcriptQuery != oldValue { cancelTranscriptSearch() } }
+    }
+    /// The running transcript search (#216). `waitForTranscriptSearch()` waits for it.
+    @ObservationIgnored private var searchTask: Task<Void, Never>?
     /// The results of the last search. Nil shows the outline.
     public private(set) var transcriptResults: TranscriptSearchResults?
     /// The cue that the video player of the selected lecture must seek to, paused. Nil when no seek waits.
@@ -523,18 +528,37 @@ public final class LibraryModel {
     /// A query shorter than `TranscriptSearch.minimumQueryLength` clears the results, so the outline shows.
     /// If the cues of the course did not load yet, nothing changes, so "No transcripts" does not show (#215).
     /// The cue read runs the search again when it ends.
+    /// The scan runs off the main actor (#216). The previous results stay until the new results apply.
+    /// A new search, a query change or a course change cancels the running search.
     public func searchTranscripts() {
-        var results: TranscriptSearchResults?
-        if let course = selectedCourse {
-            guard let cues = transcriptCues[course.id] else { return }
-            results = TranscriptSearch.search(transcriptQuery, course: course, cues: cues)
+        cancelTranscriptSearch()
+        guard let course = selectedCourse, let query = TranscriptSearch.normalizedQuery(transcriptQuery) else {
+            if transcriptResults != nil { transcriptResults = nil }
+            return
         }
-        if results != transcriptResults { transcriptResults = results }
+        guard let cues = transcriptCues[course.id] else { return }
+        searchTask = Task { [weak self] in
+            let results = await TranscriptSearch.searchInBackground(query, course: course, cues: cues)
+            guard !Task.isCancelled, let results, let self, self.selectedCourseID == course.id else { return }
+            if results != self.transcriptResults { self.transcriptResults = results }
+        }
+    }
+
+    private func cancelTranscriptSearch() {
+        searchTask?.cancel()
+        searchTask = nil
     }
 
     /// Waits for the cue read of the selected course. Tests and the snapshot harness use it.
     public func waitForTranscriptCues() async {
         await cueLoad?.value
+    }
+
+    /// Waits for the cue read of the selected course, then for the search that it runs (#216).
+    /// Tests and the snapshot harness use it.
+    public func waitForTranscriptSearch() async {
+        await cueLoad?.value
+        await searchTask?.value
     }
 
     /// Reads the cues of `courseID` off the main actor, then runs the search again (#215).
@@ -554,6 +578,7 @@ public final class LibraryModel {
 
     /// Clears the query and the results, so the outline shows again.
     public func clearTranscriptSearch() {
+        cancelTranscriptSearch()
         transcriptQuery = ""
         transcriptResults = nil
     }

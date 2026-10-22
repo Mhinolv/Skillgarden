@@ -251,6 +251,7 @@ private func cue(_ lecture: String, _ index: Int, _ text: String) -> TranscriptC
         #expect(library.transcriptResults == nil)
         library.transcriptQuery = "plan"
         library.searchTranscripts()
+        await library.waitForTranscriptSearch()
         let results = try #require(library.transcriptResults)
         #expect(results.summary == "3 results in 2 lectures")
 
@@ -272,6 +273,7 @@ private func cue(_ lecture: String, _ index: Int, _ text: String) -> TranscriptC
 
         // A reload keeps the query and runs the search again.
         await library.reload()
+        await library.waitForTranscriptSearch()
         #expect(library.transcriptResults == results)
 
         library.clearTranscriptSearch()
@@ -337,7 +339,7 @@ private func seedLargeCourses(root: URL) throws -> CourseStore {
     library.transcriptQuery = "seed"
     library.searchTranscripts()
     #expect(library.transcriptResults == nil)
-    await library.waitForTranscriptCues()
+    await library.waitForTranscriptSearch()
     #expect(Array(library.transcriptCues.keys) == ["alpha"])
     #expect(library.transcriptCues["alpha"]?.count == largeCueCount)
     let results = try #require(library.transcriptResults)
@@ -359,6 +361,7 @@ private func seedLargeCourses(root: URL) throws -> CourseStore {
     // A course with no captions shows "No transcripts", as before.
     library.transcriptQuery = "seed"
     library.searchTranscripts()
+    await library.waitForTranscriptSearch()
     #expect(library.transcriptResults?.hasTranscripts == false)
 
     // A reload reads the cues of the selected course only.
@@ -377,6 +380,7 @@ private func seedLargeCourses(root: URL) throws -> CourseStore {
         await library.waitForTranscriptCues()
         library.transcriptQuery = "plan"
         library.searchTranscripts()
+        await library.waitForTranscriptSearch()
         let old = try #require(library.transcriptResults?.hits.last)
         #expect(old.id == "recap#1")
 
@@ -384,6 +388,7 @@ private func seedLargeCourses(root: URL) throws -> CourseStore {
             .write(to: folder.appending(path: "content/recap.vtt"), atomically: true, encoding: .utf8)
         _ = try CoursePublisher.publish(courseFolder: folder, root: root)
         await library.reload()
+        await library.waitForTranscriptSearch()
         // The search after the republish uses the new cues of the course.
         #expect(library.transcriptCues[id]?.contains { $0.text == "Keep the plan short." } == false)
         let results = try #require(library.transcriptResults)
@@ -396,4 +401,91 @@ private func seedLargeCourses(root: URL) throws -> CourseStore {
         library.openTranscriptHit(results.hits[1])
         #expect(library.transcriptSeek?.seconds == 0)
     }
+}
+
+// MARK: Search off the main actor (#216)
+
+@Test func theBackgroundSearchKeepsTheResultOrderOfTheSearch() async throws {
+    let cues = [cue("v2", 1, "seed b"), cue("v2", 0, "seed a"), cue("v1", 0, "seed c"), cue("hidden", 0, "seed"),
+                cue("v3", 0, "seed"), cue("gone", 0, "seed")]
+    for query in ["seed", "SEED", "zz", "s", " seed c "] {
+        let background = await TranscriptSearch.searchInBackground(query, course: course, cues: cues)
+        #expect(background == TranscriptSearch.search(query, course: course, cues: cues))
+    }
+    #expect(await TranscriptSearch.searchInBackground("seed", course: course, cues: [])?.hasTranscripts == false)
+}
+
+@Test func aCancelledSearchStopsTheScan() async {
+    let task = Task {
+        withUnsafeCurrentTask { $0?.cancel() }
+        return await TranscriptSearch.searchInBackground("seed", course: course, cues: [cue("v1", 0, "seed")])
+    }
+    #expect(await task.value == nil)
+}
+
+@MainActor @Test func theSearchRunsOffTheMainActorAndOnlyTheCurrentQueryApplies() async throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: "SkillgardenSearchTests-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    _ = try seedLargeCourses(root: root)
+    let library = LibraryModel(root: root)
+    await library.reload()
+    library.selectCourse("alpha")
+    await library.waitForTranscriptSearch()
+
+    // The search returns at once. The scan of the cues runs in a task.
+    library.transcriptQuery = "seed"
+    library.searchTranscripts()
+    #expect(library.transcriptResults == nil)
+    await library.waitForTranscriptSearch()
+    let seed = try #require(library.transcriptResults)
+    #expect(seed.hitCount == largeCueCount)
+
+    // While a new search runs, the previous results stay. Only the last query applies.
+    library.transcriptQuery = "cue 1"
+    library.searchTranscripts()
+    #expect(library.transcriptResults == seed)
+    library.transcriptQuery = "cue 12"
+    library.searchTranscripts()
+    #expect(library.transcriptResults == seed)
+    await library.waitForTranscriptSearch()
+    let results = try #require(library.transcriptResults)
+    #expect(results.query == "cue 12")
+    // Course order: the even cues of "v1", then the odd cues of "v2".
+    let indexes = [12] + Array(120..<130) + Array(1_200..<1_300)
+    #expect(results.hits.map(\.cueIndex) == indexes.filter { $0.isMultiple(of: 2) } + indexes.filter { !$0.isMultiple(of: 2) })
+
+    // A query change cancels the running search, so its result does not apply.
+    library.transcriptQuery = "cue 2"
+    library.searchTranscripts()
+    library.transcriptQuery = "cue 21"
+    await library.waitForTranscriptSearch()
+    #expect(library.transcriptResults == results)
+
+    // A short query shows the outline at once and cancels the running search.
+    library.transcriptQuery = "seed"
+    library.searchTranscripts()
+    library.transcriptQuery = "s"
+    library.searchTranscripts()
+    #expect(library.transcriptResults == nil)
+    await library.waitForTranscriptSearch()
+    #expect(library.transcriptResults == nil)
+
+    // A course change cancels the running search. No hit of the old course shows.
+    library.transcriptQuery = "seed"
+    library.searchTranscripts()
+    library.selectCourse("beta")
+    #expect(library.transcriptResults == nil)
+    await library.waitForTranscriptSearch()
+    #expect(library.transcriptResults == nil)
+    library.transcriptQuery = "seed"
+    library.searchTranscripts()
+    await library.waitForTranscriptSearch()
+    #expect(library.transcriptResults?.hits.allSatisfy { $0.snippet.hasPrefix("beta ") } == true)
+
+    // Escape clears the query and cancels the running search.
+    library.transcriptQuery = "alpha"
+    library.searchTranscripts()
+    library.clearTranscriptSearch()
+    await library.waitForTranscriptSearch()
+    #expect(library.transcriptQuery.isEmpty && library.transcriptResults == nil)
 }
