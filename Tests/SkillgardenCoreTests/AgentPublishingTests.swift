@@ -201,6 +201,23 @@ private func contents(of folder: URL) throws -> [String: Data] {
     #expect(!skill.contains("$HOME") && !skill.contains("~/.local"))
 }
 
+/// The README sends learners to the install guide, which has the 8 first-use sections in order (#220).
+@Test func installGuideCoversFirstUse() throws {
+    let repo = fixture.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let readme = try String(contentsOf: repo.appending(path: "README.md"), encoding: .utf8)
+    #expect(readme.contains("(docs/install.md)") && readme.contains("## Build from source"))
+
+    let guide = try String(contentsOf: repo.appending(path: "docs/install.md"), encoding: .utf8)
+    let headings = guide.split(separator: "\n").filter { $0.hasPrefix("## ") }
+    #expect(headings == ["## 1. Requirements", "## 2. Install", "## 3. Your data", "## 4. Add a course", "## 5. Take a course",
+                         "## 6. Q&A with the bundled model", "## 7. Remote providers (optional)", "## 8. Uninstall"])
+    for text in ["Apple silicon", "~/Library/Application Support/Skillgarden", "\"Import Course…\" (⇧⌘I)", "\"Choose Model…\"",
+                 "\"Allow and Send\"", "Keychain", "(agent-publishing.md)", "(local-ai.md)"] {
+        #expect(guide.contains(text), "\(text)")
+    }
+    #expect(!guide.contains("http") && !guide.contains("Intel"))
+}
+
 @MainActor @Test func libraryShowsABadDataDirectorySetting() async {
     let model = LibraryModel(rootError: "SKILLGARDEN_DATA_DIR must be an absolute path")
     await model.reload()
