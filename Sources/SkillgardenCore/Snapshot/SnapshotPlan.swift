@@ -175,6 +175,12 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// The Q&A panel of the video lecture (#192): a turn whose whole answer was an echo of the system prompt. The guard
     /// removed it, so the turn shows "No answer: The model repeated its instructions. Try again." with Retry.
     case qaGuardEmpty = "qa-guard-empty"
+    /// The Q&A panel of the video lecture (#209): the store did not save the ended answer. The draft keeps the text and
+    /// shows "Couldn't save this answer." with Retry and Remove.
+    case qaSaveFailed = "qa-save-failed"
+    /// The Q&A panel of the video lecture (#209): the store did not remove the turn. It shows
+    /// "Couldn't remove this question. Try again." under it.
+    case qaRemoveFailed = "qa-remove-failed"
 
     static let settingsScreens: [SnapshotScreen] = [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
                                                     .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError,
@@ -227,9 +233,16 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
         switch self {
         case .qaDraft: ("What does the outline show first?", "The outline shows the **sections** of the course, in order.")
         case .qaExternalLocal: ("Which tools do I need?", "You need a text editor and the course outline [t1].")
+        case .qaSaveFailed: ("Which tools do I need?", "You need a text editor and the course outline [t1].")
         default: nil
         }
     }
+
+    /// True when the harness shows the draft as an answer that the store did not save (#209).
+    public var qaDraftSaveFailed: Bool { self == .qaSaveFailed }
+
+    /// True when the harness shows the last saved turn as a turn that the store did not remove (#209).
+    public var qaRemoveFailed: Bool { self == .qaRemoveFailed }
 
     /// The model row state that the harness injects into the Settings form (#122). Nil for the other screens.
     public func modelState(home: URL) -> ModelSettings.State? {
@@ -438,7 +451,7 @@ public enum SnapshotPlan {
              .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaArticle, .qaTheater, .qaCitations, .qaCitationExcerpt,
              .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaConsentOpenRouter, .qaRemote,
              .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .notesArticleEmpty, .qaCitationRanges,
-             .qaGuardEmpty:
+             .qaGuardEmpty, .qaSaveFailed, .qaRemoveFailed:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -617,7 +630,7 @@ public enum SnapshotPlan {
             [("What is the goal of this course?", "You plan a course step by step [t1].", .finished),
              ("Which tools do I need?", "You need", .canceled),
              ("How long is the course?", "", .httpError(status: 500))]
-        case .qaDraft, .qaConsent, .qaConsentOpenRouter, .qaRemote, .qaExternalLocal:
+        case .qaDraft, .qaConsent, .qaConsentOpenRouter, .qaRemote, .qaExternalLocal, .qaSaveFailed, .qaRemoveFailed:
             [("What is the goal of this course?", "You plan a course step by step [t1].", .finished)]
         case .qaAnthropic:
             [("What is the goal of this course?", "You plan a course step by step [t1]. First you", .incomplete),
@@ -802,7 +815,8 @@ public enum SnapshotPlan {
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
              .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions,
              .qaTheater, .qaCitations, .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent,
-             .qaConsentOpenRouter, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .qaCitationRanges, .qaGuardEmpty:
+             .qaConsentOpenRouter, .qaRemote, .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .qaCitationRanges, .qaGuardEmpty,
+             .qaSaveFailed, .qaRemoveFailed:
             .lecture(sectionID: "plan", lectureID: "welcome")
         case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle, .qaCitationExcerpt, .notesArticleEmpty:
             .lecture(sectionID: "plan", lectureID: "read")

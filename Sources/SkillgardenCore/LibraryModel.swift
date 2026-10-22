@@ -33,6 +33,16 @@ public final class PendingTurnRecovery: @unchecked Sendable {
     }
 }
 
+/// Runs a blocking store call on a dispatch queue, not on the cooperative pool (#209). A busy store waits up to
+/// 5 seconds for a lock, and that wait must not stop other tasks.
+private let storeQueue = DispatchQueue(label: "Skillgarden.store", qos: .userInitiated, attributes: .concurrent)
+
+func onStoreQueue<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
+    try await withCheckedThrowingContinuation { continuation in
+        storeQueue.async { continuation.resume(with: Result(catching: body)) }
+    }
+}
+
 /// Owns the learner's library and selection. Store reads run outside the main actor.
 @MainActor @Observable
 public final class LibraryModel {
@@ -524,7 +534,7 @@ public final class LibraryModel {
         } else { nil }
         await waitForWrites()
         let courseID = course.id
-        let turns = try await Task.detached { try store.qaTurns(courseID: courseID, lectureID: lectureID) }.value
+        let turns = try await onStoreQueue { try store.qaTurns(courseID: courseID, lectureID: lectureID) }
         return LectureConversation(turns: turns, sourceRevision: revision)
     }
 
@@ -534,14 +544,16 @@ public final class LibraryModel {
                             lectureID: String) async throws -> QATurn {
         guard let courseID = selectedCourseID, let store else { throw CourseStoreError.databaseFailure }
         await waitForWrites()
-        return try await Task.detached {
+        return try await onStoreQueue {
             try store.startQATurn(question: question, sourceRevision: context.sourceRevision, origin: origin, courseID: courseID,
                                   lectureID: lectureID)
-        }.value
+        }
     }
 
     /// Saves the end of a request: the last `AnswerUpdate.ended` outcome and text (#127).
-    public func finishQATurn(_ turn: QATurn, outcome: AnswerOutcome, text: String) {
+    /// The task gives false when the store refuses the save (#209). A turn that is not pending any more is not a failure.
+    @discardableResult
+    public func finishQATurn(_ turn: QATurn, outcome: AnswerOutcome, text: String) -> Task<Bool, Never> {
         enqueueWrite { try $0.finishQATurn(id: turn.id, status: QATurnStatus(outcome: outcome), answer: text) }
     }
 
@@ -552,7 +564,9 @@ public final class LibraryModel {
     }
 
     /// Removes one Q&A turn (#170). The course id comes from the caller, so a late request removes the turn of its own course.
-    public func removeQATurn(_ turn: QATurn, courseID: String, lectureID: String) {
+    /// The task gives false when the store refuses the delete (#209).
+    @discardableResult
+    public func removeQATurn(_ turn: QATurn, courseID: String, lectureID: String) -> Task<Bool, Never> {
         enqueueWrite { try $0.removeQATurn(id: turn.id, courseID: courseID, lectureID: lectureID) }
     }
 
@@ -577,9 +591,9 @@ public final class LibraryModel {
               LectureNote.cleanText(text) != nil, let store else { return false }
         let courseID = course.id
         await waitForWrites()
-        guard let note = try? await Task.detached(operation: {
+        guard let note = try? await onStoreQueue({
             try store.addNote(text: text, videoSeconds: videoSeconds, courseID: courseID, lectureID: lectureID)
-        }).value else { return false }
+        }) else { return false }
         notes[courseID, default: [:]][lectureID, default: []].append(note)
         return true
     }
@@ -639,7 +653,7 @@ public final class LibraryModel {
         enqueueWrite { try $0.saveLastOpenedLecture(courseID: courseID, lectureID: lectureID) }
     }
 
-    /// Runs store writes off the main actor in the order of the calls.
+    /// Runs store writes off the main actor and off the cooperative pool, in the order of the calls.
     @discardableResult
     private func enqueueWrite(_ body: @escaping @Sendable (CourseStore) throws -> Void) -> Task<Bool, Never> {
         let previous = pendingWrite
@@ -647,7 +661,7 @@ public final class LibraryModel {
         let task = Task.detached {
             _ = await previous?.value
             guard let store else { return false }
-            do { try body(store); return true } catch { return false }
+            return (try? await onStoreQueue { try body(store) }) != nil
         }
         pendingWrite = task
         return task

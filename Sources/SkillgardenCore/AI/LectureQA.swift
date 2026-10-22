@@ -127,6 +127,8 @@ public final class LectureQA {
         public fileprivate(set) var text: String
         /// The numbered markers of `text` (#165). Each flush parses the text once, so a redraw parses nothing.
         public fileprivate(set) var citations: AnswerCitations
+        /// True when the store refused the save of the ended answer (#209). The draft then shows Retry and the label.
+        public fileprivate(set) var saveFailed = false
 
         fileprivate init(question: String, text: String, context: LectureContext?) {
             self.question = question
@@ -146,6 +148,10 @@ public final class LectureQA {
     public static let noArticleTextMessage = "This lecture has no text, so Q&A is not available."
     public static let notAvailableMessage = "Q&A is not available for this lecture."
     public static let saveFailedText = "Skillgarden can't save the question. Try again."
+    /// The label of a draft whose answer the store did not save (#209).
+    public static let answerSaveFailedText = "Couldn't save this answer."
+    /// The label of a saved turn that the store did not remove (#209).
+    public static let removeFailedText = "Couldn't remove this question. Try again."
     /// The VoiceOver announcement at the end of an answer.
     public static let answerReadyText = "Answer ready"
     /// The VoiceOver announcement after "Remove" (#170).
@@ -163,6 +169,8 @@ public final class LectureQA {
     /// The consent sheet (#151). A question for a provider other than the bundled model waits here until the learner
     /// allows the course for the destination. Nil when no question waits.
     public private(set) var consentRequest: RemoteConsentRequest?
+    /// The saved turns that the store did not remove (#209). Each shows `removeFailedText`.
+    public private(set) var removeFailedTurnIDs: Set<Int64> = []
 
     @ObservationIgnored private let library: LibraryModel
     /// The bundled model, or the only provider when `providers` is nil.
@@ -180,6 +188,10 @@ public final class LectureQA {
     @ObservationIgnored private var requestTurn: QATurn?
     /// The generations whose draft the learner removed (#170). Their turn is removed, not finished.
     @ObservationIgnored private var removedGenerations: Set<Int> = []
+    /// The end of the request that the store did not save (#209). "Retry" saves it again.
+    @ObservationIgnored private var unsaved: (turn: QATurn, outcome: AnswerOutcome, text: String)?
+    /// The turns with a running delete, so a second "Remove" waits for the first.
+    @ObservationIgnored private var removingTurnIDs: Set<Int64> = []
     @ObservationIgnored private var cancelRequested = false
     @ObservationIgnored private var throttle: DraftThrottle
     @ObservationIgnored private var pendingText = ""
@@ -225,6 +237,7 @@ public final class LectureQA {
         conversation = LectureConversation(turns: [], sourceRevision: nil)
         notice = nil
         consentRequest = nil
+        removeFailedTurnIDs = []
     }
 
     /// Reads the lecture text and the saved thread of `key`. It does nothing while a request runs.
@@ -309,9 +322,9 @@ public final class LectureQA {
         return send(turn.question)
     }
 
-    /// "Cancel" and Escape. The partial answer stays in the thread.
+    /// "Cancel" and Escape. The partial answer stays in the thread. A draft whose save failed has no request to cancel.
     public func cancel() {
-        guard draft != nil else { return }
+        guard let draft, !draft.saveFailed else { return }
         cancelRequested = true
         if let requestID { requestProvider?.cancel(requestID) }
     }
@@ -324,16 +337,37 @@ public final class LectureQA {
         conversation = LectureConversation(turns: [], sourceRevision: conversation.sourceRevision)
         notice = nil
         consentRequest = nil
+        removeFailedTurnIDs = []
     }
 
     /// "Remove" of a saved turn, after the learner confirms (#170). The other turns stay. A running request continues.
-    public func remove(_ turn: QATurn) {
-        guard let key, conversation.turns.contains(where: { $0.id == turn.id }) else { return }
-        library.removeQATurn(turn, courseID: key.courseID, lectureID: key.lectureID)
+    /// The turn leaves the thread only after the store confirms the delete (#209). False when the delete fails.
+    @discardableResult
+    public func remove(_ turn: QATurn) async -> Bool {
+        guard let key, conversation.turns.contains(where: { $0.id == turn.id }),
+              removingTurnIDs.insert(turn.id).inserted else { return false }
+        defer { removingTurnIDs.remove(turn.id) }
+        if removeFailedTurnIDs.contains(turn.id) { removeFailedTurnIDs.remove(turn.id) }
+        let removed = await library.removeQATurn(turn, courseID: key.courseID, lectureID: key.lectureID).value
+        guard key == self.key else { return removed }
+        guard removed else {
+            removeFailedTurnIDs.insert(turn.id)
+            announce(Self.removeFailedText)
+            return false
+        }
         conversation = LectureConversation(turns: conversation.turns.filter { $0.id != turn.id },
                                            sourceRevision: conversation.sourceRevision)
         citationCache[turn.id] = nil
         announce(Self.questionRemovedText)
+        return true
+    }
+
+    /// "Retry" of a draft whose save failed (#209): saves the same answer again. It does not ask the model again.
+    public func retrySave() {
+        guard let unsaved, draft?.saveFailed == true else { return }
+        self.unsaved = nil
+        let generation = generation
+        request = Task { await finish(unsaved.turn, outcome: unsaved.outcome, text: unsaved.text, generation: generation) }
     }
 
     /// "Remove" of the draft (#170): cancels the request, clears the draft and saves no turn.
@@ -372,9 +406,16 @@ public final class LectureQA {
         library.seekCitation(lectureID: key.lectureID, seconds: seconds)
     }
 
-    /// The snapshot harness shows a draft with no request.
-    public func showSnapshotDraft(question: String, text: String) {
-        setDraft(Draft(question: question, text: text, context: context))
+    /// The snapshot harness shows a draft with no request. `saveFailed` shows it as an answer that the store did not save.
+    public func showSnapshotDraft(question: String, text: String, saveFailed: Bool = false) {
+        var value = Draft(question: question, text: text, context: context)
+        value.saveFailed = saveFailed
+        setDraft(value)
+    }
+
+    /// The snapshot harness shows the last saved turn as a turn that the store did not remove (#209).
+    public func showSnapshotRemoveFailed() {
+        if let turn = conversation.turns.last { removeFailedTurnIDs = [turn.id] }
     }
 
     /// Starts the request of a question. It is the only place that starts a request, so it checks the consent again:
@@ -408,6 +449,7 @@ public final class LectureQA {
         flush = nil
         requestID = nil
         requestTurn = nil
+        unsaved = nil
         setDraft(nil)
     }
 
@@ -432,8 +474,7 @@ public final class LectureQA {
         }
         if generation == self.generation { requestTurn = turn }
         guard generation == self.generation, !cancelRequested else {
-            library.finishQATurn(turn, outcome: .canceled, text: "")
-            if generation == self.generation { await end(generation) }
+            await finish(turn, outcome: .canceled, text: "", generation: generation)
             return
         }
         let answer = prepared.ask(messages)
@@ -446,12 +487,34 @@ public final class LectureQA {
                 // #192: the saved answer has no echo. If no text stays, the turn fails with the fixed text and Retry.
                 let answer = PromptEchoGuard(context: context).clean(text)
                 if outcome == .finished, answer.isEmpty, answer != text { outcome = .refused(reason: PromptEchoGuard.echoText) }
-                library.finishQATurn(turn, outcome: outcome, text: answer)
-                guard generation == self.generation else { return }
-                if outcome == .finished { announce(Self.answerReadyText) }
-                await end(generation)
+                await finish(turn, outcome: outcome, text: answer, generation: generation)
             }
         }
+    }
+
+    /// Saves the end of the request. A request of an earlier generation saves and changes no state.
+    /// If the store refuses the save, the draft keeps the full answer and shows Retry (#209).
+    private func finish(_ turn: QATurn, outcome: AnswerOutcome, text: String, generation: Int) async {
+        let saved = await library.finishQATurn(turn, outcome: outcome, text: text).value
+        guard generation == self.generation else { return }
+        guard saved else {
+            flush?.cancel()
+            flush = nil
+            requestID = nil
+            unsaved = (turn, outcome, text)
+            if var value = draft {
+                if value.text != text {
+                    value.text = text
+                    value.citations = AnswerCitations(answer: text, context: context, isStale: false)
+                }
+                value.saveFailed = true
+                draft = value
+            }
+            announce(Self.answerSaveFailedText)
+            return
+        }
+        if outcome == .finished { announce(Self.answerReadyText) }
+        await end(generation)
     }
 
     /// Reads the saved thread with the finished turn, then removes the draft.
@@ -464,6 +527,7 @@ public final class LectureQA {
         guard generation == self.generation else { return }
         requestID = nil
         requestTurn = nil
+        unsaved = nil
         setDraft(nil)
     }
 
