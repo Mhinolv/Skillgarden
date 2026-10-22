@@ -316,8 +316,9 @@ private func temporaryFolder() throws -> URL {
             library.selectCourse(courseID)
             library.selectDestination(SnapshotPlan.destination(for: screen))
             for action in SnapshotPlan.quizActions(for: screen) { library.performQuizAction(action) }
+            // The harness does not wait for the quiz write. The strip must stay after the queued writes end.
+            await library.showSnapshotProgressSaveFailures(screen.progressSaveFailures)
             await library.waitForWrites()
-            library.showSnapshotProgressSaveFailures(screen.progressSaveFailures)
             #expect(library.failedProgressSaves.map(\.lectureID) == [screen == .progressSaveFailedQuiz ? "check" : "read"])
             #expect(library.progressSaveFailureText == ProgressSaveKey.failureText(library.failedProgressSaves))
             #expect(!library.isSelectedLectureComplete)

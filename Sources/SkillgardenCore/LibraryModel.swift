@@ -716,7 +716,9 @@ public final class LibraryModel {
     }
 
     /// The snapshot harness shows the strip for the selected lecture with these failures. It writes nothing.
-    public func showSnapshotProgressSaveFailures(_ kinds: [ProgressSaveKey.Kind]) {
+    /// It waits for the queued writes first, because a write that succeeds hides its part of the strip.
+    public func showSnapshotProgressSaveFailures(_ kinds: [ProgressSaveKey.Kind]) async {
+        await waitForWrites()
         guard let courseID = selectedCourseID, let lectureID = selectedLecture?.id else { return }
         failedProgressSaves = Set(kinds.map { ProgressSaveKey(kind: $0, courseID: courseID, lectureID: lectureID) })
     }

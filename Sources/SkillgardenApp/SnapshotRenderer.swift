@@ -69,7 +69,6 @@ enum SnapshotRenderer {
             for id in SnapshotPlan.rubricChecks(for: output.screen) { library.toggleRubricCriterion(id) }
             for item in SnapshotPlan.quickCheckAnswers(for: output.screen) { library.answerQuickCheck(item.checkID, choiceID: item.choiceID) }
             for item in SnapshotPlan.reviewAnswers(for: output.screen) { library.answerReview(questionID: item.questionID, choiceID: item.choiceID) }
-            library.showSnapshotProgressSaveFailures(output.screen.progressSaveFailures)
             if let query = output.screen.transcriptQuery {
                 library.transcriptQuery = query
                 library.searchTranscripts()
@@ -77,6 +76,8 @@ enum SnapshotRenderer {
             var seeded = false
             var seedError: (any Error)?
             Task {
+                // #210: after the queued quiz write, so its success does not hide the strip.
+                await library.showSnapshotProgressSaveFailures(output.screen.progressSaveFailures)
                 do { try await SnapshotPlan.seedQATurns(for: output.screen, library: library) } catch { seedError = error }
                 seeded = true
             }
