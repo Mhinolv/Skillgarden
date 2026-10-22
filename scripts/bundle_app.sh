@@ -47,6 +47,20 @@ for notice in ${(v)NOTICES}; do
   [[ -f $notice ]] || fail "missing license notice: $notice"
 done
 
+# The release metadata for Info.plist comes from one source, the constants in Skillgarden.swift (#214).
+# A missing value stops the script before the build.
+RELEASE_SOURCE=Sources/SkillgardenCore/Skillgarden.swift
+[[ -f $RELEASE_SOURCE ]] || fail "$RELEASE_SOURCE not found"
+release_value() {
+  local value
+  value=$(sed -nE "s/^[[:space:]]*public static let $1 = $2\$/\\1/p" "$RELEASE_SOURCE" | head -n 1)
+  [[ -n $value ]] || fail "Skillgarden.$1 not found in $RELEASE_SOURCE"
+  print -r -- "$value"
+}
+VERSION=$(release_value version '"([0-9]+(\.[0-9]+)*)"')
+BUILD_NUMBER=$(release_value buildNumber '([0-9]+)')
+COPYRIGHT=$(release_value copyright '"([^"&<>]+)"')
+
 PRODUCTS=(SkillgardenApp skillgarden SkillgardenAIHost)
 for product in $PRODUCTS; do
   ./scripts/build.sh --configuration "$CONFIG" --product "$product"
@@ -70,6 +84,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundleIdentifier</key><string>dev.skillgarden.app</string>
 <key>CFBundleName</key><string>Skillgarden</string>
 <key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>$VERSION</string>
+<key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
+<key>NSHumanReadableCopyright</key><string>$COPYRIGHT</string>
+<key>LSApplicationCategoryType</key><string>public.app-category.education</string>
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>

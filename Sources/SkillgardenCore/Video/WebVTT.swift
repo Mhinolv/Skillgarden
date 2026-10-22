@@ -13,6 +13,57 @@ public struct CaptionCue: Equatable, Sendable {
     }
 }
 
+/// The value that shows at each time of a list of cue intervals (#218).
+/// The cue starts and ends cut the time line into segments. Each segment keeps its value, so a lookup is a binary search.
+/// A cue is active at `seconds` when `start <= seconds < end`, as in `WebVTT.text(at:)` and `Transcript.activeLine(at:)`.
+public struct CueTimeline<Value: Equatable & Sendable>: Equatable, Sendable {
+    /// The first time of each segment, in increasing order.
+    private let starts: [Double]
+    private let values: [Value?]
+
+    /// `value` gets the indices in `intervals` of the active cues, in increasing order. Nil means that nothing shows.
+    public init(intervals: [(start: Double, end: Double)], value: ([Int]) -> Value?) {
+        var events: [(time: Double, index: Int, opens: Bool)] = []
+        for (index, interval) in intervals.enumerated() where interval.start < interval.end {
+            events.append((interval.start, index, true))
+            events.append((interval.end, index, false))
+        }
+        events.sort { $0.time < $1.time }
+        var active = Set<Int>()
+        var starts: [Double] = []
+        var values: [Value?] = []
+        var next = 0
+        while next < events.count {
+            let time = events[next].time
+            while next < events.count, events[next].time == time {
+                if events[next].opens { active.insert(events[next].index) } else { active.remove(events[next].index) }
+                next += 1
+            }
+            let current = active.isEmpty ? nil : value(active.sorted())
+            // Neighbor segments with the same value become one segment.
+            if let last = values.last, last == current { continue }
+            if starts.isEmpty, current == nil { continue }
+            starts.append(time)
+            values.append(current)
+        }
+        self.starts = starts
+        self.values = values
+    }
+
+    /// The value at `seconds`. Nil before the first cue, in a gap and after the last cue.
+    public func value(at seconds: Double) -> Value? {
+        guard !seconds.isNaN else { return nil }
+        // The number of segments that start at or before `seconds`.
+        var low = 0
+        var high = starts.count
+        while low < high {
+            let middle = (low + high) / 2
+            if starts[middle] <= seconds { low = middle + 1 } else { high = middle }
+        }
+        return low == 0 ? nil : values[low - 1]
+    }
+}
+
 public struct WebVTTError: Error, Equatable, Sendable {
     public let message: String
 }
@@ -61,6 +112,14 @@ public struct WebVTT: Equatable, Sendable {
     public func text(at seconds: Double) -> String? {
         let active = cues.filter { $0.start <= seconds && seconds < $0.end && !$0.text.isEmpty }
         return active.isEmpty ? nil : active.map(\.text).joined(separator: "\n")
+    }
+
+    /// `text(at:)` with a binary search (#218). The player builds it once and reads it on each time tick.
+    public var textTimeline: CueTimeline<String> {
+        CueTimeline(intervals: cues.map { ($0.start, $0.end) }) { active in
+            let texts = active.map { cues[$0].text }.filter { !$0.isEmpty }
+            return texts.isEmpty ? nil : texts.joined(separator: "\n")
+        }
     }
 
     /// Reads `hh:mm:ss.ttt` or `mm:ss.ttt`. The hours have two or more digits.

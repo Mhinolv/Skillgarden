@@ -2,7 +2,13 @@ import Foundation
 
 /// Shared facts about the Skillgarden library.
 public enum Skillgarden {
+    /// The release source for the CLI and the app (#214). scripts/bundle_app.sh reads these three values into
+    /// Info.plist: `CFBundleShortVersionString`, `CFBundleVersion` and `NSHumanReadableCopyright`.
     public static let version = "0.1.0"
+    /// The whole-number build of the release. Increase it for each release build of the same version.
+    public static let buildNumber = 1
+    /// The year is fixed here, not taken from the build date, so that a rebuild gives the same Info.plist. It matches LICENSE.
+    public static let copyright = "Copyright © 2026 Skillgarden contributors."
 
     /// Default data folder: ~/Library/Application Support/Skillgarden.
     public static var defaultDataDirectory: URL {
