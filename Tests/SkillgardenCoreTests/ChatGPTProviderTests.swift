@@ -522,6 +522,52 @@ private func json(_ request: URLRequest) throws -> [String: Any] {
     #expect(reloaded.consents.isEmpty)
 }
 
+@MainActor @Test func aPlanWithNoModelAsksForAModel() throws {
+    // #232: a plan signed in before #157 has no model, so "Answer with" hides it. The row must say why.
+    let credentials = MemoryCredentialStore(secrets: ["chatgpt": session().keychainText])
+    let profile = ProviderProfile(id: "chatgpt", kind: .subscription, name: "ChatGPT Plan", vendor: "OpenAI",
+                                  origin: "https://api.openai.com", modelID: "", credentialReference: "chatgpt")
+    let providers = ProviderSettings(store: nil, credentials: credentials, profiles: [profile], adapterKinds: ShippedAdapters.kinds)
+    providers.checkCredentials()
+    #expect(providers.answerProfiles(of: .subscription).isEmpty)
+    #expect(providers.redCaption(for: profile) == "Choose a model to use this plan for Q&A.")
+    #expect(providers.needsModel(profile) && !providers.needsSignIn(profile))
+    // A model choice clears the caption and lists the plan in "Answer with".
+    try providers.saveChatGPTModel("gpt-5", for: "chatgpt")
+    let saved = try #require(providers.profiles.first)
+    #expect(providers.redCaption(for: saved) == nil && !providers.needsModel(saved))
+    #expect(providers.answerProfiles(of: .subscription).map(\.id) == ["chatgpt"])
+}
+
+@MainActor @Test func aPlanRowShowsOneRedCaptionInOrder() throws {
+    let profile = ProviderProfile(id: "chatgpt", kind: .subscription, name: "ChatGPT Plan", vendor: "OpenAI",
+                                  origin: "https://api.openai.com", modelID: "", credentialReference: "chatgpt")
+    // A credential problem comes first.
+    let denied = ProviderSettings(store: nil, credentials: MemoryCredentialStore(deniedAccounts: ["chatgpt"]),
+                                  profiles: [profile], adapterKinds: ShippedAdapters.kinds)
+    denied.checkCredentials()
+    #expect(denied.redCaption(for: profile) == denied.problems["chatgpt"]?.message && denied.redCaption(for: profile) != nil)
+    #expect(!denied.needsModel(profile) && !denied.needsSignIn(profile))
+    // A session that can't refresh comes before the model.
+    let expired = ProviderSettings(store: nil, credentials: MemoryCredentialStore(secrets: ["chatgpt": "not json"]),
+                                   profiles: [profile], adapterKinds: ShippedAdapters.kinds)
+    expired.checkCredentials()
+    #expect(expired.redCaption(for: profile) == ProviderSettings.signInAgainText)
+    #expect(!expired.needsModel(profile) && expired.needsSignIn(profile))
+    // A subscription with no adapter already says "Q&A not available yet", so it does not ask for a model.
+    let noAdapter = ProviderSettings(store: nil, credentials: MemoryCredentialStore(secrets: ["chatgpt": session().keychainText]),
+                                     profiles: [profile], adapterKinds: [.externalLocal, .api])
+    noAdapter.checkCredentials()
+    #expect(noAdapter.redCaption(for: profile) == nil && !noAdapter.needsModel(profile))
+    // An API profile with no model is out of scope: its sheet asks for the model.
+    let api = ProviderProfile(id: "openai", kind: .api, name: "OpenAI API", vendor: "OpenAI", origin: "https://api.openai.com",
+                              modelID: "", credentialReference: "openai")
+    let apiSettings = ProviderSettings(store: nil, credentials: MemoryCredentialStore(secrets: ["openai": "sk-1"]),
+                                       profiles: [api], adapterKinds: ShippedAdapters.kinds)
+    apiSettings.checkCredentials()
+    #expect(apiSettings.redCaption(for: api) == nil && !apiSettings.needsModel(api))
+}
+
 @Test func docsDescribeTheChatGPTPlanPath() throws {
     let doc = try String(contentsOf: repo.appending(path: "docs/local-ai.md"), encoding: .utf8)
     #expect(doc.contains("ChatGPT plan (#157)"))

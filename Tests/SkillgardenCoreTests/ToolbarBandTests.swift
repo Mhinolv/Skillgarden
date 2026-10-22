@@ -117,5 +117,5 @@ private func runSnapshots(_ screens: [SnapshotScreen], into out: URL) throws -> 
                                                                .providerSheetCustom, .chatGPTSheetSignedOut,
                                                                .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
                                                                .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone,
-                                                               .settingsChatGPTSignInAgain])
+                                                               .settingsChatGPTSignInAgain, .settingsChatGPTChooseModel])
 }
