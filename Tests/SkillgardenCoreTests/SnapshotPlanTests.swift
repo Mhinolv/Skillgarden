@@ -68,6 +68,7 @@ private func temporaryFolder() throws -> URL {
         "chatgpt-sheet-models-failed-light.png", "chatgpt-sheet-models-failed-dark.png",
         "chatgpt-sheet-model-gone-light.png", "chatgpt-sheet-model-gone-dark.png",
         "settings-chatgpt-sign-in-again-light.png", "settings-chatgpt-sign-in-again-dark.png",
+        "settings-chatgpt-choose-model-light.png", "settings-chatgpt-choose-model-dark.png",
         "qa-thread-light.png", "qa-thread-dark.png",
         "qa-empty-light.png", "qa-empty-dark.png",
         "qa-draft-light.png", "qa-draft-dark.png",
@@ -225,7 +226,7 @@ private func temporaryFolder() throws -> URL {
                                                                     .providerSheetCustom, .chatGPTSheetSignedOut,
                                                                     .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
                                                                     .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone,
-                                                                    .settingsChatGPTSignInAgain])
+                                                                    .settingsChatGPTSignInAgain, .settingsChatGPTChooseModel])
     // #156: four ChatGPT plan sheet states, and one Settings screen with a session that can't refresh.
     let signedIn = ChatGPTSignIn.State.signedIn(SnapshotPlan.chatGPTAccount)
     #expect(SnapshotScreen.allCases.compactMap(\.chatGPTSheetState)
@@ -236,7 +237,13 @@ private func temporaryFolder() throws -> URL {
         == [.loaded(models), .loading, .loaded([]), .failed("ChatGPT sent an error (503)."), .loaded(models)])
     #expect(SnapshotScreen.chatGPTSheetModelGone.chatGPTSheetModels?.modelID == "gpt-4.1")
     #expect(SnapshotScreen.chatGPTSheetSignedIn.chatGPTSheetModels?.modelID == "gpt-5")
-    #expect(SnapshotScreen.allCases.filter(\.usesChatGPTPlanProfile) == [.settingsChatGPTSignInAgain])
+    #expect(SnapshotScreen.allCases.filter(\.usesChatGPTPlanProfile) == [.settingsChatGPTSignInAgain, .settingsChatGPTChooseModel])
+    // #232: Choose Model gets a session that can refresh. The other screens get no ChatGPT secrets.
+    #expect(SnapshotScreen.settingsChatGPTSignInAgain.chatGPTSecrets == SnapshotPlan.chatGPTSecrets)
+    #expect(SnapshotScreen.settingsChatGPTChooseModel.chatGPTSecrets == SnapshotPlan.chatGPTRefreshableSecrets)
+    #expect(SnapshotScreen.allCases.filter { !$0.chatGPTSecrets.isEmpty } == [.settingsChatGPTSignInAgain, .settingsChatGPTChooseModel])
+    let fixture = try #require(SnapshotPlan.chatGPTRefreshableSecrets.values.first.flatMap(ChatGPTSession.init(keychainText:)))
+    #expect(!fixture.needsRefresh(at: Date()) && fixture.canRefresh(at: Date()))
     #expect(SnapshotScreen.settingsChatGPTSignInAgain.isSettings && SnapshotScreen.chatGPTSheetFailed.isSettings)
     #expect(SnapshotScreen.allCases.filter { $0.customRootPath != nil } == [.libraryEmptyCustomFolder])
     #expect(outputs.allSatisfy { $0.url.deletingLastPathComponent().path == out.path })
@@ -258,7 +265,7 @@ private func temporaryFolder() throws -> URL {
              .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit,
              .providerSheetAnthropic, .providerSheetAnthropicEdit, .providerSheetOpenRouter, .providerSheetCustom,
              .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
-             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain:
+             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain, .settingsChatGPTChooseModel:
             #expect(courseID == nil)
             #expect(!screen.selectsCourse)
             #expect(SnapshotPlan.imageLoads(for: screen) == 0)

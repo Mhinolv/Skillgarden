@@ -279,6 +279,62 @@ private func ready(_ outcome: LectureContextOutcome) throws -> LectureContext {
     }
 }
 
+@Test func cacheKeepsOnlyTheMostRecentlyUsedContexts() async throws {
+    try await withFolder { folder in
+        let limit = LectureContextCache.maximumEntries
+        #expect(limit == 8)
+        let ids = (0..<(limit * 3)).map { "l\($0)" }
+        for id in ids { try write("Text of \(id).", "content/\(id).md", in: folder) }
+        let tour = course(ids.map { lecture($0, .article, title: $0) })
+        func article(_ id: String, _ path: String? = nil) -> LectureArticle {
+            LectureArticle(folder: folder, path: path ?? "content/\(id).md", images: [])
+        }
+        let cache = LectureContextCache()
+        func visit(_ id: String, _ path: String? = nil) async throws -> [String] {
+            try ready(await cache.context(course: tour, lectureID: id, video: nil, article: article(id, path))).passages.map(\.text)
+        }
+        // A long lecture tour never keeps more than the limit.
+        for id in ids {
+            #expect(try await visit(id) == ["Text of \(id)."])
+            #expect(await cache.count <= limit)
+        }
+        #expect(await cache.count == limit)
+        #expect(await cache.loadCount == ids.count)
+        // The last lectures stay in the cache, so a revisit does not read again.
+        for id in ids.suffix(limit) { #expect(try await visit(id) == ["Text of \(id)."]) }
+        #expect(await cache.loadCount == ids.count)
+        // A revisit after eviction reads the text again and gives the same context.
+        #expect(try await visit("l0") == ["Text of l0."])
+        #expect(await cache.loadCount == ids.count + 1)
+        #expect(await cache.count == limit)
+        // A hit makes the entry recent, so the least recently used entry leaves first.
+        // The order is now l17 ... l23, l0.
+        _ = try await visit("l17")
+        _ = try await visit("l1")
+        #expect(await cache.loadCount == ids.count + 2)
+        _ = try await visit("l17")
+        #expect(await cache.loadCount == ids.count + 2)
+        _ = try await visit("l18")
+        #expect(await cache.loadCount == ids.count + 3)
+        // A revision mismatch still replaces the entry, with no growth.
+        try write("New text.", "content/new.md", in: folder)
+        #expect(try await visit("l0", "content/new.md") == ["New text."])
+        #expect(await cache.loadCount == ids.count + 4)
+        #expect(await cache.count == limit)
+        #expect(try await visit("l0", "content/new.md") == ["New text."])
+        #expect(await cache.loadCount == ids.count + 4)
+        // A failed read removes the entry, so the next new entry does not evict another entry.
+        #expect(await cache.context(course: tour, lectureID: "l0", video: nil, article: article("l0", "content/missing.md")) == .cantLoad)
+        #expect(await cache.loadCount == ids.count + 5)
+        #expect(await cache.count == limit - 1)
+        _ = try await visit("l19")
+        #expect(await cache.loadCount == ids.count + 6)
+        _ = try await visit("l20")
+        #expect(await cache.loadCount == ids.count + 6)
+        #expect(await cache.count == limit)
+    }
+}
+
 @Test func serverContextSizeIsTheBudgetContext() {
     #expect(LectureContextBudget.standard.contextTokens == 8192)
     #expect(LectureContextBudget.standard.promptTokens == 8192 - 1024 - 512)

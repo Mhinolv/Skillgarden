@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import SkillgardenCore
 
 private let repo = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -70,6 +71,9 @@ private func expectedVersion() throws -> String {
 private let repositoryNotices = ["Skillgarden": "LICENSE", "Yams": "Vendor/Yams/LICENSE",
                                  "libyaml": "Vendor/Yams/Sources/CYaml/LICENSE"]
 
+/// The Swift file that holds the release constants that bundle_app.sh reads (#214).
+private let releaseSourcePath = "Sources/SkillgardenCore/Skillgarden.swift"
+
 /// A repository copy with bundle_app.sh, a stub build.sh that logs its calls, the icon, the license notices
 /// and a prepared llama.cpp runtime.
 /// `products` lists the configurations that get stub build products. The stub CLI prints its configuration for `--version`.
@@ -93,6 +97,9 @@ private func bundleRepository(in root: URL, products: [String] = ["debug", "rele
         try Data("host \(configuration)".utf8).write(to: folder.appending(path: "SkillgardenAIHost"))
     }
     try Data("icon".utf8).write(to: icon.appending(path: "AppIcon.icns"))
+    let releaseSource = root.appending(path: releaseSourcePath)
+    try FileManager.default.createDirectory(at: releaseSource.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.copyItem(at: repo.appending(path: releaseSourcePath), to: releaseSource)
     for (component, path) in repositoryNotices {
         let notice = root.appending(path: path)
         try FileManager.default.createDirectory(at: notice.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -233,6 +240,84 @@ func bundleScriptStopsWhenALicenseNoticeIsMissing(path: String) throws {
     #expect(bundle.errorText == "error: missing license notice: \(path)\n")
     #expect(buildLog(in: root) == nil)
     #expect(!FileManager.default.fileExists(atPath: root.appending(path: "build/Skillgarden.app").path))
+}
+
+private func bundlePlist(in root: URL) throws -> [String: Any] {
+    let data = try Data(contentsOf: root.appending(path: "build/Skillgarden.app/Contents/Info.plist"))
+    return try #require(try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+}
+
+/// #214: the bundled plist holds the version, build, copyright and category from Skillgarden.swift.
+/// The bundled CLI prints the same version as the plist.
+@Test func bundleScriptSetsReleaseMetadataFromTheSwiftConstants() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (_, llama) = try bundleRepository(in: root)
+    try FileManager.default.removeItem(at: root.appending(path: ".build/debug/skillgarden"))
+    try FileManager.default.copyItem(at: try builtCLI(), to: root.appending(path: ".build/debug/skillgarden"))
+
+    let bundle = try runBundle([], in: root, llama: llama)
+    #expect(bundle.status == 0, "\(bundle.errorText)")
+    let plist = try bundlePlist(in: root)
+    #expect(plist["CFBundleShortVersionString"] as? String == Skillgarden.version)
+    #expect(plist["CFBundleVersion"] as? String == String(Skillgarden.buildNumber))
+    #expect(plist["NSHumanReadableCopyright"] as? String == Skillgarden.copyright)
+    #expect(plist["LSApplicationCategoryType"] as? String == "public.app-category.education")
+    #expect(plist["CFBundleIdentifier"] as? String == "dev.skillgarden.app")
+    let cli = try run(root.appending(path: "build/Skillgarden.app/Contents/Helpers/skillgarden"), ["--version"], in: root)
+    #expect(cli.output == "skillgarden \(plist["CFBundleShortVersionString"] as? String ?? "")\n")
+}
+
+/// #214: the script reads the values from the file. It does not keep its own copy of the numbers.
+@Test func bundleScriptReadsChangedReleaseConstants() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (_, llama) = try bundleRepository(in: root)
+    let source = root.appending(path: releaseSourcePath)
+    try """
+    public enum Skillgarden {
+        public static let version = "12.3.45"
+        public static let buildNumber = 678
+        public static let copyright = "Copyright © 2031 Other contributors."
+    }
+    """.write(to: source, atomically: true, encoding: .utf8)
+
+    #expect(try runBundle([], in: root, llama: llama).status == 0)
+    let plist = try bundlePlist(in: root)
+    #expect(plist["CFBundleShortVersionString"] as? String == "12.3.45")
+    #expect(plist["CFBundleVersion"] as? String == "678")
+    #expect(plist["NSHumanReadableCopyright"] as? String == "Copyright © 2031 Other contributors.")
+}
+
+/// #214: a release constant that the script cannot read stops the script before the build, with the name of the value.
+@Test(arguments: [("version", "public static let version = \"0.1.0\"", "public static let version = Self.other"),
+                  ("buildNumber", "public static let buildNumber = 1", "public static let buildNumber = \"1\""),
+                  ("buildNumber", "public static let buildNumber = 1", "public static let buildNumber = 1.5"),
+                  ("copyright", "public static let copyright = ", "static let copyrightText = ")])
+func bundleScriptStopsWhenAReleaseConstantIsMissing(name: String, line: String, replacement: String) throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (_, llama) = try bundleRepository(in: root)
+    let source = root.appending(path: releaseSourcePath)
+    let text = try String(contentsOf: source, encoding: .utf8)
+    try #require(text.contains(line))
+    try text.replacingOccurrences(of: line, with: replacement).write(to: source, atomically: true, encoding: .utf8)
+
+    let bundle = try runBundle([], in: root, llama: llama)
+    #expect(bundle.status == 1)
+    #expect(bundle.output.isEmpty)
+    #expect(bundle.errorText == "error: Skillgarden.\(name) not found in \(releaseSourcePath)\n")
+    #expect(buildLog(in: root) == nil)
+    #expect(!FileManager.default.fileExists(atPath: root.appending(path: "build/Skillgarden.app").path))
+}
+
+/// #214: the copyright constant names the same year and holder as LICENSE.
+@Test func copyrightConstantMatchesTheLicense() throws {
+    let license = try String(contentsOf: repo.appending(path: "LICENSE"), encoding: .utf8)
+    let line = Skillgarden.copyright.replacingOccurrences(of: "©", with: "(c)")
+    #expect(line.hasSuffix("."))
+    #expect(license.contains("\n\(line.dropLast())\n"))
+    #expect(Skillgarden.buildNumber > 0)
 }
 
 /// #213: the real notices exist in the repository, and the docs list each notice that ships in the app.

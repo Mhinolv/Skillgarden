@@ -110,6 +110,8 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case chatGPTSheetModelGone = "chatgpt-sheet-model-gone"
     /// The Settings window with a ChatGPT plan session that can't refresh (#156): "Sign in again." and "Sign In…".
     case settingsChatGPTSignInAgain = "settings-chatgpt-sign-in-again"
+    /// The Settings window with a ChatGPT plan that has a valid session and no model (#232): the red caption and "Choose Model…".
+    case settingsChatGPTChooseModel = "settings-chatgpt-choose-model"
     /// The Q&A panel of the video lecture (#128), scrolled to the end: Ready with three saved turns,
     /// one complete, one cancelled and one failed.
     case qaThread = "qa-thread"
@@ -193,7 +195,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
                                                     .providerSheetAnthropicEdit, .providerSheetOpenRouter, .providerSheetCustom,
                                                     .chatGPTSheetSignedOut, .chatGPTSheetWaiting,
                                                     .chatGPTSheetSignedIn, .chatGPTSheetFailed,
-                                                    .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain]
+                                                    .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain, .settingsChatGPTChooseModel]
 
     /// True for the Settings screens. The harness draws the Settings form in place of the main window.
     public var isSettings: Bool { Self.settingsScreens.contains(self) }
@@ -204,7 +206,7 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
         case .settings, .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI,
              .providerSheetOpenAIEdit, .providerSheetAnthropic, .providerSheetAnthropicEdit, .providerSheetOpenRouter,
              .providerSheetCustom, .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
-             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain: .ready(version: "b11669")
+             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain, .settingsChatGPTChooseModel: .ready(version: "b11669")
         case .settingsModelMissing: .noModel
         case .settingsAIOff: .off
         case .settingsAIError: .failed(.noFreePort)
@@ -349,8 +351,17 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
         }
     }
 
-    /// True when the harness gives Settings the ChatGPT plan profile with a session that can't refresh (#156).
-    public var usesChatGPTPlanProfile: Bool { self == .settingsChatGPTSignInAgain }
+    /// True when the harness gives Settings the ChatGPT plan profile with no model (#156, #232).
+    public var usesChatGPTPlanProfile: Bool { self == .settingsChatGPTSignInAgain || self == .settingsChatGPTChooseModel }
+
+    /// The Keychain items of the ChatGPT plan profile. Choose Model gets a session that can refresh (#232).
+    public var chatGPTSecrets: [String: String] {
+        switch self {
+        case .settingsChatGPTSignInAgain: SnapshotPlan.chatGPTSecrets
+        case .settingsChatGPTChooseModel: SnapshotPlan.chatGPTRefreshableSecrets
+        default: [:]
+        }
+    }
 
     /// The question that the harness sends, so the consent sheet opens (#151). Nil for the other screens.
     public var qaConsentQuestion: String? { self == .qaConsent || self == .qaConsentOpenRouter ? "Which tools do I need?" : nil }
@@ -457,7 +468,7 @@ public enum SnapshotPlan {
              .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit,
              .providerSheetAnthropic, .providerSheetAnthropicEdit, .providerSheetOpenRouter, .providerSheetCustom,
              .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
-             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain:
+             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain, .settingsChatGPTChooseModel:
             _ = try CourseStore(root: root)
             return nil
         case .library, .section, .lecture, .lectureComplete, .article, .courseLanding, .videoPlayer, .videoTranscript,
@@ -730,6 +741,15 @@ public enum SnapshotPlan {
         return [chatGPTPlanProfile.keychainAccount: session.keychainText]
     }
 
+    /// The Keychain items of `settingsChatGPTChooseModel` (#232): a session with a refresh token, so the row asks for a model.
+    /// The access token is valid until 2100, so the harness sends no refresh request. The tokens are fixture text.
+    public static var chatGPTRefreshableSecrets: [String: String] {
+        let session = ChatGPTSession(clientID: "snapshot-client", accessToken: "snapshot-access", refreshToken: "snapshot-refresh",
+                                     idToken: "snapshot-id-token", expiresAt: Date(timeIntervalSince1970: 4_102_444_800), scopes: [],
+                                     subject: "snapshot-user", email: chatGPTAccount.email, planType: chatGPTAccount.planType)
+        return [chatGPTPlanProfile.keychainAccount: session.keychainText]
+    }
+
     /// The Keychain item that the fixture refuses, so its Settings row shows the Keychain problem.
     public static let deniedCredentialAccount = "snapshot-anthropic"
 
@@ -810,7 +830,7 @@ public enum SnapshotPlan {
              .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI, .providerSheetOpenAIEdit,
              .providerSheetAnthropic, .providerSheetAnthropicEdit, .providerSheetOpenRouter, .providerSheetCustom,
              .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
-             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain: 0
+             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain, .settingsChatGPTChooseModel: 0
         case .library: 3
         case .quizQuestion, .quizWrongAnswer, .sectionReview, .assignment, .assignmentComplete, .lectureDownloads, .pdfPreview: 2
         default: 1
@@ -824,7 +844,7 @@ public enum SnapshotPlan {
              .settingsAIError, .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError, .providerSheetOpenAI,
              .providerSheetOpenAIEdit, .providerSheetAnthropic, .providerSheetAnthropicEdit, .providerSheetOpenRouter,
              .providerSheetCustom, .chatGPTSheetSignedOut, .chatGPTSheetWaiting, .chatGPTSheetSignedIn, .chatGPTSheetFailed,
-             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain: nil
+             .chatGPTSheetModelsLoading, .chatGPTSheetModelsEmpty, .chatGPTSheetModelsFailed, .chatGPTSheetModelGone, .settingsChatGPTSignInAgain, .settingsChatGPTChooseModel: nil
         case .section, .sectionReview: .section(sectionID: "plan")
         case .lecture, .lectureComplete, .videoPlayer, .videoTranscript, .videoQuickCheck, .videoTheater, .videoUpNext,
              .videoUpNextTheater, .qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaNoCaptions,

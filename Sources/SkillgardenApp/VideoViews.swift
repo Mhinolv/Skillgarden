@@ -18,8 +18,9 @@ final class VideoPlayback {
     /// True while the player is in AVKit full screen. The `AVPlayerViewDelegate` callbacks of `PlayerView` set it (#186).
     /// Only the arrow key monitor reads it, so a change publishes no state.
     @ObservationIgnored var isFullScreen = false
-    @ObservationIgnored private let captions: WebVTT?
-    @ObservationIgnored private let transcript: Transcript?
+    /// Built once, so a time tick does a binary search and not a scan of all cues (#218).
+    @ObservationIgnored private let captions: CueTimeline<String>?
+    @ObservationIgnored private let transcript: CueTimeline<Int>?
     @ObservationIgnored private var observer: Any?
     @ObservationIgnored private var statusObserver: NSKeyValueObservation?
     @ObservationIgnored private var endObserver: (any NSObjectProtocol)?
@@ -37,8 +38,8 @@ final class VideoPlayback {
     init(url: URL, start: Double, duration: Double?, captions: WebVTT?, transcript: Transcript?, plays: Bool = true,
          save: @escaping @MainActor (Double) -> Void, complete: @escaping @MainActor () -> Void) {
         player = AVPlayer(url: url)
-        self.captions = captions
-        self.transcript = transcript
+        self.captions = captions?.textTimeline
+        self.transcript = transcript?.activeLineTimeline
         self.save = save
         self.complete = complete
         lastSaved = start
@@ -108,9 +109,9 @@ final class VideoPlayback {
     }
 
     private func update(at seconds: Double) {
-        let text = captions?.text(at: seconds)
+        let text = captions?.value(at: seconds)
         if text != captionText { captionText = text }
-        let line = transcript?.activeLine(at: seconds)
+        let line = transcript?.value(at: seconds)
         if line != activeLine { activeLine = line }
     }
 
