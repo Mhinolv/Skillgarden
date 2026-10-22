@@ -103,6 +103,8 @@ private func temporaryFolder() throws -> URL {
         "qa-remove-failed-light.png", "qa-remove-failed-dark.png",
         "progress-save-failed-completion-light.png", "progress-save-failed-completion-dark.png",
         "progress-save-failed-quiz-light.png", "progress-save-failed-quiz-dark.png",
+        "article-image-enlarged-light.png", "article-image-enlarged-dark.png",
+        "article-image-enlarged-no-alt-light.png", "article-image-enlarged-no-alt-dark.png",
     ])
     // #182 retired the `-unthemed-dark` captures: each screen has one light and one dark capture.
     #expect(!outputs.contains { $0.url.lastPathComponent.contains("unthemed") })
@@ -129,6 +131,10 @@ private func temporaryFolder() throws -> URL {
     // #181: two screens open the Notes panel. Only the video screen opens a note in edit.
     #expect(SnapshotScreen.allCases.filter(\.showsNotes) == [.notesVideo, .notesArticleEmpty])
     #expect(SnapshotScreen.allCases.filter(\.editsNote) == [.notesVideo])
+    // #238: two screens open the large image view, with and without alt text.
+    #expect(SnapshotScreen.allCases.filter { $0.enlargedImage != nil } == [.articleImageEnlarged, .articleImageEnlargedNoAlt])
+    #expect(SnapshotScreen.articleImageEnlarged.enlargedImage == .withAlt)
+    #expect(SnapshotScreen.articleImageEnlargedNoAlt.enlargedImage == .withoutAlt)
     // #128: the Q&A screens open the panel with an injected status. Only the draft screen shows a draft.
     #expect(SnapshotScreen.allCases.filter(\.showsQA) == [.qaThread, .qaEmpty, .qaDraft, .qaNoModel, .qaOff, .qaStarting,
                                                           .qaStopping, .qaError, .qaNoCaptions, .qaArticle, .qaTheater,
@@ -330,6 +336,18 @@ private func temporaryFolder() throws -> URL {
             #expect(library.progressSaveFailureText == ProgressSaveKey.failureText(library.failedProgressSaves))
             #expect(!library.isSelectedLectureComplete)
             #expect((library.selectedQuizAttempt?.showsResults == true) == (screen == .progressSaveFailedQuiz))
+        case .articleImageEnlarged, .articleImageEnlargedNoAlt:
+            // #238: the article lecture with one image. The harness opens it after the course image and the article image load.
+            #expect(courseID == "sample-course")
+            #expect(SnapshotPlan.imageLoads(for: screen) == 1)
+            #expect(!screen.scrollsLectureToEnd)
+            library.selectCourse(courseID)
+            library.selectDestination(SnapshotPlan.destination(for: screen))
+            #expect(library.selectedLecture?.id == "read")
+            let article = try #require(library.article(forLecture: "read"))
+            let document = try article.load()
+            #expect(document.imageSources.count == 1)
+            #expect(article.image(for: try #require(document.imageSources.first))?.alt == "The two sections of the course plan")
         case .lectureSources:
             #expect(courseID == "sample-course")
             library.selectCourse(courseID)
