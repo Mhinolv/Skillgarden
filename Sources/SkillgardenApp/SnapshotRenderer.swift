@@ -76,6 +76,8 @@ enum SnapshotRenderer {
             var seeded = false
             var seedError: (any Error)?
             Task {
+                // #210: after the queued quiz write, so its success does not hide the strip.
+                await library.showSnapshotProgressSaveFailures(output.screen.progressSaveFailures)
                 do { try await SnapshotPlan.seedQATurns(for: output.screen, library: library) } catch { seedError = error }
                 seeded = true
             }
@@ -94,15 +96,16 @@ enum SnapshotRenderer {
         let localAI = RuntimeSupervisor(isEnabled: status != .off, backend: nil, status: status)
         // The provider screens get the fixture profiles, a refused Keychain item and a provider that never sends (#151).
         // The ChatGPT plan screen gets a session that can't refresh, so its row shows "Sign in again." (#156).
+        // The Choose Model screen gets a valid session and the ChatGPT plan adapter, so its row asks for a model (#232).
         let usesProfiles = output.screen.usesProviderProfiles
         let usesChatGPT = output.screen.usesChatGPTPlanProfile
         let providers = ProviderSettings(store: nil,
-                                         credentials: MemoryCredentialStore(secrets: usesChatGPT ? SnapshotPlan.chatGPTSecrets : [:],
+                                         credentials: MemoryCredentialStore(secrets: output.screen.chatGPTSecrets,
                                                                             deniedAccounts: [SnapshotPlan.deniedCredentialAccount]),
                                          profiles: usesProfiles ? SnapshotPlan.providerProfiles
                                              : usesChatGPT ? [SnapshotPlan.chatGPTPlanProfile] : [],
                                          selectedID: output.screen.selectedProviderID ?? BundledAnswerProvider.providerID,
-                                         adapterKinds: [.externalLocal, .api],
+                                         adapterKinds: output.screen == .settingsChatGPTChooseModel ? ShippedAdapters.kinds : [.externalLocal, .api],
                                          makeProvider: { profile, _ in SnapshotAnswerProvider(profile: profile) },
                                          // The sheet screens inject the test result. The harness never runs a test.
                                          testConnection: { _, _ in .connected })

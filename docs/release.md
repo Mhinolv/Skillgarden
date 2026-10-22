@@ -97,6 +97,53 @@ The runtime check has two checks for the files:
 
 To check a downloaded artifact on another Mac, unzip it and run the three Apple commands above.
 
+## Accept the artifact
+
+Run the acceptance check after the script ends. It checks the zip that QA and users get (#221):
+
+```sh
+scripts/check_release.sh build/release/Skillgarden-<version>.zip
+```
+
+- The argument is the zip or an app. The default is `build/Skillgarden.app`.
+- The script runs every check, then exits 1 if a check failed. It does not stop at the first failure.
+- A `FAIL` line holds the tool error.
+- Copy the summary, from the first check to the `result` line, into the QA record.
+
+| Check | Passes when |
+|---|---|
+| `architecture` | Every binary in `Contents/MacOS` and `Contents/Helpers` holds arm64 |
+| `plist` | `Info.plist` is valid, has the release keys (#214) and the version of the bundled `skillgarden` |
+| `notices` | `Contents/Resources/Licenses` has a notice for Skillgarden, Yams, libyaml and llama.cpp (#213) |
+| `signature` | `codesign --verify --deep --strict` passes, with a Developer ID, the hardened runtime and a timestamp |
+| `notarization` | `xcrun stapler validate` passes and `spctl` shows `source=Notarized Developer ID` |
+| `runtime deps` | Each library is in the bundle or the system, and `scripts/check_llama_runtime.sh --signed` passes |
+| `cli publish` | The bundled `skillgarden` makes and publishes a course in a temporary library |
+| `cli republish` | A second publish changes nothing |
+| `cli inspect` | `skillgarden inspect` shows the course |
+
+```
+PASS  architecture     arm64 (14 binaries)
+...
+artifact  sha256 <64 hex characters>  build/release/Skillgarden-0.1.0.zip
+result    PASS (9 checks)
+```
+
+- For a zip, the `artifact` SHA-256 is the SHA-256 that `release_app.sh` prints.
+- For an app, it is the SHA-256 of the sorted list of file hashes in the app.
+- The CLI checks use a temporary library folder, never `~/Library/Application Support/Skillgarden`. The script deletes it at exit.
+
+For a local or CI bundle without a Developer ID, add `--allow-unsigned`:
+
+```sh
+./scripts/build.sh app release
+scripts/check_release.sh --allow-unsigned
+```
+
+- `--allow-unsigned` shows `SKIP` for `signature` and `notarization`.
+- `runtime deps` then runs `check_llama_runtime.sh` without `--signed`.
+- Do not use `--allow-unsigned` for a release. A release needs nine `PASS` lines.
+
 ## Troubleshoot
 
 | Output | Action |
