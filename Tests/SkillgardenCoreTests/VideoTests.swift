@@ -466,6 +466,104 @@ func outlineDurationShowsOnVideoRows(seconds: Int, label: String) {
     #expect(Transcript(captions: try WebVTT(text: "WEBVTT\n\n00:00.000 --> 00:01.000\n")).lines.isEmpty)
 }
 
+/// A fixed pseudo-random sequence (SplitMix64), so the synthetic captions are the same on each run.
+private struct SeededNumbers {
+    var state: UInt64
+    mutating func next(below limit: Int) -> Int {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var value = state
+        value = (value ^ (value >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        value = (value ^ (value >> 27)) &* 0x94D0_49BB_1331_11EB
+        return Int((value ^ (value >> 31)) % UInt64(limit))
+    }
+}
+
+/// Cues in no order, with gaps, overlaps, equal starts, zero-length cues and empty or blank text.
+private func syntheticCaptions(count: Int, seed: UInt64) -> WebVTT {
+    var numbers = SeededNumbers(state: seed)
+    let texts = ["", " ", "Line", "Two\nlines", "Other"]
+    let cues = (0..<count).map { index in
+        let start = Double(numbers.next(below: 40_000)) / 8
+        let end = start + Double(numbers.next(below: 6) == 0 ? 0 : numbers.next(below: 120)) / 8
+        let text = texts[numbers.next(below: texts.count)]
+        return CaptionCue(start: start, end: end, text: text.trimmingCharacters(in: .whitespaces).isEmpty ? text : "\(index) \(text)")
+    }
+    return WebVTT(cues: cues)
+}
+
+/// The times to compare: each cue boundary, the times just before and after it, the middle of each segment and the edges.
+private func sampleTimes(_ cues: [CaptionCue]) -> [Double] {
+    let boundaries = Set(cues.flatMap { [$0.start, $0.end] }).sorted()
+    var times: [Double] = [-1, 0, 50_000, .infinity, -.infinity]
+    for (index, time) in boundaries.enumerated() {
+        times += [time, time.nextDown, time.nextUp]
+        if index + 1 < boundaries.count { times.append((time + boundaries[index + 1]) / 2) }
+    }
+    return times
+}
+
+/// Acceptance (#218): the indexed lookup gives the same caption text and transcript line as the scan of all cues.
+@Test(arguments: [UInt64(1), 2, 3])
+func cueTimelineMatchesTheScanOnALargeSyntheticTranscript(seed: UInt64) {
+    let captions = syntheticCaptions(count: 1500, seed: seed)
+    let transcript = Transcript(captions: captions)
+    let text = captions.textTimeline
+    let line = transcript.activeLineTimeline
+    let times = sampleTimes(captions.cues)
+    #expect(times.count > 6000)
+    var mismatches = 0
+    for seconds in times where text.value(at: seconds) != captions.text(at: seconds)
+        || line.value(at: seconds) != transcript.activeLine(at: seconds) {
+        mismatches += 1
+        if mismatches <= 5 { Issue.record("mismatch at \(seconds)") }
+    }
+    #expect(mismatches == 0)
+    // A seek backward through the video gives the same result as playback forward.
+    for seconds in times.reversed().prefix(2000) {
+        #expect(text.value(at: seconds) == captions.text(at: seconds))
+        #expect(line.value(at: seconds) == transcript.activeLine(at: seconds))
+    }
+}
+
+/// Acceptance (#218): overlap order, gaps, empty cues and seeks back and forward, as in `webVTTParsesCuesSettingsAndTags`.
+@Test func cueTimelineKeepsOverlapOrderGapsAndSeeks() throws {
+    let captions = try WebVTT(text: """
+        WEBVTT
+
+        00:00:05.000 --> 00:00:09.000
+        Late
+
+        00:00:01.000 --> 00:00:06.000
+        Early
+
+        00:00:02.000 --> 00:00:02.000
+        Zero length
+
+        00:00:03.000 --> 00:00:04.000
+
+        00:00:12.000 --> 00:00:13.000
+        After a gap
+        """)
+    let text = captions.textTimeline
+    let line = Transcript(captions: captions).activeLineTimeline
+    let expected: [(Double, String?, Int?)] = [
+        (0.5, nil, nil), (1, "Early", 0), (2, "Early", 0), (3.5, "Early", 0),
+        // File order for the caption, the line that started last for the transcript.
+        (5, "Late\nEarly", 2), (5.999, "Late\nEarly", 2), (6, "Late", 2),
+        (9, nil, nil), (11.999, nil, nil), (12, "After a gap", 3), (13, nil, nil)]
+    // Play forward, then seek back and jump around: each lookup depends only on the time.
+    for (seconds, caption, active) in expected + expected.reversed() + [expected[7], expected[1], expected[9], expected[4]] {
+        #expect(text.value(at: seconds) == caption, "\(seconds)")
+        #expect(line.value(at: seconds) == active, "\(seconds)")
+    }
+    for seconds in [Double.nan, -.infinity, .infinity, -1] {
+        #expect(text.value(at: seconds) == nil)
+        #expect(line.value(at: seconds) == nil)
+    }
+    #expect(WebVTT(cues: []).textTimeline.value(at: 0) == nil)
+    #expect(Transcript(captions: WebVTT(cues: [])).activeLineTimeline.value(at: 0) == nil)
+}
+
 @Test func transcriptAutoScrollPausesForFiveSecondsAfterALearnerScroll() {
     let start = Date(timeIntervalSinceReferenceDate: 1000)
     var autoScroll = TranscriptAutoScroll()
