@@ -280,3 +280,22 @@ func readingMinutesRoundUpWithMinimumOne(markdown: String, minutes: Int) {
     #expect(ImageEnlargement.maximumSize(pixelSize: CGSize(width: 300, height: 200), displayScale: 0)
         == CGSize(width: 300, height: 200))
 }
+
+/// #238: the large view sizes the image frame to the image ratio, so the alt text sits just below the image.
+@Test func enlargedImageAspectRatioPrefersThePixelSize() {
+    // A bitmap uses its pixel ratio, even when the point size is different.
+    #expect(ImageEnlargement.aspectRatio(pixelSize: CGSize(width: 2400, height: 1600),
+                                         pointSize: CGSize(width: 1000, height: 1000)) == 1.5)
+    // A vector image has no pixel size, so it uses its point size.
+    #expect(ImageEnlargement.aspectRatio(pixelSize: nil, pointSize: CGSize(width: 100, height: 400)) == 0.25)
+    // An empty pixel size falls back to the point size.
+    #expect(ImageEnlargement.aspectRatio(pixelSize: CGSize(width: 0, height: 10),
+                                         pointSize: CGSize(width: 30, height: 10)) == 3)
+    // The extremes: a 1 x 1 image and a very wide image.
+    #expect(ImageEnlargement.aspectRatio(pixelSize: CGSize(width: 1, height: 1), pointSize: .zero) == 1)
+    #expect(ImageEnlargement.aspectRatio(pixelSize: CGSize(width: 20_000, height: 100), pointSize: .zero) == 200)
+    // No usable size gives no ratio.
+    #expect(ImageEnlargement.aspectRatio(pixelSize: nil, pointSize: .zero) == nil)
+    #expect(ImageEnlargement.aspectRatio(pixelSize: CGSize(width: 10, height: 0),
+                                         pointSize: CGSize(width: 0, height: 5)) == nil)
+}

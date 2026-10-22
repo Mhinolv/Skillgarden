@@ -282,13 +282,15 @@ struct EnlargedImageOverlay: View {
                 .onTapGesture(perform: close)
                 .accessibilityHidden(true)
             VStack(spacing: GardenSpacing.s) {
+                // The ratio goes outside the size limit, so the frame is exactly the image and the alt text sits below it.
                 Image(nsImage: image.image)
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: limit?.width ?? .infinity, maxHeight: limit?.height ?? .infinity)
+                    .aspectRatio(ImageEnlargement.aspectRatio(pixelSize: image.pixelSize, pointSize: image.image.size),
+                                 contentMode: .fit)
                     .clipShape(.garden(GardenRadius.image))
                     // A click on the image does not close the view.
                     .onTapGesture {}
-                    .frame(maxWidth: limit?.width ?? .infinity, maxHeight: limit?.height ?? .infinity)
                     .accessibilityLabel(image.alt)
                     .accessibilityAddTraits(.isImage)
                 if !image.alt.isEmpty {

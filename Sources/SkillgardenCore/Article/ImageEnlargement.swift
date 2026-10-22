@@ -9,4 +9,13 @@ public enum ImageEnlargement {
         let scale = displayScale > 0 ? displayScale : 1
         return CGSize(width: pixelSize.width / scale, height: pixelSize.height / scale)
     }
+
+    /// The width-to-height ratio of the image. The pixel size comes first, so the ratio matches `maximumSize`.
+    /// A vector image uses its point size. Nil means that neither size has a usable width and height.
+    public static func aspectRatio(pixelSize: CGSize?, pointSize: CGSize) -> CGFloat? {
+        for size in [pixelSize, pointSize].compactMap(\.self) where size.width > 0 && size.height > 0 {
+            return size.width / size.height
+        }
+        return nil
+    }
 }
