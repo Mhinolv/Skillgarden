@@ -3,6 +3,7 @@
 This guide tells an agent how to publish a course to the Skillgarden library with the `skillgarden` CLI.
 The example course is `Tests/Fixtures/sample-course`.
 The publication skill, with the steps from workspace publish to owner handoff, is `docs/agent-skill/SKILL.md`.
+Learners install the app and import courses with [Install and first use](install.md).
 
 ## 1. Quick start
 
