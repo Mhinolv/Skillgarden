@@ -128,7 +128,8 @@ enum SnapshotRenderer {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top))
         } else {
             AnyView(ContentView(library: library, reloadsOnAppear: false, customRootPath: output.screen.customRootPath,
-                                  appearance: output.appearance == .dark ? .dark : .light, localAI: localAI, providers: providers))
+                                  appearance: output.appearance == .dark ? .dark : .light, localAI: localAI, providers: providers,
+                                  increasedContrast: output.increasedContrast))
         }
         let content = screenView
             // The system color scheme of the capture. `GardenTheme` reads it when the window has no course theme (#82).
@@ -152,6 +153,7 @@ enum SnapshotRenderer {
             .environment(\.snapshotQAConsentQuestion, output.screen.qaConsentQuestion)
             .environment(\.snapshotSelectsFirstTranscriptHit, output.screen.selectsFirstTranscriptHit)
             .environment(\.snapshotShowsLandingDetails, output.screen.showsLandingDetails)
+            .environment(\.snapshotEnlargedImage, output.screen.enlargedImage)
             .environment(\.showsReviewInline, true)
             .environment(\.showsPDFPreviewInline, output.screen.showsPDFPreviewInline)
             .transaction { $0.disablesAnimations = true; $0.animation = nil }

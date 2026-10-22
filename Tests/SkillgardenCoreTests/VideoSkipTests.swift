@@ -76,3 +76,25 @@ import Testing
     #expect(VideoSkip.delta(keyCode: left, hasModifiers: false, in: .init(isPage: true, hasSheet: true)) == nil)
     #expect(VideoSkip.delta(keyCode: left, hasModifiers: false, in: .init(isPage: true, keepsArrows: true)) == nil)
 }
+
+/// #236: after Play from the sidebar, the player has the keyboard. Space plays and pauses, and the arrows skip.
+@Test func videoPlayGivesThePlayerTheKeyboard() {
+    for current in [VideoKeyFocus.Holder.sidebar, .other, .player] {
+        let holder = VideoKeyFocus.holder(afterPlayStartsWith: current)
+        #expect(holder == .player)
+        let window = VideoSkip.EventWindow(isPage: true, keepsArrows: holder.keepsArrows)
+        #expect(VideoSkip.delta(keyCode: VideoSkip.leftArrowKeyCode, hasModifiers: false, in: window) == -10)
+        #expect(VideoSkip.delta(keyCode: VideoSkip.rightArrowKeyCode, hasModifiers: false, in: window) == 10)
+    }
+}
+
+/// #236, #128 and #181: a Q&A or notes field keeps the focus when playback starts, so Space types a space.
+@Test func videoPlayKeepsTheTextFieldFocus() {
+    let holder = VideoKeyFocus.holder(afterPlayStartsWith: .textField)
+    #expect(holder == .textField)
+    #expect(VideoSkip.delta(keyCode: VideoSkip.leftArrowKeyCode, hasModifiers: false,
+                            in: .init(isPage: true, keepsArrows: holder.keepsArrows)) == nil)
+    #expect(VideoKeyFocus.Holder.sidebar.keepsArrows)
+    #expect(!VideoKeyFocus.Holder.player.keepsArrows)
+    #expect(!VideoKeyFocus.Holder.other.keepsArrows)
+}

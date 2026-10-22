@@ -3,6 +3,8 @@
 `Skillgarden.app` holds one pinned llama.cpp runtime for local AI features.
 The app does not use Homebrew or the network to get it.
 The app runs one `llama-server` while it is open (#123). Settings shows its status and version.
+The pinned runtime supports Apple silicon (arm64) only.
+Learners: for install, model choice and remote consent steps, see [Install and first use](install.md).
 
 ## Pinned runtime
 

@@ -188,6 +188,10 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     case progressSaveFailedCompletion = "progress-save-failed-completion"
     /// The quiz results screen (#210): the store refused the quiz result. The strip shows over the results.
     case progressSaveFailedQuiz = "progress-save-failed-quiz"
+    /// The article lecture with its image in the large view (#238): the scrim, the image, the alt text and the close button.
+    case articleImageEnlarged = "article-image-enlarged"
+    /// The same large view for an image with no alt text (#238). Publish needs alt text, so the harness clears it.
+    case articleImageEnlargedNoAlt = "article-image-enlarged-no-alt"
 
     static let settingsScreens: [SnapshotScreen] = [.settings, .settingsModelMissing, .settingsAIOff, .settingsAIError,
                                                     .settingsProviders, .providerSheetLMStudio, .providerSheetOllamaError,
@@ -389,6 +393,15 @@ public enum SnapshotScreen: String, CaseIterable, Sendable {
     /// True when the harness opens the first article excerpt of the last Q&A answer (#129).
     public var opensCitationExcerpt: Bool { self == .qaCitationExcerpt }
 
+    /// The large view that the harness opens on the first loaded article image (#238). Nil opens none.
+    public var enlargedImage: SnapshotEnlargedImage? {
+        switch self {
+        case .articleImageEnlarged: .withAlt
+        case .articleImageEnlargedNoAlt: .withoutAlt
+        default: nil
+        }
+    }
+
     /// True when the harness opens the quick-check card of the video lecture.
     public var showsQuickChecks: Bool { self == .videoQuickCheck }
 
@@ -432,6 +445,14 @@ public enum SnapshotAppearance: String, CaseIterable, Sendable {
     case light, dark
 }
 
+/// The large article image view that the harness opens (#238).
+public enum SnapshotEnlargedImage: Sendable {
+    /// The large view shows the manifest alt text below the image.
+    case withAlt
+    /// The harness clears the alt text, so the large view shows no text.
+    case withoutAlt
+}
+
 /// Fixed render settings and deterministic output paths for the offscreen snapshot harness.
 public enum SnapshotPlan {
     public static let width = 1280
@@ -443,17 +464,27 @@ public enum SnapshotPlan {
     public struct Output: Equatable, Sendable {
         public let screen: SnapshotScreen
         public let appearance: SnapshotAppearance
+        /// True when the capture uses the "Increase contrast" palette (#219).
+        public var increasedContrast = false
         public let url: URL
     }
 
+    /// The screens that also render with "Increase contrast" on (#219): the outline, a wrong answer and Q&A status labels.
+    public static let increasedContrastScreens: [SnapshotScreen] = [.lecture, .quizWrongAnswer, .qaThread]
+
     /// One output per screen and appearance, in a fixed order: `<out-dir>/<screen>-<light|dark>.png`.
+    /// The `increasedContrastScreens` also get `<out-dir>/<screen>-<light|dark>-high-contrast.png` (#219).
     /// `screens` limits the outputs to these screens. The order stays the same.
     /// #182 retired the `-unthemed-dark` captures: every window uses the system accent, so they matched the `-dark` captures.
     public static func outputs(outDirectory: URL, screens: Set<SnapshotScreen>? = nil) -> [Output] {
         SnapshotScreen.allCases.filter { screens?.contains($0) ?? true }.flatMap { screen in
-            SnapshotAppearance.allCases.map { appearance in
-                Output(screen: screen, appearance: appearance,
-                       url: outDirectory.appending(path: "\(screen.rawValue)-\(appearance.rawValue).png"))
+            let contrasts = increasedContrastScreens.contains(screen) ? [false, true] : [false]
+            return contrasts.flatMap { increasedContrast in
+                SnapshotAppearance.allCases.map { appearance in
+                    Output(screen: screen, appearance: appearance, increasedContrast: increasedContrast,
+                           url: outDirectory.appending(path: "\(screen.rawValue)-\(appearance.rawValue)"
+                               + (increasedContrast ? "-high-contrast.png" : ".png")))
+                }
             }
         }
     }
@@ -476,7 +507,8 @@ public enum SnapshotPlan {
              .qaNoModel, .qaOff, .qaStarting, .qaStopping, .qaError, .qaArticle, .qaTheater, .qaCitations, .qaCitationExcerpt,
              .qaCitationsStale, .qaOffHistory, .qaErrorHistory, .qaStartingHistory, .qaConsent, .qaConsentOpenRouter, .qaRemote,
              .qaExternalLocal, .qaIncomplete, .qaAuthError, .qaAnthropic, .notesVideo, .notesArticleEmpty, .qaCitationRanges,
-             .qaGuardEmpty, .qaSaveFailed, .qaRemoveFailed, .progressSaveFailedCompletion:
+             .qaGuardEmpty, .qaSaveFailed, .qaRemoveFailed, .progressSaveFailedCompletion, .articleImageEnlarged,
+             .articleImageEnlargedNoAlt:
             // A real publish installs the media snapshot and image metadata, so the course and header images load.
             let id = try CoursePublisher.publish(courseFolder: fixture, root: root).id
             let store = try CourseStore(root: root)
@@ -853,7 +885,7 @@ public enum SnapshotPlan {
              .qaSaveFailed, .qaRemoveFailed:
             .lecture(sectionID: "plan", lectureID: "welcome")
         case .article, .lectureSources, .lectureDownloads, .pdfPreview, .qaArticle, .qaCitationExcerpt, .notesArticleEmpty,
-             .progressSaveFailedCompletion:
+             .progressSaveFailedCompletion, .articleImageEnlarged, .articleImageEnlargedNoAlt:
             .lecture(sectionID: "plan", lectureID: "read")
         case .notesPage, .notesPageEmpty: .notes
         case .courseLanding, .courseLandingDarkTheme, .courseLandingDetails, .transcriptSearch, .transcriptSearchSelected,

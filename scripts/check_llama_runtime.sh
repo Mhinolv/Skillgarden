@@ -6,6 +6,7 @@
 # "upstream hash" compares the files with runtime.json. "signature" verifies the code signature of each binary (#212).
 # --signed is for a Developer ID bundle (scripts/release_app.sh). Signing changes the binaries, so "upstream hash"
 # compares only the other files, and "signature" also needs a Developer ID, the hardened runtime and a timestamp.
+# scripts/check_release.sh runs this script in its "runtime deps" check (#221).
 set -uo pipefail
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH DYLD_FRAMEWORK_PATH DYLD_INSERT_LIBRARIES
