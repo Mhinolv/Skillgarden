@@ -75,3 +75,26 @@ public struct LectureArticle: Equatable, Sendable {
         name.lowercased() == "internal"
     }
 }
+
+/// A standalone Markdown audio link resolved inside the installed learner snapshot.
+public struct ArticleAudio: Equatable, Sendable {
+    public let url: URL
+    public let title: String
+
+    public init?(paragraph: String, article: LectureArticle) {
+        let pattern = #"^\[([^\]]+)\]\(([^()\s]+)\)$"#
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(in: paragraph, range: NSRange(paragraph.startIndex..., in: paragraph)),
+              let titleRange = Range(match.range(at: 1), in: paragraph),
+              let sourceRange = Range(match.range(at: 2), in: paragraph),
+              let relative = LectureArticle.resolve(String(paragraph[sourceRange]), article: article.path) else { return nil }
+        let candidate = article.folder.appending(path: relative).resolvingSymlinksInPath()
+        let root = article.folder.resolvingSymlinksInPath()
+        guard candidate.path.hasPrefix(root.path + "/"),
+              LectureArticle.resolve(String(candidate.path.dropFirst(root.path.count + 1)), article: "root.md") != nil,
+              ["mp3", "m4a", "wav", "aiff", "aac", "flac"].contains(candidate.pathExtension.lowercased()),
+              (try? candidate.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { return nil }
+        url = candidate
+        title = String(paragraph[titleRange])
+    }
+}

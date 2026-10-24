@@ -1,4 +1,5 @@
 import AppKit
+import AVKit
 import SwiftUI
 import SkillgardenCore
 
@@ -8,6 +9,7 @@ struct RenderedMarkdown: Sendable {
     enum Block: Sendable {
         case heading(level: Int, text: AttributedString)
         case paragraph(AttributedString)
+        case audio(ArticleAudio)
         case list(ordered: Bool, start: Int, items: [AttributedString])
         case code(String)
         case quote(AttributedString)
@@ -20,12 +22,13 @@ struct RenderedMarkdown: Sendable {
     let readingMinutes: Int
 
     /// `image` returns the file and the manifest alt text of a reference. The Markdown alt text is the fallback.
-    init(document: MarkdownDocument, image: (String) -> (url: URL, alt: String?)?) {
+    init(document: MarkdownDocument, image: (String) -> (url: URL, alt: String?)?, audio: (String) -> ArticleAudio? = { _ in nil }) {
         readingMinutes = document.readingMinutes
         blocks = document.blocks.map { block in
             switch block {
             case let .heading(level, text): .heading(level: level, text: Self.inline(text))
-            case let .paragraph(text): .paragraph(Self.inline(text))
+            case let .paragraph(text):
+                audio(text).map { .audio($0) } ?? .paragraph(Self.inline(text))
             case let .list(ordered, start, items): .list(ordered: ordered, start: start, items: items.map(Self.inline))
             case let .code(text): .code(text)
             case let .quote(text): .quote(Self.inline(text))
@@ -37,7 +40,8 @@ struct RenderedMarkdown: Sendable {
     }
 
     init(article: LectureArticle) throws {
-        self.init(document: try article.load(), image: article.image(for:))
+        self.init(document: try article.load(), image: article.image(for:),
+                  audio: { ArticleAudio(paragraph: $0, article: article) })
     }
 
     private static func inline(_ text: String) -> AttributedString {
@@ -124,6 +128,8 @@ struct MarkdownBlocksView: View {
                 .accessibilityAddTraits(.isHeader)
         case let .paragraph(text):
             Text(text)
+        case let .audio(audio):
+            InlineArticleAudio(audio: audio)
         case let .list(ordered, start, items):
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
@@ -344,5 +350,44 @@ extension EnvironmentValues {
     var snapshotEnlargedImage: SnapshotEnlargedImage? {
         get { self[SnapshotEnlargedImageKey.self] }
         set { self[SnapshotEnlargedImageKey.self] = newValue }
+    }
+}
+
+/// Native playback controls for an audio file bundled with the course.
+private struct InlineArticleAudio: View {
+    let audio: ArticleAudio
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(audio.title, systemImage: "headphones")
+                .font(GardenFont.cardTitle)
+            ArticleAudioControls(url: audio.url)
+                .frame(height: 64)
+                .accessibilityLabel(audio.title)
+        }
+    }
+}
+
+private struct ArticleAudioControls: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.controlsStyle = .inline
+        view.showsFullScreenToggleButton = false
+        view.player = AVPlayer(url: url)
+        return view
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        if (view.player?.currentItem?.asset as? AVURLAsset)?.url != url {
+            view.player?.pause()
+            view.player = AVPlayer(url: url)
+        }
+    }
+
+    static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
+        view.player?.pause()
+        view.player = nil
     }
 }
