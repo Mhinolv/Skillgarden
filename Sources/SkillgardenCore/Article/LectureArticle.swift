@@ -97,4 +97,11 @@ public struct ArticleAudio: Equatable, Sendable {
         url = candidate
         title = String(paragraph[titleRange])
     }
+
+    /// The time label of the audio controls: "m:ss", or "h:mm:ss" from one hour. A negative or unknown value shows as "0:00".
+    public static func clock(seconds: Double) -> String {
+        let total = seconds.isFinite ? max(0, Int(seconds.rounded(.down))) : 0
+        let (hours, minutes, rest) = (total / 3600, total / 60 % 60, total % 60)
+        return hours > 0 ? String(format: "%d:%02d:%02d", hours, minutes, rest) : String(format: "%d:%02d", minutes, rest)
+    }
 }

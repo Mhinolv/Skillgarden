@@ -353,41 +353,102 @@ extension EnvironmentValues {
     }
 }
 
-/// Native playback controls for an audio file bundled with the course.
+/// Playback controls for an audio file bundled with the course: play or pause, a position slider and the times.
+/// `AVPlayerView` shows a QuickTime image for audio, so the controls are SwiftUI.
 private struct InlineArticleAudio: View {
     let audio: ArticleAudio
+    @State private var playback: ArticleAudioPlayback?
+    @Environment(\.gardenPalette) private var palette
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label(audio.title, systemImage: "headphones")
                 .font(GardenFont.cardTitle)
-            ArticleAudioControls(url: audio.url)
-                .frame(height: 64)
-                .accessibilityLabel(audio.title)
+            HStack(spacing: 10) {
+                Button(playback?.isPlaying == true ? "Pause" : "Play",
+                       systemImage: playback?.isPlaying == true ? "pause.fill" : "play.fill") { playback?.toggle() }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .font(.title3)
+                    .frame(width: 24)
+                Text(ArticleAudio.clock(seconds: playback?.position ?? 0))
+                    .monospacedDigit()
+                Slider(value: Binding(get: { playback?.position ?? 0 }, set: { playback?.scrub(to: $0) }),
+                       in: 0...max(playback?.duration ?? 0, 1)) { editing in playback?.isScrubbing = editing }
+                    .controlSize(.small)
+                    .disabled((playback?.duration ?? 0) <= 0)
+                    .accessibilityLabel("Position")
+                    .accessibilityValue(ArticleAudio.clock(seconds: playback?.position ?? 0))
+                Text(ArticleAudio.clock(seconds: playback?.duration ?? 0))
+                    .monospacedDigit()
+            }
+            .font(GardenFont.meta)
+            .foregroundStyle(palette.muted)
+            .gardenCard(padding: GardenSpacing.s)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(audio.title)
         }
+        .task(id: audio.url) { playback = ArticleAudioPlayback(url: audio.url) }
+        .onDisappear { playback?.stop() }
     }
 }
 
-private struct ArticleAudioControls: NSViewRepresentable {
-    let url: URL
+/// Owns the player of one article audio file and publishes the position about 4 times a second.
+@MainActor @Observable
+private final class ArticleAudioPlayback {
+    private(set) var isPlaying = false
+    private(set) var position: Double = 0
+    private(set) var duration: Double = 0
+    /// While the learner drags the slider, the time ticks do not move it.
+    var isScrubbing = false
+    @ObservationIgnored private let player: AVPlayer
+    @ObservationIgnored private var observer: Any?
+    @ObservationIgnored private var endObserver: (any NSObjectProtocol)?
 
-    func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView()
-        view.controlsStyle = .inline
-        view.showsFullScreenToggleButton = false
-        view.player = AVPlayer(url: url)
-        return view
-    }
-
-    func updateNSView(_ view: AVPlayerView, context: Context) {
-        if (view.player?.currentItem?.asset as? AVURLAsset)?.url != url {
-            view.player?.pause()
-            view.player = AVPlayer(url: url)
+    init(url: URL) {
+        player = AVPlayer(url: url)
+        let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
+        observer = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            MainActor.assumeIsolated { self?.tick(time) }
+        }
+        endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
+                                                             object: player.currentItem, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.ended() }
+        }
+        Task { [weak self] in
+            guard let asset = self?.player.currentItem?.asset,
+                  let seconds = try? await asset.load(.duration).seconds, seconds.isFinite else { return }
+            self?.duration = seconds
         }
     }
 
-    static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
-        view.player?.pause()
-        view.player = nil
+    func toggle() {
+        if isPlaying { player.pause() } else { player.play() }
+        isPlaying.toggle()
+    }
+
+    func scrub(to seconds: Double) {
+        position = seconds
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    func stop() {
+        player.pause()
+        isPlaying = false
+        if let observer { player.removeTimeObserver(observer) }
+        observer = nil
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = nil
+    }
+
+    private func ended() {
+        isPlaying = false
+        position = 0
+        player.seek(to: .zero)
+    }
+
+    private func tick(_ time: CMTime) {
+        guard !isScrubbing, time.seconds.isFinite else { return }
+        position = time.seconds
     }
 }

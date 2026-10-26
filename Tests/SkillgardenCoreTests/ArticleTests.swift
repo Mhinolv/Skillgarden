@@ -319,3 +319,11 @@ func readingMinutesRoundUpWithMinimumOne(markdown: String, minutes: Int) {
         #expect(ArticleAudio(paragraph: "[Listen](link.mp3)", article: article) == nil)
     }
 }
+
+@Test func articleAudioClockShowsMinutesAndHours() {
+    #expect(ArticleAudio.clock(seconds: 0) == "0:00")
+    #expect(ArticleAudio.clock(seconds: 65.9) == "1:05")
+    #expect(ArticleAudio.clock(seconds: 3725) == "1:02:05")
+    #expect(ArticleAudio.clock(seconds: -3) == "0:00")
+    #expect(ArticleAudio.clock(seconds: .nan) == "0:00")
+}
