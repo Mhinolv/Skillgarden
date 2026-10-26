@@ -3,7 +3,8 @@
 # The skillgarden CLI goes in Contents/Helpers: Contents/MacOS/skillgarden would collide with
 # Contents/MacOS/Skillgarden on a case-insensitive volume.
 # The SkillgardenAIHost helper goes in Contents/Helpers. It runs llama-server and stops it when the app stops (#123).
-# The pinned llama.cpp runtime (assets/llama.cpp/runtime.json) goes in Contents/Helpers/llama.
+# The pinned llama.cpp runtime goes in Contents/Helpers/llama. Its manifest (assets/llama.cpp/runtime.json)
+# goes in Contents/Resources/llama: codesign refuses an app with a data file in Contents/Helpers (#248).
 # The script copies it from SKILLGARDEN_LLAMA_DIR, or ~/.local/share/skillgarden/llama.cpp/<version>.
 # It never downloads anything. See docs/local-ai.md.
 # Contents/Resources/Licenses holds one folder of license notices for each component (#213).
@@ -106,11 +107,28 @@ for line in ${(f)LLAMA_FILES}; do
     *) cp -L "$LLAMA_DIR/$file" "$LLAMA/$file" ;;
   esac
 done
-cp "$MANIFEST" "$LLAMA/runtime.json"
+mkdir -p "$APP/Contents/Resources/llama"
+cp "$MANIFEST" "$APP/Contents/Resources/llama/runtime.json"
 echo "Bundled llama.cpp $LLAMA_VERSION ($LLAMA_ARCH) into $APP"
 for component in $COMPONENTS; do
   mkdir -p "$APP/Contents/Resources/Licenses/$component"
   cp "${NOTICES[$component]}" "$APP/Contents/Resources/Licenses/$component/"
 done
 echo "Copied license notices: ${(j:, :)COMPONENTS}, llama.cpp"
+
+# A debug bundle uses the Apple Development identity when this Mac has one (#248). An ad-hoc signature changes
+# with each build, so the Keychain treats each build as a new app and asks for the password again.
+# SKILLGARDEN_DEV_IDENTITY selects another identity. "-" keeps ad-hoc. A release bundle stays ad-hoc:
+# release_app.sh checks the llama.cpp hashes, then signs. Only the app is signed, not the nested code.
+if [[ $CONFIG == debug ]]; then
+  IDENTITY=${SKILLGARDEN_DEV_IDENTITY-$(security find-identity -v -p codesigning 2>/dev/null \
+    | sed -nE 's/^ *[0-9]+\) [0-9A-F]{40} "(Apple Development: [^"]+)"$/\1/p' | head -n 1)}
+  if [[ -n $IDENTITY && $IDENTITY != - ]]; then
+    if codesign --force --sign "$IDENTITY" --identifier dev.skillgarden.app "$APP" 2>/dev/null; then
+      echo "Signed $APP with $IDENTITY"
+    else
+      print -r -- "warning: codesign with $IDENTITY failed. The app stays ad-hoc signed." >&2
+    fi
+  fi
+fi
 echo "Bundled Skillgarden ($CONFIG) into $APP"

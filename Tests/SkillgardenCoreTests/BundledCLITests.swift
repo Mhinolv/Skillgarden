@@ -33,7 +33,9 @@ private func run(_ executable: URL, _ arguments: [String], in folder: URL, path:
     process.arguments = arguments
     process.currentDirectoryURL = folder
     // PWD keeps the logical temporary path (/var/...), so script output matches `URL.path`.
-    process.environment = ["HOME": NSHomeDirectory(), "PATH": path, "PWD": folder.path].merging(environment) { $1 }
+    // "-" keeps the test bundles ad-hoc signed, so the output does not depend on the identities of this Mac (#248).
+    process.environment = ["HOME": NSHomeDirectory(), "PATH": path, "PWD": folder.path, "SKILLGARDEN_DEV_IDENTITY": "-"]
+        .merging(environment) { $1 }
     let stdout = Pipe(), stderr = Pipe()
     process.standardOutput = stdout
     process.standardError = stderr

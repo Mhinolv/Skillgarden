@@ -841,7 +841,8 @@ public final class ProviderSettings {
         }
     }
 
-    /// Reads the secret of each profile, so the rows show a Keychain problem. "Try Again" reads one profile again.
+    /// Checks the Keychain item of each profile, so the rows show a Keychain problem. "Try Again" checks one profile again.
+    /// An API key profile only checks that the item exists: a read of the key makes macOS ask for the password (#248).
     /// A ChatGPT plan profile also gets its account, or "Sign in again." when the Keychain has no session (#156).
     public func checkCredentials(_ id: String? = nil) {
         for profile in profiles where id == nil || profile.id == id {
@@ -851,9 +852,13 @@ public final class ProviderSettings {
                 continue
             }
             do {
+                guard profile.isChatGPTPlan else {
+                    _ = try credentials.secretExists(account: profile.keychainAccount)
+                    problems[profile.id] = nil
+                    continue
+                }
                 let secret = try credentials.secret(account: profile.keychainAccount)
                 problems[profile.id] = nil
-                guard profile.isChatGPTPlan else { continue }
                 if let session = secret.flatMap(ChatGPTSession.init(keychainText:)) {
                     accounts[profile.id] = session.account
                     if !session.canRefresh(at: Date()) { expiredSessions.insert(profile.id) }

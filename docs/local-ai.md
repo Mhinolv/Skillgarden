@@ -60,7 +60,7 @@ SKILLGARDEN_LLAMA_DIR=/path/to/llama-b11669 ./scripts/build.sh app
 | Server helper (#123) | `Contents/Helpers/SkillgardenAIHost` |
 | Server binary | `Contents/Helpers/llama/llama-server` |
 | Libraries that `llama-server` loads | `Contents/Helpers/llama/*.dylib` |
-| Runtime manifest | `Contents/Helpers/llama/runtime.json` |
+| Runtime manifest | `Contents/Resources/llama/runtime.json` (Contents/Helpers holds only code, #248) |
 | License notices | `Contents/Resources/Licenses/<Component>/` (see "Licenses") |
 
 - The libraries are in the same folder as `llama-server`. The release rpath `@loader_path` finds them without edits.
