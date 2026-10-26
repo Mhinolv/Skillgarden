@@ -10,18 +10,13 @@ struct CourseSidebar: View {
     @Environment(\.snapshotSelectsFirstTranscriptHit) private var selectsFirstHit
 
     var body: some View {
-        Group {
-            if let results = library.transcriptResults {
-                TranscriptResultsView(results: results, initialSelection: selectsFirstHit ? results.hits.first?.id : nil,
-                                      open: { library.openTranscriptHit($0) }, clear: { library.clearTranscriptSearch() })
-            } else {
-                CourseOutlineView(course: course, library: library, selection: Binding(
-                    get: { library.destination }, set: { library.selectDestination($0) }
-                ))
-            }
+        VStack(spacing: 0) {
+            TranscriptSearchField(query: $library.transcriptQuery, focused: $searchFocused)
+                .padding(.horizontal, GardenSpacing.s)
+                .padding(.top, GardenSpacing.xs)
+                .padding(.bottom, GardenSpacing.xxs)
+            outline
         }
-        .searchable(text: $library.transcriptQuery, placement: .sidebar, prompt: "Search transcripts")
-        .searchFocused($searchFocused)
         .focusedSceneValue(\.searchTranscripts) { searchFocused = true }
         .task(id: library.transcriptQuery) {
             // A short query shows the outline at once. A longer query waits for the learner to stop typing.
@@ -34,6 +29,98 @@ struct CourseSidebar: View {
         .onChange(of: library.transcriptResults?.summary) { _, summary in
             if let summary { AccessibilityNotification.Announcement(summary).post() }
         }
+    }
+
+    @ViewBuilder private var outline: some View {
+        Group {
+            if let results = library.transcriptResults {
+                TranscriptResultsView(results: results, initialSelection: selectsFirstHit ? results.hits.first?.id : nil,
+                                      open: { library.openTranscriptHit($0) }, clear: { library.clearTranscriptSearch() })
+            } else {
+                CourseOutlineView(course: course, library: library, selection: Binding(
+                    get: { library.destination }, set: { library.selectDestination($0) }
+                ))
+            }
+        }
+        .listStyle(.sidebar)
+    }
+}
+
+/// The transcript search field at the top of the sidebar. Escape clears the query (#18).
+/// The course window has no split view, so `searchable(placement: .sidebar)` cannot place the field (#246).
+private struct TranscriptSearchField: View {
+    @Binding var query: String
+    var focused: FocusState<Bool>.Binding
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(palette.muted)
+                .accessibilityHidden(true)
+            TextField("Search transcripts", text: $query)
+                .textFieldStyle(.plain)
+                .focused(focused)
+                .onExitCommand { query = "" }
+            if !query.isEmpty {
+                Button("Clear", systemImage: "xmark.circle.fill") { query = "" }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(palette.muted)
+            }
+        }
+        .font(GardenFont.body)
+        .padding(.horizontal, GardenSpacing.xs)
+        .frame(height: 28)
+        .background(palette.fill, in: .garden(GardenRadius.button))
+        .overlay { RoundedRectangle.garden(GardenRadius.button).strokeBorder(palette.line, lineWidth: 1) }
+    }
+}
+
+/// The widths of the course sidebar: the learner drags the divider between `minWidth` and `maxWidth`.
+enum CourseSidebarLayout {
+    static let minWidth: CGFloat = 260
+    static let idealWidth: CGFloat = 300
+    static let maxWidth: CGFloat = 360
+}
+
+/// The 1 pt line between the sidebar and the page. A drag on it changes the sidebar width.
+/// It starts below the toolbar, so the toolbar row stays one surface (#246).
+struct CourseSidebarDivider: View {
+    @Binding var width: CGFloat
+    @State private var dragStart: CGFloat?
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        Rectangle()
+            .fill(palette.line)
+            .frame(width: 1)
+            .overlay {
+                Color.clear
+                    .frame(width: 8)
+                    .contentShape(.rect)
+                    .pointerStyle(.columnResize)
+                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { drag in
+                            let start = dragStart ?? width
+                            dragStart = start
+                            width = min(max(start + drag.translation.width, CourseSidebarLayout.minWidth), CourseSidebarLayout.maxWidth)
+                        }
+                        .onEnded { _ in dragStart = nil })
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+private struct ShowsSidebarFocusKey: FocusedValueKey {
+    typealias Value = MenuToggle
+}
+
+extension FocusedValues {
+    /// Set while a course shows. View > Show Sidebar (⌃⌘S) uses it (#246).
+    var showsSidebar: MenuToggle? {
+        get { self[ShowsSidebarFocusKey.self] }
+        set { self[ShowsSidebarFocusKey.self] = newValue }
     }
 }
 

@@ -57,11 +57,9 @@ private func runSnapshots(_ screens: [SnapshotScreen], into out: URL) throws -> 
         }
     }
 
-    // The sidebar is the system accent at 4% (6% in dark mode) on the sidebar gray. The page is white or #1E1E20.
-    // #182: every course uses the system accent. The fixture accents #286644 and #7FD3A0 do not show.
-    func sidebar(_ appearance: CourseAppearance) -> [UInt8] {
-        bytes(appearance.sidebarBase.mixed(with: systemAccent(for: appearance), by: appearance == .dark ? 0.06 : 0.04))
-    }
+    // #246: the sidebar has the page color, white or #1E1E20. No accent tints it.
+    // #182: the fixture accents #286644 and #7FD3A0 do not show.
+    func sidebar(_ appearance: CourseAppearance) -> [UInt8] { bytes(appearance.sidebarBase) }
     let page: [CourseAppearance: [UInt8]] = [.light: [0xFF, 0xFF, 0xFF], .dark: [0x1E, 0x1E, 0x20]]
     // #93: the app setting (the capture appearance) wins over the theme appearance.
     let cases: [(name: String, hasSidebar: Bool, appearance: CourseAppearance)] = [

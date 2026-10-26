@@ -59,7 +59,14 @@ struct SkillgardenApp: App {
         // The toolbar shares the row of the window buttons and shows no title. The snapshot window copies this style.
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .commands {
-            SidebarCommands()
+            // The course window has its own sidebar, not a split view, so the toolbar is one row (#246).
+            CommandGroup(replacing: .sidebar) {
+                Button(showsSidebar?.isOn == false ? "Show Sidebar" : "Hide Sidebar", systemImage: "sidebar.left") {
+                    showsSidebar?.toggle()
+                }
+                .keyboardShortcut("s", modifiers: [.control, .command])
+                .disabled(showsSidebar == nil)
+            }
             CommandGroup(after: .newItem) {
                 Button("Import Course…", systemImage: "square.and.arrow.down") {
                     if let focusedLibrary { CourseImporter.start(focusedLibrary) }
@@ -140,6 +147,8 @@ struct SkillgardenApp: App {
     @FocusedValue(\.showsNotes) private var showsNotes
     /// Nil when no video lecture with an available video shows.
     @FocusedValue(\.theaterMode) private var theaterMode
+    /// Nil on the Library home. View > Show Sidebar uses it (#246).
+    @FocusedValue(\.showsSidebar) private var showsSidebar
     /// Nil when no course outline shows.
     @FocusedValue(\.searchTranscripts) private var searchTranscripts
 }
@@ -163,7 +172,8 @@ struct ContentView: View {
     private let saveVideoText: ((VideoTextChoices) -> Void)?
     /// Theater hides the sidebar and widens the player (#85). It stays on for video lectures and ends on other pages.
     @State private var theater = TheaterMode()
-    @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @State private var sidebarShown = true
+    @State private var sidebarWidth = CourseSidebarLayout.idealWidth
     private let reloadsOnAppear: Bool
     /// The library folder to show under "No courses yet". It is nil for the default folder.
     private let customRootPath: String?
@@ -268,16 +278,20 @@ struct ContentView: View {
             }
         }
         // The toolbar is inside the theme, so its buttons get the Garden palette.
+        // One group after the window buttons: sidebar, Library, Reload (#246).
         .toolbar {
-            if library.selectedCourse != nil {
-                ToolbarItem(placement: .navigation) {
+            ToolbarItemGroup(placement: .navigation) {
+                if library.selectedCourse != nil {
+                    Button(sidebarShown ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left") {
+                        withAnimation(.easeInOut(duration: 0.2)) { sidebarShown.toggle() }
+                    }
+                    .buttonStyle(GardenToolbarButtonStyle())
+                    .help(sidebarShown ? "Hide Sidebar (⌃⌘S)" : "Show Sidebar (⌃⌘S)")
                     Button("Library", systemImage: "chevron.left") { library.selectCourse(nil) }
                         .buttonStyle(GardenToolbarButtonStyle())
                         .keyboardShortcut("[", modifiers: .command)
                         .help("Library (⌘[)")
                 }
-            }
-            ToolbarItem {
                 Button("Reload Library", systemImage: "arrow.clockwise") {
                     Task { await library.reload() }
                 }
@@ -310,23 +324,27 @@ struct ContentView: View {
     }
 
     private func setTheater(_ on: Bool) {
-        showSidebar(theater.set(on, sidebarHidden: columnVisibility == .detailOnly))
+        showSidebar(theater.set(on, sidebarHidden: !sidebarShown))
     }
 
     /// Applies a sidebar state that `TheaterMode` returns. Nil keeps the sidebar as it is.
     private func showSidebar(_ hidden: Bool?) {
         guard let hidden else { return }
-        columnVisibility = hidden ? .detailOnly : .all
+        sidebarShown = !hidden
     }
 
     /// The course workspace: the outline and the selected page.
+    /// It is not a split view: a split view cuts the toolbar into a sidebar part and a page part (#246).
     private func workspace(_ course: Course) -> some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            CourseSidebar(course: course, library: library)
-            .gardenColumn(.sidebar)
-            .navigationTitle(course.title)
-            .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
-        } detail: {
+        HStack(spacing: 0) {
+            if sidebarShown {
+                CourseSidebar(course: course, library: library)
+                    .gardenColumn(.sidebar)
+                    .frame(width: sidebarWidth)
+                    // An overlay keeps the line below the toolbar. A shape in the stack fills up into the toolbar row.
+                    .overlay(alignment: .trailing) { CourseSidebarDivider(width: $sidebarWidth) }
+                    .transition(.move(edge: .leading))
+            }
             detail.gardenColumn()
                 // One strip shows every progress write that the store refused (#210).
                 .safeAreaInset(edge: .top, spacing: 0) {
@@ -359,8 +377,12 @@ struct ContentView: View {
                     }
                 }
         }
+        .navigationTitle(course.title)
+        .focusedSceneValue(\.showsSidebar, MenuToggle(Binding(get: { sidebarShown }, set: { shown in
+            withAnimation(.easeInOut(duration: 0.2)) { sidebarShown = shown }
+        })))
         // View > Show Sidebar (⌃⌘S) and the toolbar button end theater.
-        .onChange(of: columnVisibility) { _, visibility in theater.sidebarChanged(hidden: visibility == .detailOnly) }
+        .onChange(of: sidebarShown) { _, shown in theater.sidebarChanged(hidden: !shown) }
     }
 
     /// A sheet that the snapshot harness draws in the window. A real sheet is a separate window, so the capture misses it.

@@ -1,11 +1,11 @@
 import Foundation
 
 extension CourseAppearance {
-    /// The Quiet Garden sidebar gray before the accent tint: `#F4F4F3`, or `#262628` in dark mode.
+    /// The sidebar color: the page color of the Library home, white or `#1E1E20` in dark mode (#246).
     public var sidebarBase: ThemeColor {
         switch self {
-        case .light: ThemeColor(red: 0xF4 / 255, green: 0xF4 / 255, blue: 0xF3 / 255)
-        case .dark: ThemeColor(red: 0x26 / 255, green: 0x26 / 255, blue: 0x28 / 255)
+        case .light: ThemeColor(red: 1, green: 1, blue: 1)
+        case .dark: ThemeColor(red: 0x1E / 255, green: 0x1E / 255, blue: 0x20 / 255)
         }
     }
 }
