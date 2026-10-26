@@ -31,9 +31,9 @@ func sidebarSelectionKeepsInkReadable(appearance: CourseAppearance, hex: String)
     #expect(SidebarSelection.fraction(for: .light) == 0.14)
     #expect(SidebarSelection.fraction(for: .dark) == 0.24)
     let accent = ThemeColor(hex: "#286644")!
-    #expect(SidebarSelection.color(accent: accent, appearance: .light) == ThemeColor(hex: "#F4F4F3")!.mixed(with: accent, by: 0.14))
+    #expect(SidebarSelection.color(accent: accent, appearance: .light) == ThemeColor(hex: "#FFFFFF")!.mixed(with: accent, by: 0.14))
     #expect(SidebarSelection.color(accent: accent, appearance: .dark)
-        == ThemeColor(hex: "#262628")!.mixed(with: accent.displayAccent(for: .dark), by: 0.24))
+        == ThemeColor(hex: "#1E1E20")!.mixed(with: accent.displayAccent(for: .dark), by: 0.24))
 }
 
 /// #89: the selected outline row shows the quiet accent tint, not the system selection fill.

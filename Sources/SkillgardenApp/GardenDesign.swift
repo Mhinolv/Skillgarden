@@ -80,11 +80,11 @@ struct GardenPalette: Equatable, Sendable {
     let page: Color
     /// The surface of cards and bordered buttons. It is the page color, so a hairline separates it.
     let card: Color
-    /// The sidebar column: the accent at 4% (6% in dark mode) on an off-white or dark gray.
+    /// The sidebar column: the page color, so the course window matches the Library home (#246).
     let sidebar: Color
     /// A light accent tint: the objective line, a selected quiz choice and a correct answer.
     let tint: Color
-    /// The fill of the selected sidebar row: the accent at 14% (24% in dark mode) on the sidebar gray (#89).
+    /// The fill of the selected sidebar row: the accent at 14% (24% in dark mode) on the sidebar color (#89).
     let selection: Color
     /// A neutral fill: search fields, an "on" toggle button and code blocks.
     let fill: Color
@@ -115,9 +115,9 @@ struct GardenPalette: Equatable, Sendable {
         wrong = ThemeColor(hexValue: 0xC2412C).color
         if dark {
             page = ThemeColor(hexValue: 0x1E1E20).color
-            sidebar = tinted(0x262628, 0.06)
+            sidebar = page
             tint = tinted(0x1E1E20, 0.14)
-            selection = tinted(0x262628, SidebarSelection.fraction(for: .dark))
+            selection = tinted(0x1E1E20, SidebarSelection.fraction(for: .dark))
             fill = .white.opacity(neutrals.fillOpacity)
             track = .white.opacity(neutrals.trackOpacity)
             line = .white.opacity(neutrals.lineOpacity)
@@ -125,9 +125,9 @@ struct GardenPalette: Equatable, Sendable {
             wrongFill = page.mix(with: wrong, by: 0.2, in: .device)
         } else {
             page = .white
-            sidebar = tinted(0xF4F4F3, 0.04)
+            sidebar = page
             tint = tinted(0xFFFFFF, 0.08)
-            selection = tinted(0xF4F4F3, SidebarSelection.fraction(for: .light))
+            selection = tinted(0xFFFFFF, SidebarSelection.fraction(for: .light))
             fill = .black.opacity(neutrals.fillOpacity)
             track = .black.opacity(neutrals.trackOpacity)
             line = .black.opacity(neutrals.lineOpacity)
@@ -224,7 +224,7 @@ private struct TransparentTitlebar: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     /// Hides the titlebar material again when AppKit lays out the toolbar sections:
-    /// a window resize, a sidebar toggle or a divider drag.
+    /// a window resize, a sidebar toggle, a divider drag, or a new split view when a course opens (#246).
     @MainActor
     final class Coordinator {
         private weak var window: NSWindow?
@@ -237,6 +237,15 @@ private struct TransparentTitlebar: NSViewRepresentable {
             observers.forEach(NotificationCenter.default.removeObserver)
             let center = NotificationCenter.default
             observers = [
+                // Each window posts it after each event. A course split view adds its material after the first hide.
+                // In full screen, the toolbar shows in a separate AppKit window when the pointer goes to the top (#246).
+                center.addObserver(forName: NSWindow.didUpdateNotification, object: nil, queue: .main) { [weak window] note in
+                    let updated = note.object as? NSWindow
+                    MainActor.assumeIsolated {
+                        guard let window, updated === window || updated === TitlebarMaterial.toolbarWindow(of: window) else { return }
+                        TitlebarMaterial.hide(in: window)
+                    }
+                },
                 center.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { [weak window] _ in
                     MainActor.assumeIsolated { if let window { TitlebarMaterial.hide(in: window) } }
                 },
@@ -271,10 +280,23 @@ enum TitlebarMaterial {
         for view in materialViews(in: window) where !view.isHidden { view.isHidden = true }
     }
 
+    /// The window that shows the toolbar: `window`, or in full screen the AppKit toolbar window that holds the window buttons.
+    static func toolbarWindow(of window: NSWindow) -> NSWindow? {
+        window.standardWindowButton(.closeButton)?.window
+    }
+
     /// The material views in the titlebar view: the view of the window buttons, below the toolbar items.
+    /// In full screen, every material view of the separate toolbar window counts (#246). That window shows only the toolbar.
     private static func materialViews(in window: NSWindow) -> [NSVisualEffectView] {
         guard let titlebar = window.standardWindowButton(.closeButton)?.superview else { return [] }
-        return titlebar.subviews.compactMap { $0 as? NSVisualEffectView }
+        let views = titlebar.subviews.compactMap { $0 as? NSVisualEffectView }
+        guard let host = titlebar.window, host !== window, let frame = host.contentView?.superview ?? host.contentView else {
+            return views
+        }
+        func materials(in view: NSView) -> [NSVisualEffectView] {
+            ((view as? NSVisualEffectView).map { [$0] } ?? []) + view.subviews.flatMap(materials(in:))
+        }
+        return materials(in: frame)
     }
 }
 

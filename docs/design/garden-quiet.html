@@ -39,11 +39,11 @@ table.tok{width:100%;border-collapse:collapse;font-size:12px}
 .win{width:1280px;height:800px;margin:0 auto 56px;border-radius:10px;overflow:hidden;display:flex;position:relative;
  box-shadow:0 20px 50px rgba(0,0,0,.18),0 0 0 .5px rgba(0,0,0,.25);
  --a:var(--acc);--a-ink:color-mix(in srgb,var(--acc) 85%,#000);--on:#fff;
- --bg:#FFFFFF;--side:color-mix(in srgb,var(--acc) 4%,#F4F4F3);--line:rgba(0,0,0,.08);--ink:#1D1D1F;--mut:#6E6E73;--faint:#AEAEB2;
+ --bg:#FFFFFF;--side:#FFFFFF;--line:rgba(0,0,0,.08);--ink:#1D1D1F;--mut:#6E6E73;--faint:#AEAEB2;
  --fill:rgba(0,0,0,.045);--track:rgba(0,0,0,.09);--tint:color-mix(in srgb,var(--acc) 8%,#fff);--sel:color-mix(in srgb,var(--acc) 13%,transparent);
  background:var(--bg);color:var(--ink)}
 html.dark .win{--a:color-mix(in srgb,var(--acc) 72%,#fff);--a-ink:var(--a);--on:#111;
- --bg:#1E1E20;--side:color-mix(in srgb,var(--acc) 6%,#262628);--line:rgba(255,255,255,.08);--ink:#F2F2F7;--mut:#98989D;--faint:#5E5E63;
+ --bg:#1E1E20;--side:#1E1E20;--line:rgba(255,255,255,.08);--ink:#F2F2F7;--mut:#98989D;--faint:#5E5E63;
  --fill:rgba(255,255,255,.06);--track:rgba(255,255,255,.16);--tint:color-mix(in srgb,var(--acc) 14%,#1E1E20);--sel:color-mix(in srgb,var(--acc) 26%,transparent);
  box-shadow:0 20px 50px rgba(0,0,0,.5),0 0 0 .5px rgba(255,255,255,.18)}
 .acc-n8n{--acc:#2F6E4C}.acc-teal{--acc:#127C86}.acc-app{--acc:#0A6CDB}
@@ -230,7 +230,7 @@ html.dark :is(.acc-n8n,.acc-teal,.acc-app){--a:color-mix(in srgb,var(--acc) 72%,
    <table class="tok">
     <tr><th>Token</th><th>Garden now</th><th>Quiet: light</th><th>Quiet: dark</th></tr>
     <tr><td><code>page</code> (content)</td><td>accent 7% on #FBFAF7</td><td><span class="sw" style="background:#fff"></span>#FFFFFF</td><td><span class="sw" style="background:#1E1E20"></span>#1E1E20</td></tr>
-    <tr><td><code>sidebar</code> (new)</td><td>system</td><td>accent 4% on #F4F4F3</td><td>accent 6% on #262628</td></tr>
+    <tr><td><code>sidebar</code> (new)</td><td>system</td><td>#FFFFFF, the page color (#246)</td><td>#1E1E20, the page color (#246)</td></tr>
     <tr><td><code>line</code></td><td>accent 18% on #EEEAE2</td><td>black 8%, 1 px</td><td>white 8%, 1 px</td></tr>
     <tr><td><code>soft</code> → <code>tint</code></td><td>accent 12%</td><td>accent 8% on white</td><td>accent 14% on #1E1E20</td></tr>
     <tr><td><code>ink</code> / <code>muted</code></td><td>#211F1A / #77716A</td><td>#1D1D1F / #6E6E73</td><td>#F2F2F7 / #98989D</td></tr>
