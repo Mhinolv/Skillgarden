@@ -299,3 +299,31 @@ func readingMinutesRoundUpWithMinimumOne(markdown: String, minutes: Int) {
     #expect(ImageEnlargement.aspectRatio(pixelSize: CGSize(width: 10, height: 0),
                                          pointSize: CGSize(width: 0, height: 5)) == nil)
 }
+
+@Test func articleAudioUsesOnlyBundledLearnerFiles() throws {
+    try withCourse { folder, _ in
+        let media = folder.appending(path: "content/podcast.mp3")
+        try Data([0, 1, 2]).write(to: media)
+        let article = LectureArticle(folder: folder, path: "content/plan.md", images: [])
+        let audio = try #require(ArticleAudio(paragraph: "[Listen to the podcast](podcast.mp3)", article: article))
+        #expect(audio.url == media.resolvingSymlinksInPath())
+        #expect(audio.title == "Listen to the podcast")
+        for source in ["https://example.com/podcast.mp3", "file:///tmp/podcast.mp3", "../../podcast.mp3",
+                       "../internal/podcast.mp3", "missing.mp3", "plan.md"] {
+            #expect(ArticleAudio(paragraph: "[Listen](\(source))", article: article) == nil)
+        }
+        #expect(ArticleAudio(paragraph: "Text [Listen](podcast.mp3)", article: article) == nil)
+        let external = folder.deletingLastPathComponent().appending(path: "outside.mp3")
+        try Data([0]).write(to: external)
+        try FileManager.default.createSymbolicLink(at: folder.appending(path: "content/link.mp3"), withDestinationURL: external)
+        #expect(ArticleAudio(paragraph: "[Listen](link.mp3)", article: article) == nil)
+    }
+}
+
+@Test func articleAudioClockShowsMinutesAndHours() {
+    #expect(ArticleAudio.clock(seconds: 0) == "0:00")
+    #expect(ArticleAudio.clock(seconds: 65.9) == "1:05")
+    #expect(ArticleAudio.clock(seconds: 3725) == "1:02:05")
+    #expect(ArticleAudio.clock(seconds: -3) == "0:00")
+    #expect(ArticleAudio.clock(seconds: .nan) == "0:00")
+}
