@@ -352,3 +352,30 @@ private func withLecture(_ body: (LibraryModel, URL) async throws -> Void) async
     #expect(agents.contains("Remote Q&A is opt-in"))
     #expect(doc.contains("Remote Q&A is opt-in"))
 }
+
+/// Counts the reads of a secret. Settings must check an API key profile without a read (#248).
+private final class CountingCredentialStore: CredentialStore, @unchecked Sendable {
+    let base: MemoryCredentialStore
+    private(set) var reads = 0
+    init(_ base: MemoryCredentialStore) { self.base = base }
+    func secret(account: String) throws(CredentialError) -> String? { reads += 1; return try base.secret(account: account) }
+    func secretExists(account: String) throws(CredentialError) -> Bool { try base.secretExists(account: account) }
+    func save(_ secret: String, account: String) throws(CredentialError) { try base.save(secret, account: account) }
+    func delete(account: String) throws(CredentialError) { try base.delete(account: account) }
+}
+
+@MainActor @Test func checkingAnAPIKeyProfileDoesNotReadTheKey() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = ProviderSettingsStore(directory: root)
+    var profile = openAI()
+    profile.credentialReference = "openai"
+    try store.save(SavedProviders(selectedID: "openai", profiles: [profile]))
+
+    let credentials = CountingCredentialStore(MemoryCredentialStore(secrets: ["openai": secret]))
+    let settings = ProviderSettings(store: store, credentials: credentials)
+    let readsAtLoad = credentials.reads
+    settings.checkCredentials()
+    #expect(credentials.reads == readsAtLoad)
+    #expect(settings.problems.isEmpty)
+}

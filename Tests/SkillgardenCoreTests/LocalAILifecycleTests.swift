@@ -449,7 +449,7 @@ private func supervisor(_ backend: FakeBackend, enabled: Bool = true, saved: ((B
 
 /// A Helpers folder with the built helper and `llama/llama-server` as a shell script.
 private func helpersFolder(server script: String?, version: String? = "b11669") throws -> URL {
-    let helpers = try temporaryFolder()
+    let helpers = try temporaryFolder().appending(path: "Helpers")
     let llama = helpers.appending(path: "llama")
     try FileManager.default.createDirectory(at: llama, withIntermediateDirectories: true)
     try FileManager.default.copyItem(at: try builtHost(), to: helpers.appending(path: "SkillgardenAIHost"))
@@ -459,7 +459,9 @@ private func helpersFolder(server script: String?, version: String? = "b11669") 
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: server.path)
     }
     if let version {
-        try Data(#"{"name":"llama.cpp","version":"\#(version)"}"#.utf8).write(to: llama.appending(path: "runtime.json"))
+        let manifest = BundledRuntime.manifest(helpersDirectory: helpers)
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"name":"llama.cpp","version":"\#(version)"}"#.utf8).write(to: manifest)
     }
     return helpers
 }

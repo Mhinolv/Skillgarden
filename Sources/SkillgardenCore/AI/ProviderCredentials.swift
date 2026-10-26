@@ -21,6 +21,8 @@ public enum CredentialError: Error, Equatable, Sendable {
 public protocol CredentialStore: Sendable {
     /// The secret of `account`. Nil when no item exists.
     func secret(account: String) throws(CredentialError) -> String?
+    /// True when an item exists. It does not read the secret, so the Keychain shows no password prompt (#248).
+    func secretExists(account: String) throws(CredentialError) -> Bool
     func save(_ secret: String, account: String) throws(CredentialError)
     /// Deletes the item. It does nothing when no item exists.
     func delete(account: String) throws(CredentialError)
@@ -63,6 +65,15 @@ public struct KeychainCredentialStore: CredentialStore {
         return String(decoding: data, as: UTF8.self)
     }
 
+    public func secretExists(account: String) throws(CredentialError) -> Bool {
+        let status = SecItemCopyMatching(query(account: account).merging([
+            kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitOne,
+        ]) { $1 } as CFDictionary, nil)
+        if status == errSecItemNotFound { return false }
+        if let error = Self.error(status) { throw error }
+        return true
+    }
+
     public func save(_ secret: String, account: String) throws(CredentialError) {
         let update = SecItemUpdate(query(account: account) as CFDictionary, [kSecValueData as String: Data(secret.utf8)] as CFDictionary)
         if update == errSecItemNotFound {
@@ -103,6 +114,11 @@ public final class MemoryCredentialStore: CredentialStore, @unchecked Sendable {
     public func secret(account: String) throws(CredentialError) -> String? {
         if deniedAccounts.contains(account) { throw .denied }
         return lock.withLock { secrets[account] }
+    }
+
+    public func secretExists(account: String) throws(CredentialError) -> Bool {
+        if deniedAccounts.contains(account) { throw .denied }
+        return lock.withLock { secrets[account] != nil }
     }
 
     public func save(_ secret: String, account: String) throws(CredentialError) {

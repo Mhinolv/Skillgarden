@@ -36,7 +36,9 @@ private func run(_ executable: URL, _ arguments: [String], in folder: URL, envir
     process.arguments = arguments
     process.currentDirectoryURL = folder
     // PWD keeps the logical temporary path (/var/...), so script output matches `URL.path`.
-    process.environment = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "PWD": folder.path].merging(environment) { $1 }
+    // "-" keeps the test bundles ad-hoc signed, so the output does not depend on the identities of this Mac (#248).
+    process.environment = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "PWD": folder.path, "SKILLGARDEN_DEV_IDENTITY": "-"]
+        .merging(environment) { $1 }
     let stdout = Pipe(), stderr = Pipe()
     process.standardOutput = stdout
     process.standardError = stderr
@@ -127,13 +129,13 @@ private func bundleRepository(in root: URL) throws -> URL {
     let contents = root.appending(path: "build/Skillgarden.app/Contents")
     let llama = contents.appending(path: "Helpers/llama")
     // Only llama-server and its libraries: no other release tool, no symlink, no license.
-    #expect(try FileManager.default.contentsOfDirectory(atPath: llama.path).sorted() == ["libfake.0.dylib", "llama-server", "runtime.json"])
+    #expect(try FileManager.default.contentsOfDirectory(atPath: llama.path).sorted() == ["libfake.0.dylib", "llama-server"])
     // The release symlink becomes a copy of the file that it points to.
     let library = try FileManager.default.attributesOfItem(atPath: llama.appending(path: "libfake.0.dylib").path)
     #expect(library[.type] as? FileAttributeType == .typeRegular)
     #expect(try String(contentsOf: llama.appending(path: "libfake.0.dylib"), encoding: .utf8) == "library")
     #expect(FileManager.default.isExecutableFile(atPath: llama.appending(path: "llama-server").path))
-    #expect(try Data(contentsOf: llama.appending(path: "runtime.json")) == Data(contentsOf: manifest))
+    #expect(try Data(contentsOf: contents.appending(path: "Resources/llama/runtime.json")) == Data(contentsOf: manifest))
     let licenses = contents.appending(path: "Resources/Licenses/llama.cpp")
     #expect(try FileManager.default.contentsOfDirectory(atPath: licenses.path) == ["LICENSE"])
     #expect(FileManager.default.fileExists(atPath: contents.appending(path: "Helpers/skillgarden").path))
@@ -203,7 +205,8 @@ private func checkedApp(in root: URL, minimumSystemVersion: String = "15.0") thr
     let app = root.appending(path: "Skillgarden.app")
     let llama = app.appending(path: "Contents/Helpers/llama")
     let licenses = app.appending(path: "Contents/Resources/Licenses/llama.cpp")
-    for folder in [llama, licenses] {
+    let resources = app.appending(path: "Contents/Resources/llama")
+    for folder in [llama, licenses, resources] {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     }
     let plist: [String: Any] = ["CFBundleExecutable": "Skillgarden", "LSMinimumSystemVersion": minimumSystemVersion]
@@ -222,7 +225,7 @@ private func checkedApp(in root: URL, minimumSystemVersion: String = "15.0") thr
     try tool("/usr/bin/codesign", ["--force", "--sign", "-", server.path])
     try Data("MIT License".utf8).write(to: licenses.appending(path: "LICENSE"))
     try writeManifest(["llama-server": llama.appending(path: "llama-server"), "LICENSE": licenses.appending(path: "LICENSE")],
-                      to: llama.appending(path: "runtime.json"))
+                      to: resources.appending(path: "runtime.json"))
     return app
 }
 
@@ -313,7 +316,7 @@ private func resign(_ app: URL, _ arguments: [String]) throws {
     let server = llama.appending(path: "llama-server")
     try tool("/usr/bin/codesign", arguments + [server.path])
     try writeManifest(["llama-server": server, "LICENSE": app.appending(path: "Contents/Resources/Licenses/llama.cpp/LICENSE")],
-                      to: llama.appending(path: "runtime.json"))
+                      to: app.appending(path: "Contents/Resources/llama/runtime.json"))
 }
 
 private let allPassBeforeSignature = "PASS arm64\nPASS deployment target 15.0\nPASS library paths\nPASS upstream hash\n"
@@ -408,14 +411,14 @@ func preparedReleasePassesTheChecks() throws {
     let llama = app.appending(path: "Contents/Helpers/llama")
     let manifest = repo.appending(path: "assets/llama.cpp/runtime.json")
     try FileManager.default.removeItem(at: llama.appending(path: "llama-server"))
-    try FileManager.default.removeItem(at: llama.appending(path: "runtime.json"))
+    try FileManager.default.removeItem(at: app.appending(path: "Contents/Resources/llama/runtime.json"))
     try FileManager.default.removeItem(at: app.appending(path: "Contents/Resources/Licenses/llama.cpp/LICENSE"))
     let json = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as? [String: Any])
     for name in try #require((json["sha256"] as? [String: String])?.keys) {
         let target = name == "LICENSE" ? app.appending(path: "Contents/Resources/Licenses/llama.cpp/LICENSE") : llama.appending(path: name)
         try FileManager.default.copyItem(at: preparedRuntime.appending(path: name).resolvingSymlinksInPath(), to: target)
     }
-    try FileManager.default.copyItem(at: manifest, to: llama.appending(path: "runtime.json"))
+    try FileManager.default.copyItem(at: manifest, to: app.appending(path: "Contents/Resources/llama/runtime.json"))
     let result = try check(app)
     #expect(result.status == 0, "\(result.output)\(result.errorText)")
     #expect(result.output == allPass)

@@ -3,7 +3,7 @@ import Foundation
 
 /// The real supervisor backend: the runtime in `Skillgarden.app/Contents/Helpers` (#121, #123).
 public struct BundledRuntime: LocalAIBackend {
-    /// `Contents/Helpers`: `SkillgardenAIHost` and `llama/llama-server` with `llama/runtime.json`.
+    /// `Contents/Helpers`: `SkillgardenAIHost` and `llama/llama-server`. The manifest is in `Contents/Resources` (#248).
     public let helpersDirectory: URL
     private let session: URLSession
 
@@ -14,12 +14,18 @@ public struct BundledRuntime: LocalAIBackend {
         session = URLSession(configuration: configuration)
     }
 
+    /// `Contents/Resources/llama/runtime.json`. Contents/Helpers holds only code: codesign refuses to sign an app
+    /// with a data file there (#248).
+    public static func manifest(helpersDirectory: URL) -> URL {
+        helpersDirectory.deletingLastPathComponent().appending(path: "Resources/llama/runtime.json")
+    }
+
     public func locateRuntime() -> Result<LocalAIRuntime, LocalAIProblem> {
         let llama = helpersDirectory.appending(path: "llama", directoryHint: .isDirectory)
         let server = llama.appending(path: "llama-server")
         let host = helpersDirectory.appending(path: "SkillgardenAIHost")
         guard FileManager.default.isExecutableFile(atPath: server.path), FileManager.default.isExecutableFile(atPath: host.path),
-              let data = try? Data(contentsOf: llama.appending(path: "runtime.json")),
+              let data = try? Data(contentsOf: Self.manifest(helpersDirectory: helpersDirectory)),
               let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let version = manifest["version"] as? String, !version.isEmpty else {
             return .failure(.runtimeMissing)

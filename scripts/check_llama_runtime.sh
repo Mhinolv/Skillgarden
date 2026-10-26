@@ -21,7 +21,7 @@ esac
 APP=${1:-$(dirname "$0")/../build/Skillgarden.app}
 APP=${APP%/}
 LLAMA=$APP/Contents/Helpers/llama
-MANIFEST=$LLAMA/runtime.json
+MANIFEST=$APP/Contents/Resources/llama/runtime.json
 LICENSES=$APP/Contents/Resources/Licenses/llama.cpp
 FAILED=0
 
