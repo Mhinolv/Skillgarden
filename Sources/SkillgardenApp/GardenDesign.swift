@@ -237,9 +237,14 @@ private struct TransparentTitlebar: NSViewRepresentable {
             observers.forEach(NotificationCenter.default.removeObserver)
             let center = NotificationCenter.default
             observers = [
-                // The window posts it after each event. A course split view adds its material after the first hide (#246).
-                center.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak window] _ in
-                    MainActor.assumeIsolated { if let window { TitlebarMaterial.hide(in: window) } }
+                // Each window posts it after each event. A course split view adds its material after the first hide.
+                // In full screen, the toolbar shows in a separate AppKit window when the pointer goes to the top (#246).
+                center.addObserver(forName: NSWindow.didUpdateNotification, object: nil, queue: .main) { [weak window] note in
+                    let updated = note.object as? NSWindow
+                    MainActor.assumeIsolated {
+                        guard let window, updated === window || updated === TitlebarMaterial.toolbarWindow(of: window) else { return }
+                        TitlebarMaterial.hide(in: window)
+                    }
                 },
                 center.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { [weak window] _ in
                     MainActor.assumeIsolated { if let window { TitlebarMaterial.hide(in: window) } }
@@ -275,10 +280,23 @@ enum TitlebarMaterial {
         for view in materialViews(in: window) where !view.isHidden { view.isHidden = true }
     }
 
+    /// The window that shows the toolbar: `window`, or in full screen the AppKit toolbar window that holds the window buttons.
+    static func toolbarWindow(of window: NSWindow) -> NSWindow? {
+        window.standardWindowButton(.closeButton)?.window
+    }
+
     /// The material views in the titlebar view: the view of the window buttons, below the toolbar items.
+    /// In full screen, every material view of the separate toolbar window counts (#246). That window shows only the toolbar.
     private static func materialViews(in window: NSWindow) -> [NSVisualEffectView] {
         guard let titlebar = window.standardWindowButton(.closeButton)?.superview else { return [] }
-        return titlebar.subviews.compactMap { $0 as? NSVisualEffectView }
+        let views = titlebar.subviews.compactMap { $0 as? NSVisualEffectView }
+        guard let host = titlebar.window, host !== window, let frame = host.contentView?.superview ?? host.contentView else {
+            return views
+        }
+        func materials(in view: NSView) -> [NSVisualEffectView] {
+            ((view as? NSVisualEffectView).map { [$0] } ?? []) + view.subviews.flatMap(materials(in:))
+        }
+        return materials(in: frame)
     }
 }
 
