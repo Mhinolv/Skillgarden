@@ -75,3 +75,33 @@ public struct LectureArticle: Equatable, Sendable {
         name.lowercased() == "internal"
     }
 }
+
+/// A standalone Markdown audio link resolved inside the installed learner snapshot.
+public struct ArticleAudio: Equatable, Sendable {
+    public let url: URL
+    public let title: String
+
+    public init?(paragraph: String, article: LectureArticle) {
+        let pattern = #"^\[([^\]]+)\]\(([^()\s]+)\)$"#
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(in: paragraph, range: NSRange(paragraph.startIndex..., in: paragraph)),
+              let titleRange = Range(match.range(at: 1), in: paragraph),
+              let sourceRange = Range(match.range(at: 2), in: paragraph),
+              let relative = LectureArticle.resolve(String(paragraph[sourceRange]), article: article.path) else { return nil }
+        let candidate = article.folder.appending(path: relative).resolvingSymlinksInPath()
+        let root = article.folder.resolvingSymlinksInPath()
+        guard candidate.path.hasPrefix(root.path + "/"),
+              LectureArticle.resolve(String(candidate.path.dropFirst(root.path.count + 1)), article: "root.md") != nil,
+              ["mp3", "m4a", "wav", "aiff", "aac", "flac"].contains(candidate.pathExtension.lowercased()),
+              (try? candidate.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { return nil }
+        url = candidate
+        title = String(paragraph[titleRange])
+    }
+
+    /// The time label of the audio controls: "m:ss", or "h:mm:ss" from one hour. A negative or unknown value shows as "0:00".
+    public static func clock(seconds: Double) -> String {
+        let total = seconds.isFinite ? max(0, Int(seconds.rounded(.down))) : 0
+        let (hours, minutes, rest) = (total / 3600, total / 60 % 60, total % 60)
+        return hours > 0 ? String(format: "%d:%02d:%02d", hours, minutes, rest) : String(format: "%d:%02d", minutes, rest)
+    }
+}
