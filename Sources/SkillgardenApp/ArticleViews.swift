@@ -1,4 +1,5 @@
 import AppKit
+import AVKit
 import SwiftUI
 import SkillgardenCore
 
@@ -8,6 +9,7 @@ struct RenderedMarkdown: Sendable {
     enum Block: Sendable {
         case heading(level: Int, text: AttributedString)
         case paragraph(AttributedString)
+        case audio(ArticleAudio)
         case list(ordered: Bool, start: Int, items: [AttributedString])
         case code(String)
         case quote(AttributedString)
@@ -20,12 +22,13 @@ struct RenderedMarkdown: Sendable {
     let readingMinutes: Int
 
     /// `image` returns the file and the manifest alt text of a reference. The Markdown alt text is the fallback.
-    init(document: MarkdownDocument, image: (String) -> (url: URL, alt: String?)?) {
+    init(document: MarkdownDocument, image: (String) -> (url: URL, alt: String?)?, audio: (String) -> ArticleAudio? = { _ in nil }) {
         readingMinutes = document.readingMinutes
         blocks = document.blocks.map { block in
             switch block {
             case let .heading(level, text): .heading(level: level, text: Self.inline(text))
-            case let .paragraph(text): .paragraph(Self.inline(text))
+            case let .paragraph(text):
+                audio(text).map { .audio($0) } ?? .paragraph(Self.inline(text))
             case let .list(ordered, start, items): .list(ordered: ordered, start: start, items: items.map(Self.inline))
             case let .code(text): .code(text)
             case let .quote(text): .quote(Self.inline(text))
@@ -37,7 +40,8 @@ struct RenderedMarkdown: Sendable {
     }
 
     init(article: LectureArticle) throws {
-        self.init(document: try article.load(), image: article.image(for:))
+        self.init(document: try article.load(), image: article.image(for:),
+                  audio: { ArticleAudio(paragraph: $0, article: article) })
     }
 
     private static func inline(_ text: String) -> AttributedString {
@@ -124,6 +128,8 @@ struct MarkdownBlocksView: View {
                 .accessibilityAddTraits(.isHeader)
         case let .paragraph(text):
             Text(text)
+        case let .audio(audio):
+            InlineArticleAudio(audio: audio)
         case let .list(ordered, start, items):
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
@@ -344,5 +350,105 @@ extension EnvironmentValues {
     var snapshotEnlargedImage: SnapshotEnlargedImage? {
         get { self[SnapshotEnlargedImageKey.self] }
         set { self[SnapshotEnlargedImageKey.self] = newValue }
+    }
+}
+
+/// Playback controls for an audio file bundled with the course: play or pause, a position slider and the times.
+/// `AVPlayerView` shows a QuickTime image for audio, so the controls are SwiftUI.
+private struct InlineArticleAudio: View {
+    let audio: ArticleAudio
+    @State private var playback: ArticleAudioPlayback?
+    @Environment(\.gardenPalette) private var palette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(audio.title, systemImage: "headphones")
+                .font(GardenFont.cardTitle)
+            HStack(spacing: 10) {
+                Button(playback?.isPlaying == true ? "Pause" : "Play",
+                       systemImage: playback?.isPlaying == true ? "pause.fill" : "play.fill") { playback?.toggle() }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .font(.title3)
+                    .frame(width: 24)
+                Text(ArticleAudio.clock(seconds: playback?.position ?? 0))
+                    .monospacedDigit()
+                Slider(value: Binding(get: { playback?.position ?? 0 }, set: { playback?.scrub(to: $0) }),
+                       in: 0...max(playback?.duration ?? 0, 1)) { editing in playback?.isScrubbing = editing }
+                    .controlSize(.small)
+                    .disabled((playback?.duration ?? 0) <= 0)
+                    .accessibilityLabel("Position")
+                    .accessibilityValue(ArticleAudio.clock(seconds: playback?.position ?? 0))
+                Text(ArticleAudio.clock(seconds: playback?.duration ?? 0))
+                    .monospacedDigit()
+            }
+            .font(GardenFont.meta)
+            .foregroundStyle(palette.muted)
+            .gardenCard(padding: GardenSpacing.s)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(audio.title)
+        }
+        .task(id: audio.url) { playback = ArticleAudioPlayback(url: audio.url) }
+        .onDisappear { playback?.stop() }
+    }
+}
+
+/// Owns the player of one article audio file and publishes the position about 4 times a second.
+@MainActor @Observable
+private final class ArticleAudioPlayback {
+    private(set) var isPlaying = false
+    private(set) var position: Double = 0
+    private(set) var duration: Double = 0
+    /// While the learner drags the slider, the time ticks do not move it.
+    var isScrubbing = false
+    @ObservationIgnored private let player: AVPlayer
+    @ObservationIgnored private var observer: Any?
+    @ObservationIgnored private var endObserver: (any NSObjectProtocol)?
+
+    init(url: URL) {
+        player = AVPlayer(url: url)
+        let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
+        observer = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            MainActor.assumeIsolated { self?.tick(time) }
+        }
+        endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
+                                                             object: player.currentItem, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.ended() }
+        }
+        Task { [weak self] in
+            guard let asset = self?.player.currentItem?.asset,
+                  let seconds = try? await asset.load(.duration).seconds, seconds.isFinite else { return }
+            self?.duration = seconds
+        }
+    }
+
+    func toggle() {
+        if isPlaying { player.pause() } else { player.play() }
+        isPlaying.toggle()
+    }
+
+    func scrub(to seconds: Double) {
+        position = seconds
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    func stop() {
+        player.pause()
+        isPlaying = false
+        if let observer { player.removeTimeObserver(observer) }
+        observer = nil
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = nil
+    }
+
+    private func ended() {
+        isPlaying = false
+        position = 0
+        player.seek(to: .zero)
+    }
+
+    private func tick(_ time: CMTime) {
+        guard !isScrubbing, time.seconds.isFinite else { return }
+        position = time.seconds
     }
 }
