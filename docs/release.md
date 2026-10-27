@@ -121,12 +121,13 @@ scripts/check_release.sh build/release/Skillgarden-<version>.zip
 | `cli publish` | The bundled `skillgarden` makes and publishes a course in a temporary library |
 | `cli republish` | A second publish changes nothing |
 | `cli inspect` | `skillgarden inspect` shows the course |
+| `cli skill` | `skillgarden skill install` writes the bundled agent skill into a temporary folder (#250) |
 
 ```
 PASS  architecture     arm64 (14 binaries)
 ...
 artifact  sha256 <64 hex characters>  build/release/Skillgarden-0.1.0.zip
-result    PASS (9 checks)
+result    PASS (10 checks)
 ```
 
 - For a zip, the `artifact` SHA-256 is the SHA-256 that `release_app.sh` prints.

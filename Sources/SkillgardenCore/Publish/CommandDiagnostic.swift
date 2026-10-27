@@ -38,6 +38,8 @@ public enum DiagnosticCode: String, CaseIterable, Sendable {
     case noVideoLength = "no_video_length"
     /// SQLite reports a lock conflict inside the library connection (#117). Another process uses `library.busy`.
     case libraryLocked = "library.locked"
+    /// `skill install` finds no agent skill in `Contents/Resources` of the app, such as for a source build (#250).
+    case skillNotBundled = "skill.not_bundled"
 }
 
 /// One problem of a CLI run. Text mode prints `error: <text>`. JSON mode writes each field.
@@ -145,7 +147,7 @@ extension ManifestDiagnostic {
             return "Change \(path) to \(message[range.upperBound...])."
         case .usage, .dataDirectoryRelative, .courseFolderMissing, .fieldValue, .mediaInvalid, .courseNotFound, .libraryBusy, .io,
              .dataDirectoryNotFolder, .courseFolderNotEmpty, .courseFolderNotFolder, .fileNotFound, .notMP4, .noVideoLength,
-             .libraryLocked:
+             .libraryLocked, .skillNotBundled:
             return nil
         }
     }

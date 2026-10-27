@@ -207,6 +207,17 @@ elif cli inspect $COURSE_ID; then
 fi
 [[ -z $detail ]] && report PASS "cli inspect" "temporary library" || report FAIL "cli inspect" "$detail"
 
+# 10. cli skill: the bundled CLI installs the agent skill from Contents/Resources/AgentSkill into a temporary folder (#250).
+detail=""
+if [[ ! -x $CLI ]]; then
+  detail="Contents/Helpers/skillgarden not found"
+elif cli skill install "$WORK/skills"; then
+  for file in SKILL.md agent-publishing.md; do
+    [[ -s $WORK/skills/skillgarden-publish/$file ]] || { detail="skill install wrote no $file"; break }
+  done
+fi
+[[ -z $detail ]] && report PASS "cli skill" "temporary folder" || report FAIL "cli skill" "$detail"
+
 printf '%-9s %s\n' artifact "sha256 $HASH  $ARTIFACT"
 if (( FAILED )); then
   printf '%-9s %s\n' result "FAIL ($FAILED of $TOTAL checks failed)"

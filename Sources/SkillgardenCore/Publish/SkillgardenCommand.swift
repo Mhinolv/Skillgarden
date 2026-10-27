@@ -39,6 +39,7 @@ public enum SkillgardenCommand {
                skillgarden remove <course-id> --yes [--json]
                skillgarden init <folder> --id <id> --title <title> [--json]
                skillgarden media inspect <file> [--json]
+               skillgarden skill install <folder> [--json]
                skillgarden doctor [--json]
                skillgarden schema [--output <file>]
                skillgarden --version
@@ -54,6 +55,7 @@ public enum SkillgardenCommand {
           skillgarden validate ./my-course
           SKILLGARDEN_DATA_DIR="$PWD/.skillgarden-library" \\
             skillgarden publish ./my-course
+          skillgarden skill install ~/.claude/skills
 
         Library folder (first match wins):
           1. \(Skillgarden.dataDirectoryVariable) (absolute path)
@@ -75,17 +77,19 @@ public enum SkillgardenCommand {
     public static let jsonFormatVersion = 1
 
     /// `root` is read only by the commands that open the library. A bad data folder setting exits 2.
-    /// `doctor` is read only by `skillgarden doctor`.
+    /// `doctor` is read only by `skillgarden doctor`. `skill` is read only by `skillgarden skill install` (#250).
     public static func run(arguments: [String],
                            root: @autoclosure () throws -> URL = try Skillgarden.dataDirectory(),
-                           doctor: @autoclosure () -> Doctor = Doctor.current()) -> CommandResult {
+                           doctor: @autoclosure () -> Doctor = Doctor.current(),
+                           skill: @autoclosure () -> URL? = AgentSkill.bundledFolder()) -> CommandResult {
         if arguments == ["--version"] || arguments == ["version"] {
             return CommandResult(exitCode: 0, stdout: "skillgarden \(Skillgarden.version)\n", stderr: "")
         }
         if arguments == ["publish", "--help"] || arguments == ["validate", "--help"] || arguments == ["doctor", "--help"]
             || arguments == ["init", "--help"] || arguments == ["schema", "--help"] || arguments == ["inspect", "--help"]
             || arguments == ["remove", "--help"]
-            || arguments == ["media", "--help"] || arguments == ["media", "inspect", "--help"] || arguments == ["--help"] {
+            || arguments == ["media", "--help"] || arguments == ["media", "inspect", "--help"]
+            || arguments == ["skill", "--help"] || arguments == ["skill", "install", "--help"] || arguments == ["--help"] {
             return CommandResult(exitCode: 0, stdout: help, stderr: "")
         }
         // `--json` can come anywhere after the command name.
@@ -120,6 +124,10 @@ public enum SkillgardenCommand {
             command = "media inspect"
             outcome = arguments.count == 3 && arguments[1] == "inspect" && !arguments[2].isEmpty && !arguments[2].hasPrefix("-")
                 ? inspectMedia(file: arguments[2]) : usageError("expected media inspect <file>")
+        case "skill":
+            command = "skill install"
+            outcome = arguments.count == 3 && arguments[1] == "install" && !arguments[2].isEmpty && !arguments[2].hasPrefix("-")
+                ? installSkill(folder: arguments[2], source: skill()) : usageError("expected skill install <folder>")
         case "init":
             command = "init"
             outcome = initArguments(Array(arguments.dropFirst())).map(initCourse)
@@ -351,6 +359,32 @@ public enum SkillgardenCommand {
         return CommandOutcome(exitCode: 0, text: lines.map { $0 + "\n" }.joined(), result: [
             "path": file.path, "format": "mp4", "duration_seconds": length, "accepted_min": lowest, "accepted_max": highest,
         ])
+    }
+
+    /// Copies the bundled agent skill into `<folder>/skillgarden-publish` (#250). It does not open the library.
+    private static func installSkill(folder path: String, source: URL?) -> CommandOutcome {
+        let folder = URL(fileURLWithPath: path).standardizedFileURL
+        let installed: URL
+        do throws(AgentSkill.InstallError) {
+            guard let source else { throw AgentSkill.InstallError.notBundled(path: "Contents/Resources/\(AgentSkill.resourceFolder)") }
+            installed = try AgentSkill.install(from: source, into: folder)
+        } catch {
+            switch error {
+            case .notBundled(let path):
+                var outcome = CommandOutcome.failure(3, [CommandDiagnostic(
+                    code: .skillNotBundled, file: path, message: error.localizedDescription,
+                    hint: "Run the skillgarden command of Skillgarden.app. A source build has no bundled skill.")])
+                outcome.showsHints = true
+                return outcome
+            case .notAFolder(let file):
+                return .failure(3, [CommandDiagnostic(code: .io, file: file, message: error.localizedDescription)])
+            case .write(let file, _):
+                return .failure(3, [CommandDiagnostic(code: .io, file: file, message: error.localizedDescription)])
+            }
+        }
+        let files = AgentSkill.files.map { installed.appending(path: $0).path }
+        return CommandOutcome(exitCode: 0, text: "Installed skill \(AgentSkill.name) to \(installed.path)\n",
+                              result: ["name": AgentSkill.name, "path": installed.path, "files": files])
     }
 
     /// Checks the course folder like publish does. It does not open or write the library.

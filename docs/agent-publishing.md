@@ -3,6 +3,7 @@
 This guide tells an agent how to publish a course to the Skillgarden library with the `skillgarden` CLI.
 The example course is `Tests/Fixtures/sample-course`.
 The publication skill, with the steps from workspace publish to owner handoff, is `docs/agent-skill/SKILL.md`.
+To give the skill to an agent, run `skillgarden skill install <folder>`, such as `skillgarden skill install ~/.claude/skills`.
 Learners install the app and import courses with [Install and first use](install.md).
 
 ## 1. Quick start
@@ -307,6 +308,7 @@ Library: /path/to/library
 ## 7. Commands and exit codes
 
 The app bundle holds the CLI at `Skillgarden.app/Contents/Helpers/skillgarden`. The commands are the same for each copy.
+To put the CLI on `PATH`, choose Skillgarden > "Install Command Line Tool…" in the app. It makes `~/.local/bin/skillgarden` a symlink to the bundled CLI.
 
 | Command | Output on success |
 |---|---|
@@ -318,6 +320,7 @@ The app bundle holds the CLI at `Skillgarden.app/Contents/Helpers/skillgarden`. 
 | `skillgarden remove <course-id> --yes` | `Removed "<title>" (<id>) from the library.`, the progress line, one `Files stay on disk: <path>` line for each folder, `Library: <path>`. See section 6b. |
 | `skillgarden init <folder> --id <id> --title <title>` | `Created "<title>" (<id>, draft): 4 files in <path>`, then the draft line and the next step |
 | `skillgarden media inspect <file>` | `File: <path>`, `Format: MP4`, `Duration: <m:ss> (<n> seconds)`, `Manifest: duration_seconds: <n>`, `Validate accepts: <min> to <max>`. It does not open the library. |
+| `skillgarden skill install <folder>` | `Installed skill skillgarden-publish to <path>`. It writes `<folder>/skillgarden-publish/SKILL.md` and `agent-publishing.md`, makes missing folders and replaces old files. It needs the CLI of `Skillgarden.app`. It does not open the library. |
 | `skillgarden doctor` | Labelled lines: version, CLI, library, source, folder, write access, app library, match, sandbox |
 | `skillgarden schema [--output <file>]` | The manifest JSON Schema. With `--output`: `Wrote manifest schema 1 to <path>`. See section 8. |
 | `skillgarden --version` | `skillgarden <version>` |
@@ -330,7 +333,7 @@ For a draft course, `validate` and `publish` also print `Draft: learners do not 
 | 0 | Success | Results on stdout |
 | 1 | Manifest or file errors. For `inspect` and `remove`, an unknown course id. For `init`, a folder that is not empty or a path that is not a folder. For `media inspect`, a file that is not MP4 or has no readable length. | One `error: <file>: <fieldPath>: <message>` line on stderr for each problem. List indexes in `<fieldPath>` start at 0: `sections[0]` is the first section. |
 | 2 | Usage error or bad data folder setting. For `remove`, a run without `--yes`. | `error: ...` on stderr. A usage error also prints the `usage:` lines and `Run "skillgarden --help" for more.` |
-| 3 | I/O or library error. For `validate`, also a missing course folder. For `media inspect`, a file that does not exist or a folder. For `doctor`, a library path that is not a folder. For `schema`, a file that cannot be written. A busy or locked library. | `error: <description>` on stderr. A busy or locked library also prints a `hint:` line and `Library: <path>`. |
+| 3 | I/O or library error. For `validate`, also a missing course folder. For `media inspect`, a file that does not exist or a folder. For `doctor`, a library path that is not a folder. For `schema`, a file that cannot be written. For `skill install`, no bundled skill or a file in place of a folder. A busy or locked library. | `error: <description>` on stderr. A busy or locked library also prints a `hint:` line and `Library: <path>`. |
 
 `doctor` prints its report on stdout also for exit codes 2 and 3.
 
@@ -341,10 +344,10 @@ Add `--json` anywhere after the command name, for example `skillgarden validate 
 | Key | Value |
 |---|---|
 | `format_version` | `1`. Later versions add keys only. |
-| `command` | `validate`, `publish`, `internal list`, `inspect`, `remove`, `media inspect`, `init`, `doctor`, `schema`, or `null` for an unknown command |
+| `command` | `validate`, `publish`, `internal list`, `inspect`, `remove`, `media inspect`, `skill install`, `init`, `doctor`, `schema`, or `null` for an unknown command |
 | `ok` | `true` when `exit_code` is 0 |
 | `exit_code` | The process exit code |
-| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`, `files` (`added`, `changed`, `unchanged`, `removed`), `snapshot` (`state` `new` or `kept`, `id`, `files`, integer `bytes`). `publish --dry-run` adds `dry_run` (`true`), `changes` (each with `action`, `kind`, `id`) and `migration` (`from`, `to`, or `null`). Its `snapshot.id` is `null` for a new snapshot. `internal list`: `files`, each with `title`, `path`, `description`. `inspect`: `title`, `id`, `state`, `draft`, `visible`, `sections`, `visible_sections`, `lectures`, `visible_lectures`, `snapshot` (`id`, `path`), `internal_files`, `library_path`. `remove`: `title`, `id`, `progress_kept` (`true`), `folders_kept` (the paths of the `Files stay on disk:` lines), `library_path`. `media inspect`: `path`, `format` (`mp4`), `duration_seconds`, `accepted_min`, `accepted_max`. `init`: `title`, `id`, `state`, `draft`, `path`, `files`. `schema --output`: `path`, `schema_version`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
+| `result` | `null` on failure. `validate`: `title`, `id`, `state`, `draft`, `sections`, `lectures`. `publish`: `title`, `id`, `state`, `draft`, `created`, `updated`, `unchanged`, `removed`, `library_path`, `files` (`added`, `changed`, `unchanged`, `removed`), `snapshot` (`state` `new` or `kept`, `id`, `files`, integer `bytes`). `publish --dry-run` adds `dry_run` (`true`), `changes` (each with `action`, `kind`, `id`) and `migration` (`from`, `to`, or `null`). Its `snapshot.id` is `null` for a new snapshot. `internal list`: `files`, each with `title`, `path`, `description`. `inspect`: `title`, `id`, `state`, `draft`, `visible`, `sections`, `visible_sections`, `lectures`, `visible_lectures`, `snapshot` (`id`, `path`), `internal_files`, `library_path`. `remove`: `title`, `id`, `progress_kept` (`true`), `folders_kept` (the paths of the `Files stay on disk:` lines), `library_path`. `media inspect`: `path`, `format` (`mp4`), `duration_seconds`, `accepted_min`, `accepted_max`. `skill install`: `name`, `path`, `files`. `init`: `title`, `id`, `state`, `draft`, `path`, `files`. `schema --output`: `path`, `schema_version`. `doctor` (also on failure): `version`, `cli_path`, `library_path`, `source`, `folder`, `write_access`, `app_library_path`, `app_source`, `match`, `sandbox`. |
 | `diagnostics` | One object for each problem: `code`, `severity` (`error`), `message`, `file`, `field_path`, `hint`, `library_path`. `file`, `field_path`, `hint` and `library_path` are `null` when unknown. `library_path` is set for `library.busy` and `library.locked`. |
 
 The `code` values are stable. New versions add codes, but never rename a code.
@@ -366,6 +369,7 @@ The `code` values are stable. New versions add codes, but never rename a code.
 | `course.not_found` | `internal list`, `inspect` or `remove` cannot find the course |
 | `library.busy` | Another process held a write lock on the library for more than 5 seconds. Run the command again when it stops. |
 | `library.locked` | Another operation in the same process locked the library database. Run the command again. |
+| `skill.not_bundled` | `skill install` finds no agent skill in `Contents/Resources/AgentSkill`, such as for a source build |
 | `io` | All other errors |
 
 ## 8. Manifest schema

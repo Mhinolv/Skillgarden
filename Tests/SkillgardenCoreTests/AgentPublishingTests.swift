@@ -212,7 +212,10 @@ private func contents(of folder: URL) throws -> [String: Data] {
     #expect(headings == ["## 1. Requirements", "## 2. Install", "## 3. Your data", "## 4. Add a course", "## 5. Take a course",
                          "## 6. Q&A with the bundled model", "## 7. Remote providers (optional)", "## 8. Uninstall"])
     for text in ["Apple silicon", "~/Library/Application Support/Skillgarden", "\"Import Course…\" (⇧⌘I)", "\"Choose Model…\"",
-                 "\"Allow and Send\"", "Keychain", "(agent-publishing.md)", "(local-ai.md)"] {
+                 "\"Allow and Send\"", "Keychain", "(agent-publishing.md)", "(local-ai.md)",
+                 // #250: the CLI and agent skill install for app users.
+                 "### Install the command line tool", "Skillgarden > \"Install Command Line Tool…\"", CommandLineTool.pathLine,
+                 "### Install the agent skill", "skillgarden skill install ~/.claude/skills"] {
         #expect(guide.contains(text), "\(text)")
     }
     #expect(!guide.contains("http") && !guide.contains("Intel"))

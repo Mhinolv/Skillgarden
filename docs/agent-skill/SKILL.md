@@ -9,9 +9,10 @@ Use this skill to publish a course with the `skillgarden` CLI from a sandboxed w
 Do every step in the workspace. Do not write to `~` or to `~/Library/Application Support`.
 
 - The CLI is in the app bundle: `/Applications/Skillgarden.app/Contents/Helpers/skillgarden`.
-  The examples write `skillgarden` for it. Use the full path, or copy the CLI with `scripts/install_cli.sh ./bin`.
+  The examples write `skillgarden` for it. If `skillgarden` is not on `PATH`, use the full path.
+  The owner puts it on `PATH` with Skillgarden > "Install Command Line Tool…" in the app.
 - The examples use the course folder `./my-course`. To start a new course, run `skillgarden init ./my-course --id my-course --title "My Course"`.
-- Manifest fields, lecture types and all commands: `docs/agent-publishing.md`.
+- Manifest fields, lecture types and all commands: [docs/agent-publishing.md](../agent-publishing.md).
 
 ## 1. Set the library in the workspace
 

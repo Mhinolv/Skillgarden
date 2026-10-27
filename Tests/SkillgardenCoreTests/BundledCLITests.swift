@@ -73,6 +73,9 @@ private func expectedVersion() throws -> String {
 private let repositoryNotices = ["Skillgarden": "LICENSE", "Yams": "Vendor/Yams/LICENSE",
                                  "libyaml": "Vendor/Yams/Sources/CYaml/LICENSE"]
 
+/// The repository files that bundle_app.sh copies to Contents/Resources/AgentSkill (#250).
+private let agentSkillSources = ["docs/agent-skill/SKILL.md", "docs/agent-publishing.md"]
+
 /// The Swift file that holds the release constants that bundle_app.sh reads (#214).
 private let releaseSourcePath = "Sources/SkillgardenCore/Skillgarden.swift"
 
@@ -106,6 +109,11 @@ private func bundleRepository(in root: URL, products: [String] = ["debug", "rele
         let notice = root.appending(path: path)
         try FileManager.default.createDirectory(at: notice.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("\(component) license".utf8).write(to: notice)
+    }
+    for path in agentSkillSources {
+        let file = root.appending(path: path)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: repo.appending(path: path), to: file)
     }
     let llama = root.appending(path: "llama")
     try makeLlamaRuntime(at: llama, manifest: root.appending(path: "assets/llama.cpp/runtime.json"), server: try builtCLI())
@@ -438,4 +446,101 @@ func bundleScriptStopsWhenAReleaseConstantIsMissing(name: String, line: String, 
     let usage = try run(script, ["--bogus"], in: root)
     #expect(usage.status == 2)
     #expect(usage.errorText.contains("usage: scripts/install_cli.sh [--app <Skillgarden.app>] [<destination>]"))
+}
+
+/// #250: Contents/Resources/AgentSkill holds the skill and the guide. Contents/Helpers holds only code (#248).
+@Test func bundleScriptPutsTheAgentSkillInResources() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (_, llama) = try bundleRepository(in: root)
+
+    let bundle = try runBundle([], in: root, llama: llama)
+    #expect(bundle.status == 0, "\(bundle.errorText)")
+    #expect(bundle.output.contains("\nCopied agent skill: SKILL.md, agent-publishing.md\n"))
+    let contents = root.appending(path: "build/Skillgarden.app/Contents")
+    let skill = contents.appending(path: "Resources/AgentSkill")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: skill.path).sorted() == ["SKILL.md", "agent-publishing.md"])
+    for path in agentSkillSources {
+        let file = skill.appending(path: URL(fileURLWithPath: path).lastPathComponent)
+        #expect(try Data(contentsOf: file) == Data(contentsOf: repo.appending(path: path)), "\(path)")
+    }
+    #expect(try FileManager.default.contentsOfDirectory(atPath: contents.appending(path: "Helpers").path).sorted()
+        == ["SkillgardenAIHost", "llama", "skillgarden"])
+}
+
+/// #250: a missing skill file stops the script before the build.
+@Test(arguments: ["docs/agent-skill/SKILL.md", "docs/agent-publishing.md"])
+func bundleScriptStopsWhenAnAgentSkillFileIsMissing(path: String) throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (_, llama) = try bundleRepository(in: root)
+    try FileManager.default.removeItem(at: root.appending(path: path))
+
+    let bundle = try runBundle([], in: root, llama: llama)
+    #expect(bundle.status == 1)
+    #expect(bundle.errorText == "error: missing agent skill file: \(path)\n")
+    #expect(buildLog(in: root) == nil)
+    #expect(!FileManager.default.fileExists(atPath: root.appending(path: "build/Skillgarden.app").path))
+}
+
+/// Makes `<folder>/Applications/<name>` like a built app: the CLI in Contents/Helpers and the skill in Contents/Resources.
+private func installedApp(named name: String = "Skillgarden.app", in folder: URL) throws -> URL {
+    let app = try fakeApp(named: "Applications/\(name)", in: folder)
+    let skill = app.appending(path: "Contents/Resources/AgentSkill")
+    try FileManager.default.createDirectory(at: skill, withIntermediateDirectories: true)
+    for path in agentSkillSources {
+        try FileManager.default.copyItem(at: repo.appending(path: path), to: skill.appending(path: URL(fileURLWithPath: path).lastPathComponent))
+    }
+    return app
+}
+
+/// #250: the menu item makes ~/.local/bin/skillgarden a symlink. The command on PATH runs the CLI of the app,
+/// and installs the bundled skill through the symlink.
+@Test func commandLineToolLinksTheBundledCLIOnPath() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let app = try installedApp(in: root)
+    let home = root.appending(path: "home")
+    let tool = CommandLineTool(app: app, home: home, applicationFolders: [root.appending(path: "Applications")])
+    #expect(try tool.check() == .absent)
+
+    try tool.install()
+    let link = home.appending(path: ".local/bin/skillgarden")
+    #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == app.appending(path: "Contents/Helpers/skillgarden").path)
+    let bin = link.deletingLastPathComponent().path
+    let help = try run(URL(fileURLWithPath: "/bin/sh"), ["-c", "skillgarden --version"], in: root, path: "\(bin):/usr/bin:/bin")
+    #expect(help.status == 0, "\(help.errorText)")
+    #expect(help.output == "skillgarden \(try expectedVersion())\n")
+
+    let skills = root.appending(path: "skills")
+    let install = try run(URL(fileURLWithPath: "/bin/sh"), ["-c", "skillgarden skill install '\(skills.path)'"], in: root, path: "\(bin):/usr/bin:/bin")
+    #expect(install.status == 0, "\(install.errorText)")
+    #expect(install.output == "Installed skill skillgarden-publish to \(skills.appending(path: "skillgarden-publish").path)\n")
+    let skill = try String(contentsOf: skills.appending(path: "skillgarden-publish/SKILL.md"), encoding: .utf8)
+    #expect(skill.contains("[agent-publishing.md](agent-publishing.md)"))
+    #expect(try Data(contentsOf: skills.appending(path: "skillgarden-publish/agent-publishing.md"))
+        == Data(contentsOf: repo.appending(path: "docs/agent-publishing.md")))
+}
+
+/// #250: a second install replaces the symlink. After an app update, the same command runs the new CLI.
+@Test func commandLineToolFollowsAnAppUpdate() throws {
+    let root = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let app = try installedApp(in: root)
+    let home = root.appending(path: "home")
+    let tool = CommandLineTool(app: app, home: home, applicationFolders: [root.appending(path: "Applications")])
+    try tool.install()
+    #expect(try tool.check() == .symlink)
+    try tool.install()
+    #expect(try tool.check() == .symlink)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: home.appending(path: ".local/bin").path) == ["skillgarden"])
+
+    // The update replaces the whole app at the same path.
+    try FileManager.default.removeItem(at: app)
+    let helpers = app.appending(path: "Contents/Helpers")
+    try FileManager.default.createDirectory(at: helpers, withIntermediateDirectories: true)
+    try "#!/bin/sh\necho \"skillgarden 99.0.0\"\n".write(to: helpers.appending(path: "skillgarden"), atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helpers.appending(path: "skillgarden").path)
+    let updated = try run(home.appending(path: ".local/bin/skillgarden"), ["--version"], in: root)
+    #expect(updated.output == "skillgarden 99.0.0\n")
 }
