@@ -22,6 +22,43 @@ Agents that publish courses read [the agent publishing guide](agent-publishing.m
 The app is signed and notarized for direct distribution (see `docs/release.md`).
 The app holds the `skillgarden` CLI at `Skillgarden.app/Contents/Helpers/skillgarden`.
 
+### Install the command line tool
+
+Agents publish courses with the `skillgarden` command. To run it by name in Terminal:
+
+1. Make sure that `Skillgarden.app` is in the Applications folder.
+2. Choose Skillgarden > "Install Command Line Tool…".
+3. If the app asks to replace the existing skillgarden command, click "Replace".
+4. In the alert, click "Copy PATH Line".
+5. Paste the line at the end of `~/.zshrc`, then open a new Terminal window.
+6. Run `skillgarden --help`.
+
+The PATH line is:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+- The app makes `~/.local/bin/skillgarden` a symlink to the CLI in the app. You do not need an administrator password.
+- When you update the app, the `skillgarden` command runs the new version.
+- If the app is not in the Applications folder, the install stops. Move the app, then try again.
+
+### Install the agent skill
+
+The agent skill tells an agent how to publish a course with the CLI.
+Install it into the skills folder of your agent:
+
+```sh
+skillgarden skill install ~/.claude/skills
+```
+
+```
+Installed skill skillgarden-publish to /Users/<name>/.claude/skills/skillgarden-publish
+```
+
+- The command writes `SKILL.md` and the publishing guide `agent-publishing.md` into `skillgarden-publish`.
+- A second install replaces the old files. Run it again after an app update.
+
 ## 3. Your data
 
 Skillgarden keeps your library in this folder:

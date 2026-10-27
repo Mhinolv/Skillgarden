@@ -59,6 +59,10 @@ struct SkillgardenApp: App {
         // The toolbar shares the row of the window buttons and shows no title. The snapshot window copies this style.
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .commands {
+            // Skillgarden > "Install Command Line Tool…", below "Settings…" (#250).
+            CommandGroup(after: .appSettings) {
+                Button("Install Command Line Tool…") { CommandLineToolInstaller.start() }
+            }
             // The course window has its own sidebar, not a split view, so the toolbar is one row (#246).
             CommandGroup(replacing: .sidebar) {
                 Button(showsSidebar?.isOn == false ? "Show Sidebar" : "Hide Sidebar", systemImage: "sidebar.left") {

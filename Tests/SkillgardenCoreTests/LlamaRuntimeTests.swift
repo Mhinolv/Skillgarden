@@ -104,6 +104,12 @@ private func bundleRepository(in root: URL) throws -> URL {
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("license".utf8).write(to: file)
     }
+    // #250: the bundle script stops if an agent skill file is missing.
+    for file in ["docs/agent-skill/SKILL.md", "docs/agent-publishing.md"] {
+        let url = root.appending(path: file)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("skill".utf8).write(to: url)
+    }
     // #214: the bundle script reads the release metadata from Skillgarden.swift.
     let releaseSource = root.appending(path: "Sources/SkillgardenCore/Skillgarden.swift")
     try FileManager.default.createDirectory(at: releaseSource.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -123,7 +129,8 @@ private func bundleRepository(in root: URL) throws -> URL {
     let bundle = try run(URL(fileURLWithPath: "/bin/zsh"), [script.path], in: root, environment: ["HOME": home.path])
     #expect(bundle.status == 0, "\(bundle.errorText)")
     #expect(bundle.output == "Bundled llama.cpp b1 (arm64) into build/Skillgarden.app\n"
-        + "Copied license notices: Skillgarden, Yams, libyaml, llama.cpp\nBundled Skillgarden (debug) into build/Skillgarden.app\n")
+        + "Copied license notices: Skillgarden, Yams, libyaml, llama.cpp\nCopied agent skill: SKILL.md, agent-publishing.md\n"
+        + "Bundled Skillgarden (debug) into build/Skillgarden.app\n")
     #expect(bundle.errorText.isEmpty)
 
     let contents = root.appending(path: "build/Skillgarden.app/Contents")

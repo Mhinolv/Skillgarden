@@ -183,6 +183,7 @@ private func counts(_ result: PublishResult) -> [Int] {
                skillgarden remove <course-id> --yes [--json]
                skillgarden init <folder> --id <id> --title <title> [--json]
                skillgarden media inspect <file> [--json]
+               skillgarden skill install <folder> [--json]
                skillgarden doctor [--json]
                skillgarden schema [--output <file>]
                skillgarden --version
@@ -194,6 +195,7 @@ private func counts(_ result: PublishResult) -> [Int] {
           skillgarden validate ./my-course
           SKILLGARDEN_DATA_DIR="$PWD/.skillgarden-library" \\
             skillgarden publish ./my-course
+          skillgarden skill install ~/.claude/skills
 
         Library folder (first match wins):
           1. SKILLGARDEN_DATA_DIR (absolute path)

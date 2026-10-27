@@ -8,6 +8,7 @@
 # The script copies it from SKILLGARDEN_LLAMA_DIR, or ~/.local/share/skillgarden/llama.cpp/<version>.
 # It never downloads anything. See docs/local-ai.md.
 # Contents/Resources/Licenses holds one folder of license notices for each component (#213).
+# Contents/Resources/AgentSkill holds the agent skill and the publishing guide for `skillgarden skill install` (#250).
 # Usage: scripts/bundle_app.sh [debug|release]
 #   The configuration (default: debug) applies to all three executables. Both write build/Skillgarden.app.
 set -euo pipefail
@@ -46,6 +47,11 @@ typeset -A NOTICES=(Skillgarden LICENSE Yams Vendor/Yams/LICENSE libyaml Vendor/
 COMPONENTS=(Skillgarden Yams libyaml)
 for notice in ${(v)NOTICES}; do
   [[ -f $notice ]] || fail "missing license notice: $notice"
+done
+# The files of Contents/Resources/AgentSkill. A missing file stops the script before the build.
+SKILL_FILES=(docs/agent-skill/SKILL.md docs/agent-publishing.md)
+for file in $SKILL_FILES; do
+  [[ -f $file ]] || fail "missing agent skill file: $file"
 done
 
 # The release metadata for Info.plist comes from one source, the constants in Skillgarden.swift (#214).
@@ -115,6 +121,10 @@ for component in $COMPONENTS; do
   cp "${NOTICES[$component]}" "$APP/Contents/Resources/Licenses/$component/"
 done
 echo "Copied license notices: ${(j:, :)COMPONENTS}, llama.cpp"
+mkdir -p "$APP/Contents/Resources/AgentSkill"
+cp $SKILL_FILES "$APP/Contents/Resources/AgentSkill/"
+SKILL_NAMES=(${SKILL_FILES:t})
+echo "Copied agent skill: ${(j:, :)SKILL_NAMES}"
 
 # A debug bundle uses the Apple Development identity when this Mac has one (#248). An ad-hoc signature changes
 # with each build, so the Keychain treats each build as a new app and asks for the password again.
