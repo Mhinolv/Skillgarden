@@ -59,6 +59,23 @@ Installed skill skillgarden-publish to /Users/<name>/.claude/skills/skillgarden-
 - The command writes `SKILL.md` and the publishing guide `agent-publishing.md` into `skillgarden-publish`.
 - A second install replaces the old files. Run it again after an app update.
 
+### Get the course playbook
+
+The playbook plans and builds a course. The `skillgarden-publish` skill publishes it.
+Give the playbook to your agent with one of these:
+
+- In the app, choose Skillgarden > "Copy Course Playbook". Paste the text into the chat of your agent.
+- In the app, choose Skillgarden > "Save Course Playbook…". Select a folder and a file name.
+- In Terminal, run `skillgarden playbook --output <file>`.
+
+```sh
+skillgarden playbook --output ~/Desktop/skillgarden-course-playbook.md
+```
+
+```
+Wrote course playbook to /Users/<name>/Desktop/skillgarden-course-playbook.md
+```
+
 ## 3. Your data
 
 Skillgarden keeps your library in this folder:

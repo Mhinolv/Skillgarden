@@ -12,6 +12,8 @@ public enum CoursePlaybook {
 
     /// The alert after "Copy Course Playbook" (owner decision, 2026-11-02).
     public static let copiedMessage = "The course playbook is copied."
+    /// The informative text of the alert after "Copy Course Playbook" (design notes).
+    public static let copiedInformativeText = "Paste it into the chat of your agent. The agent publishes with the skillgarden command line tool."
     /// The alert after a failed save.
     public static let saveFailureMessage = "Could not save the course playbook."
 

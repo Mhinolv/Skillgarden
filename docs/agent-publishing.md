@@ -5,6 +5,7 @@ The example course is `Tests/Fixtures/sample-course`.
 The publication skill, with the steps from workspace publish to owner handoff, is `docs/agent-skill/SKILL.md`.
 To give the skill to an agent, run `skillgarden skill install <folder>`, such as `skillgarden skill install ~/.claude/skills`.
 The course playbook, with the phases from kickoff to publish, is `docs/agent-playbook/skillgarden-course-playbook.md`. Run `skillgarden playbook` to print it.
+The playbook plans and builds a course. The `skillgarden-publish` skill publishes it.
 Learners install the app and import courses with [Install and first use](install.md).
 
 ## 1. Quick start

@@ -12,6 +12,7 @@ enum CoursePlaybookActions {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = CoursePlaybook.copiedMessage
+        alert.informativeText = CoursePlaybook.copiedInformativeText
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }

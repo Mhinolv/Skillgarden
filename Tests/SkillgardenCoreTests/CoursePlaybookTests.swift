@@ -188,4 +188,23 @@ private func codeBlocks(_ text: String, language: String) -> [String] {
     let readme = try String(contentsOf: repository.appending(path: "README.md"), encoding: .utf8)
     #expect(readme.contains("(\(docsCopy))"))
     #expect(CoursePlaybook.copiedMessage == "The course playbook is copied.")
+    #expect(CoursePlaybook.copiedInformativeText
+            == "Paste it into the chat of your agent. The agent publishes with the skillgarden command line tool.")
+}
+
+/// Install and first use has a playbook section. Both guides say that the playbook plans and builds, and `skillgarden-publish` publishes.
+@Test func playbookDocsNamePairingWithPublishSkill() throws {
+    let pairing = "The playbook plans and builds a course. The `skillgarden-publish` skill publishes it."
+    let install = try String(contentsOf: repository.appending(path: "docs/install.md"), encoding: .utf8)
+    let section = try #require(install.range(of: "### Get the course playbook"))
+    let skillSection = try #require(install.range(of: "### Install the agent skill"))
+    let dataSection = try #require(install.range(of: "## 3. Your data"))
+    #expect(skillSection.upperBound <= section.lowerBound)
+    #expect(section.upperBound <= dataSection.lowerBound)
+    let body = String(install[section.upperBound..<dataSection.lowerBound])
+    for text in ["\"Copy Course Playbook\"", "\"Save Course Playbook…\"", "skillgarden playbook --output <file>", pairing] {
+        #expect(body.contains(text), "\(text)")
+    }
+    let guide = try String(contentsOf: repository.appending(path: "docs/agent-publishing.md"), encoding: .utf8)
+    #expect(guide.contains(pairing))
 }
