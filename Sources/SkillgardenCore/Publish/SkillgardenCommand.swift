@@ -42,6 +42,7 @@ public enum SkillgardenCommand {
                skillgarden skill install <folder> [--json]
                skillgarden doctor [--json]
                skillgarden schema [--output <file>]
+               skillgarden playbook [--output <file>]
                skillgarden --version
 
         """
@@ -56,6 +57,7 @@ public enum SkillgardenCommand {
           SKILLGARDEN_DATA_DIR="$PWD/.skillgarden-library" \\
             skillgarden publish ./my-course
           skillgarden skill install ~/.claude/skills
+          skillgarden playbook --output \(CoursePlaybook.fileName)
 
         Library folder (first match wins):
           1. \(Skillgarden.dataDirectoryVariable) (absolute path)
@@ -70,6 +72,7 @@ public enum SkillgardenCommand {
 
         Guide: docs/agent-publishing.md
         Skill: docs/agent-skill/SKILL.md
+        Course playbook: docs/agent-playbook/\(CoursePlaybook.fileName)
 
         """
 
@@ -87,6 +90,7 @@ public enum SkillgardenCommand {
         }
         if arguments == ["publish", "--help"] || arguments == ["validate", "--help"] || arguments == ["doctor", "--help"]
             || arguments == ["init", "--help"] || arguments == ["schema", "--help"] || arguments == ["inspect", "--help"]
+            || arguments == ["playbook", "--help"]
             || arguments == ["remove", "--help"]
             || arguments == ["media", "--help"] || arguments == ["media", "inspect", "--help"]
             || arguments == ["skill", "--help"] || arguments == ["skill", "install", "--help"] || arguments == ["--help"] {
@@ -143,6 +147,15 @@ public enum SkillgardenCommand {
                 outcome = schema(output: arguments[2])
             } else {
                 outcome = usageError("expected schema [--output <file>]")
+            }
+        case "playbook":
+            command = "playbook"
+            if arguments.count == 1 {
+                outcome = playbook(output: nil)
+            } else if arguments.count == 3, arguments[1] == "--output", !arguments[2].isEmpty, !arguments[2].hasPrefix("-") {
+                outcome = playbook(output: arguments[2])
+            } else {
+                outcome = usageError("expected playbook [--output <file>]")
             }
         case "publish":
             command = "publish"
@@ -485,6 +498,21 @@ public enum SkillgardenCommand {
         }
         return CommandOutcome(exitCode: 0, text: "Wrote manifest schema \(ManifestSchema.version) to \(file.path)\n",
                               result: ["path": file.path, "schema_version": ManifestSchema.version])
+    }
+
+    /// Prints the course playbook, or writes it to `output` and overwrites an earlier copy (#252). It does not open the library.
+    /// With `--json`, the `result` object holds the Markdown text, or the path of the written file.
+    private static func playbook(output: String?) -> CommandOutcome {
+        guard let output else {
+            return CommandOutcome(exitCode: 0, text: CoursePlaybook.text, result: ["markdown": CoursePlaybook.text])
+        }
+        let file = URL(fileURLWithPath: output).standardizedFileURL
+        do {
+            try CoursePlaybook.write(to: file)
+        } catch {
+            return .failure(3, [CommandDiagnostic(code: .io, file: file.path, message: error.localizedDescription)])
+        }
+        return CommandOutcome(exitCode: 0, text: "Wrote course playbook to \(file.path)\n", result: ["path": file.path])
     }
 
     /// The report goes to stdout for every exit code, so an agent sees the lines that explain the error.

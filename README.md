@@ -8,6 +8,7 @@ A Mac-native, local course platform for agent-created content.
 - `skillgarden` CLI: agents publish courses from a folder and a manifest.
 - Skillgarden app (SwiftUI): learners take the courses.
 - Agents also read the [publication skill](docs/agent-skill/SKILL.md) at `docs/agent-skill/SKILL.md`.
+- Agents that make a course follow the [course playbook](docs/agent-playbook/skillgarden-course-playbook.md) (`skillgarden playbook`).
 - Requirements: macOS 15 or later on Apple silicon. The pinned llama.cpp runtime is arm64 only (see `docs/local-ai.md`).
 
 ## Build from source
