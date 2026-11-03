@@ -186,6 +186,7 @@ private func counts(_ result: PublishResult) -> [Int] {
                skillgarden skill install <folder> [--json]
                skillgarden doctor [--json]
                skillgarden schema [--output <file>]
+               skillgarden playbook [--output <file>]
                skillgarden --version
 
         """
@@ -196,6 +197,7 @@ private func counts(_ result: PublishResult) -> [Int] {
           SKILLGARDEN_DATA_DIR="$PWD/.skillgarden-library" \\
             skillgarden publish ./my-course
           skillgarden skill install ~/.claude/skills
+          skillgarden playbook --output skillgarden-course-playbook.md
 
         Library folder (first match wins):
           1. SKILLGARDEN_DATA_DIR (absolute path)
@@ -210,6 +212,7 @@ private func counts(_ result: PublishResult) -> [Int] {
 
         Guide: docs/agent-publishing.md
         Skill: docs/agent-skill/SKILL.md
+        Course playbook: docs/agent-playbook/skillgarden-course-playbook.md
 
         """
     for arguments in [["publish", "--help"], ["--help"]] {

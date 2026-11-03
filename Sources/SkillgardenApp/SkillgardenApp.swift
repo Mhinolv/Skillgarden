@@ -60,8 +60,11 @@ struct SkillgardenApp: App {
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .commands {
             // Skillgarden > "Install Command Line Tool…", below "Settings…" (#250).
+            // The course playbook items come below it, with no shortcuts (#252).
             CommandGroup(after: .appSettings) {
                 Button("Install Command Line Tool…") { CommandLineToolInstaller.start() }
+                Button("Copy Course Playbook") { CoursePlaybookActions.copy() }
+                Button("Save Course Playbook…") { CoursePlaybookActions.save() }
             }
             // The course window has its own sidebar, not a split view, so the toolbar is one row (#246).
             CommandGroup(replacing: .sidebar) {
